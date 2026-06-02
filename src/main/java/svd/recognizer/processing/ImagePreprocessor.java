@@ -252,6 +252,11 @@ public class ImagePreprocessor {
                     new Scalar(0)
             );
 
+            // Восстановить бинарность после интерполяции warpAffine:
+            // INTER_LINEAR создаёт промежуточные серые значения на границах.
+            // Threshold возвращает чистые 0/255.
+            Imgproc.threshold(warped, warped, 64, 255, Imgproc.THRESH_BINARY);
+
             saveDebugMat(debugName, String.format("perm_%d.png", i), warped);
 
             double score = scoreTriangleAlignment(warped);
