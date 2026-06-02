@@ -30,20 +30,18 @@ public class ImagePreprocessor {
     private static final int BBOX_PADDING = 12;
 
     /**
-     * Включает/выключает сохранение промежуточных изображений. Когда закончишь
-     * отладку, можно поставить false.
+     * Включает/выключает сохранение промежуточных изображений.
      */
     private static final boolean DEBUG_SAVE = true;
 
     /**
-     * Корневая папка для отладочных изображений. Внутри неё для каждого
-     * входного файла создаётся отдельная подпапка.
+     * Корневая папка для отладочных изображений.
      */
     private static final String DEBUG_DIR = "debug-preprocess";
 
     /**
-     * Канонический треугольник, к которому приводим все входные треугольники.
-     * Формат 64x64: - верхняя вершина - нижняя левая - нижняя правая
+     * Канонический треугольник 64x64:
+     * P0 — верхняя вершина, P1 — нижняя левая, P2 — нижняя правая.
      */
     private static final Point[] CANONICAL = {
         new Point(32, 4),
@@ -84,7 +82,7 @@ public class ImagePreprocessor {
         saveDebugMat(debugName, "01_source_gray.png", gray);
 
         Mat binary = binarize(gray);
-        saveDebugMat(debugName, "02_binary_otsu.png", binary);
+        saveDebugMat(debugName, "02_binary.png", binary);
 
         Mat cleaned = morphClean(binary);
         saveDebugMat(debugName, "03_cleaned.png", cleaned);
@@ -119,31 +117,18 @@ public class ImagePreprocessor {
     /**
      * Бинаризация для фото на телефон при плохом освещении.
      *
-     * Шаги: 1. CLAHE — выравнивает локальный контраст, вытягивает слабые линии.
-     * 2. GaussianBlur 9x9 — убирает шум, неизбежный при плохом освещении. 3.
-     * adaptiveThreshold — бинаризует локально, не зависит от общей яркости.
-     *
-     * Почему не Отсу: Отсу ищет один глобальный порог. При тени в углу или
-     * неравномерном освещении этот порог "улетает" в пользу одной области, и в
-     * другой области линия либо теряется, либо фон становится белым.
+     * 1. CLAHE — адаптивное выравнивание локального контраста.
+     * 2. GaussianBlur 9x9 — подавление шума.
+     * 3. adaptiveThreshold — локальная бинаризация, не зависит от общей яркости.
      */
     private Mat binarize(Mat gray) {
-        // Шаг 1: CLAHE — адаптивное выравнивание гистограммы
-        // clipLimit = 2.0 — умеренно, чтобы не усиливать шум
-        // tileGridSize 8x8 — достаточно мелко для неравномерного освещения
         CLAHE clahe = Imgproc.createCLAHE(2.0, new Size(8, 8));
         Mat equalized = new Mat();
         clahe.apply(gray, equalized);
 
-        // Шаг 2: Размытие для подавления шума
         Mat blurred = new Mat();
         Imgproc.GaussianBlur(equalized, blurred, new Size(9, 9), 0.0);
 
-        // Шаг 3: Адаптивная бинаризация
-        // ADAPTIVE_THRESH_GAUSSIAN_C — взвешенное среднее по соседям (лучше для рукописи)
-        // THRESH_BINARY_INV — линия белая, фон чёрный
-        // blockSize 31 — размер блока, подбирается под масштаб линии на фото
-        // C = 10 — вычитаемая константа, убирает мелкий шум в фоне
         Mat binary = new Mat();
         Imgproc.adaptiveThreshold(
                 blurred,
@@ -158,22 +143,30 @@ public class ImagePreprocessor {
         return binary;
     }
 
+    /**
+     * Морфологическая очистка.
+     *
+     * Порядок операций:
+     * 1. DILATE 3x3 — утолщаем линию, чтобы залечить мелкие разрывы
+     *    от рваного контура при плохом освещении.
+     * 2. CLOSE 5x5 — закрываем крупные разрывы внутри линий.
+     * 3. OPEN  3x3 — убираем мелкий шум, не трогая основную линию.
+     */
     private Mat morphClean(Mat binary) {
-        // Ядро 5x5 для CLOSE — рваные линии от плохого освещения требуют
-        // более агрессивного закрытия разрывов.
+        Mat kernelDilate = Imgproc.getStructuringElement(
+                Imgproc.MORPH_ELLIPSE, new Size(3, 3));
         Mat kernelClose = Imgproc.getStructuringElement(
                 Imgproc.MORPH_RECT, new Size(5, 5));
-
-        // Ядро 3x3 для OPEN — не переусердствуем с удалением шума,
-        // чтобы не "съесть" тонкие части линии.
         Mat kernelOpen = Imgproc.getStructuringElement(
                 Imgproc.MORPH_RECT, new Size(3, 3));
 
-        Mat closed = new Mat();
-        Mat opened = new Mat();
+        Mat dilated = new Mat();
+        Mat closed  = new Mat();
+        Mat opened  = new Mat();
 
-        Imgproc.morphologyEx(binary, closed, Imgproc.MORPH_CLOSE, kernelClose);
-        Imgproc.morphologyEx(closed, opened, Imgproc.MORPH_OPEN, kernelOpen);
+        Imgproc.dilate(binary, dilated, kernelDilate);
+        Imgproc.morphologyEx(dilated, closed, Imgproc.MORPH_CLOSE, kernelClose);
+        Imgproc.morphologyEx(closed,  opened, Imgproc.MORPH_OPEN,  kernelOpen);
 
         return opened;
     }
@@ -209,7 +202,7 @@ public class ImagePreprocessor {
 
         int x = Math.max(0, rect.x - BBOX_PADDING);
         int y = Math.max(0, rect.y - BBOX_PADDING);
-        int w = Math.min(binary.cols() - x, rect.width + 2 * BBOX_PADDING);
+        int w = Math.min(binary.cols() - x, rect.width  + 2 * BBOX_PADDING);
         int h = Math.min(binary.rows() - y, rect.height + 2 * BBOX_PADDING);
 
         return new Mat(binary, new Rect(x, y, w, h)).clone();
@@ -221,13 +214,25 @@ public class ImagePreprocessor {
                 source,
                 resized,
                 new Size(OUTPUT_SIZE, OUTPUT_SIZE),
-                0,
-                0,
+                0, 0,
                 Imgproc.INTER_AREA
         );
         return resized;
     }
 
+    /**
+     * Находит 3 вершины треугольника через approxPolyDP.
+     *
+     * Стратегия:
+     * 1. Берём крупнейший контур.
+     * 2. Пробуем approxPolyDP с убывающим epsilon пока не получим ровно 3 точки.
+     *    epsilon начинается с 10% периметра и уменьшается по 5% до минимума 1%.
+     * 3. Если так и не вышло 3 точки — fallback на minEnclosingTriangle.
+     *
+     * Важно: вершины — это реальные точки контура, а не описывающий треугольник.
+     * Поэтому warpAffine применяется к оригинальному бинарному изображению
+     * и сохраняет реальные неровности линий, нужные для SVD.
+     */
     private Mat alignToCanonical(Mat binary, String debugName) {
         List<MatOfPoint> contours = new ArrayList<>();
 
@@ -251,17 +256,18 @@ public class ImagePreprocessor {
 
         saveContourPreview(binary, largest, debugName, "05a_largest_contour.png");
 
-        Mat triangle = new Mat();
-        Imgproc.minEnclosingTriangle(new MatOfPoint2f(largest.toArray()), triangle);
+        // Пробуем approxPolyDP
+        Point[] srcPts = approxTriangle(largest, debugName);
 
-        System.out.println("triangle rows=" + triangle.rows()
-                + ", cols=" + triangle.cols()
-                + ", channels=" + triangle.channels()
-                + ", type=" + triangle.type());
+        // Fallback: minEnclosingTriangle
+        if (srcPts == null) {
+            System.out.println("approxPolyDP не дал 3 точек, fallback → minEnclosingTriangle");
+            Mat triangleMat = new Mat();
+            Imgproc.minEnclosingTriangle(new MatOfPoint2f(largest.toArray()), triangleMat);
+            saveTrianglePreview(binary, triangleMat, debugName, "05b_min_enclosing_triangle.png");
+            srcPts = readTrianglePoints(triangleMat);
+        }
 
-        saveTrianglePreview(binary, triangle, debugName, "05b_min_enclosing_triangle.png");
-
-        Point[] srcPts = readTrianglePoints(triangle);
         if (srcPts == null) {
             Mat fallback = resizeToOutput(binary);
             saveDebugMat(debugName, "06_fallback_bad_triangle.png", fallback);
@@ -275,9 +281,7 @@ public class ImagePreprocessor {
         int bestIndex = -1;
 
         for (int i = 0; i < perms.length; i++) {
-            Point[] perm = perms[i];
-
-            MatOfPoint2f src = new MatOfPoint2f(perm);
+            MatOfPoint2f src = new MatOfPoint2f(perms[i]);
             MatOfPoint2f dst = new MatOfPoint2f(CANONICAL);
             Mat transform = Imgproc.getAffineTransform(src, dst);
 
@@ -316,53 +320,75 @@ public class ImagePreprocessor {
     }
 
     /**
-     * Пытается прочитать 3 вершины треугольника из Mat, который вернул
-     * minEnclosingTriangle.
+     * Пытается аппроксимировать контур до ровно 3 вершин через approxPolyDP.
      *
-     * В зависимости от сборки OpenCV Java формат может отличаться. Здесь
-     * покрываем самые типичные варианты: - rows=3, cols=1, channels=2 - rows=3,
-     * cols=2, channels=1 - rows=1, cols=3, channels=2
+     * Перебирает epsilon от 10% до 1% периметра с шагом 1%.
+     * Возвращает 3 точки при первом успехе, иначе null.
+     *
+     * Отладочное изображение сохраняется сразу при нахождении 3 точек.
+     */
+    private Point[] approxTriangle(MatOfPoint contour, String debugName) {
+        MatOfPoint2f contour2f = new MatOfPoint2f(contour.toArray());
+        double perimeter = Imgproc.arcLength(contour2f, true);
+
+        for (int pct = 10; pct >= 1; pct--) {
+            double epsilon = (pct / 100.0) * perimeter;
+            MatOfPoint2f approx = new MatOfPoint2f();
+            Imgproc.approxPolyDP(contour2f, approx, epsilon, true);
+
+            if (approx.rows() == 3) {
+                Point[] pts = approx.toArray();
+                System.out.println("approxPolyDP: 3 точки при epsilon=" + String.format("%.1f", epsilon)
+                        + " (" + pct + "% периметра)");
+
+                // Сохраняем превью найденных вершин
+                saveApproxPreview(contour, pts, debugName, "05b_approx_triangle.png");
+                return pts;
+            }
+        }
+
+        System.out.println("approxPolyDP: не удалось получить 3 точки (периметр=" + String.format("%.1f", perimeter) + ")");
+        return null;
+    }
+
+    /**
+     * Читает 3 вершины из Mat, возвращённого minEnclosingTriangle.
+     * Покрывает разные форматы в зависимости от сборки OpenCV Java.
      */
     private Point[] readTrianglePoints(Mat triangle) {
         if (triangle == null || triangle.empty()) {
             return null;
         }
 
-        // Случай 1: 3x1, 2-channel
+        // rows=3, cols=1, 2-channel
         if (triangle.rows() == 3 && triangle.cols() == 1) {
             Point[] pts = new Point[3];
             for (int i = 0; i < 3; i++) {
                 double[] v = triangle.get(i, 0);
-                if (v == null || v.length < 2) {
-                    return null;
-                }
+                if (v == null || v.length < 2) return null;
                 pts[i] = new Point(v[0], v[1]);
             }
             return pts;
         }
 
-        // Случай 2: 3x2, 1-channel
+        // rows=3, cols=2, 1-channel
         if (triangle.rows() == 3 && triangle.cols() == 2 && triangle.channels() == 1) {
             Point[] pts = new Point[3];
             for (int i = 0; i < 3; i++) {
                 double[] x = triangle.get(i, 0);
                 double[] y = triangle.get(i, 1);
-                if (x == null || y == null || x.length < 1 || y.length < 1) {
-                    return null;
-                }
+                if (x == null || y == null) return null;
                 pts[i] = new Point(x[0], y[0]);
             }
             return pts;
         }
 
-        // Случай 3: 1x3, 2-channel
+        // rows=1, cols=3, 2-channel
         if (triangle.rows() == 1 && triangle.cols() == 3) {
             Point[] pts = new Point[3];
             for (int i = 0; i < 3; i++) {
                 double[] v = triangle.get(0, i);
-                if (v == null || v.length < 2) {
-                    return null;
-                }
+                if (v == null || v.length < 2) return null;
                 pts[i] = new Point(v[0], v[1]);
             }
             return pts;
@@ -375,7 +401,6 @@ public class ImagePreprocessor {
         if (pts == null || pts.length != 3) {
             throw new IllegalArgumentException("Нужно ровно 3 точки");
         }
-
         return new Point[][]{
             {pts[0], pts[1], pts[2]},
             {pts[0], pts[2], pts[1]},
@@ -389,7 +414,7 @@ public class ImagePreprocessor {
     private double scoreTriangleAlignment(Mat img) {
         Mat mask = buildCanonicalMask();
 
-        double inside = 0.0;
+        double inside  = 0.0;
         double outside = 0.0;
 
         for (int y = 0; y < img.rows(); y++) {
@@ -397,11 +422,11 @@ public class ImagePreprocessor {
                 double[] pv = img.get(y, x);
                 double[] mv = mask.get(y, x);
 
-                double value = (pv == null) ? 0.0 : pv[0];
+                double value     = (pv == null) ? 0.0 : pv[0];
                 double maskValue = (mv == null) ? 0.0 : mv[0];
 
                 if (maskValue > 0) {
-                    inside += value;
+                    inside  += value;
                 } else {
                     outside += value;
                 }
@@ -422,27 +447,26 @@ public class ImagePreprocessor {
         return mask;
     }
 
+    // ─── Debug helpers ────────────────────────────────────────────────────────
+
     private void saveDebugMat(String folderName, String fileName, Mat mat) {
-        if (!DEBUG_SAVE || mat == null || mat.empty()) {
-            return;
-        }
+        if (!DEBUG_SAVE || mat == null || mat.empty()) return;
 
         try {
             Path dir = Paths.get(DEBUG_DIR, folderName);
             Files.createDirectories(dir);
 
-            String fullPath = dir.resolve(fileName).toString();
-
-            Mat out = new Mat();
+            Mat out;
             if (mat.type() == CvType.CV_8UC1 || mat.type() == CvType.CV_8UC3) {
                 out = mat;
             } else {
+                out = new Mat();
                 mat.convertTo(out, CvType.CV_8UC1);
             }
 
-            boolean ok = Imgcodecs.imwrite(fullPath, out);
+            boolean ok = Imgcodecs.imwrite(dir.resolve(fileName).toString(), out);
             if (!ok) {
-                System.err.println("Не удалось сохранить debug image: " + fullPath);
+                System.err.println("Не удалось сохранить debug image: " + dir.resolve(fileName));
             }
         } catch (IOException e) {
             e.printStackTrace();
@@ -450,39 +474,65 @@ public class ImagePreprocessor {
     }
 
     private void saveContourPreview(Mat binary, MatOfPoint contour, String folderName, String fileName) {
-        if (!DEBUG_SAVE || binary == null || binary.empty() || contour == null) {
-            return;
-        }
+        if (!DEBUG_SAVE || binary == null || binary.empty() || contour == null) return;
 
         Mat preview = new Mat();
         Imgproc.cvtColor(binary, preview, Imgproc.COLOR_GRAY2BGR);
 
         List<MatOfPoint> one = new ArrayList<>();
         one.add(contour);
-
         Imgproc.drawContours(preview, one, 0, new Scalar(0, 255, 0), 1);
 
         Rect rect = Imgproc.boundingRect(contour);
-        Imgproc.rectangle(
-                preview,
+        Imgproc.rectangle(preview,
                 new Point(rect.x, rect.y),
                 new Point(rect.x + rect.width, rect.y + rect.height),
-                new Scalar(255, 0, 0),
-                1
+                new Scalar(255, 0, 0), 1);
+
+        saveDebugMat(folderName, fileName, preview);
+    }
+
+    /**
+     * Превью для approxPolyDP: рисует три стороны и помечает вершины.
+     */
+    private void saveApproxPreview(MatOfPoint contour, Point[] pts, String folderName, String fileName) {
+        if (!DEBUG_SAVE || contour == null || pts == null || pts.length != 3) return;
+
+        // Создаём временный Mat из bounding box контура для подложки
+        Rect rect = Imgproc.boundingRect(contour);
+        Mat preview = Mat.zeros(
+                rect.y + rect.height + BBOX_PADDING,
+                rect.x + rect.width  + BBOX_PADDING,
+                CvType.CV_8UC3
         );
+
+        // Рисуем исходный контур серым
+        List<MatOfPoint> one = new ArrayList<>();
+        one.add(contour);
+        Imgproc.drawContours(preview, one, 0, new Scalar(80, 80, 80), 1);
+
+        // Рисуем найденный треугольник жёлтым
+        Imgproc.line(preview, pts[0], pts[1], new Scalar(0, 255, 255), 1);
+        Imgproc.line(preview, pts[1], pts[2], new Scalar(0, 255, 255), 1);
+        Imgproc.line(preview, pts[2], pts[0], new Scalar(0, 255, 255), 1);
+
+        // Вершины: P0=красный, P1=зелёный, P2=синий
+        Scalar[] colors = {new Scalar(0, 0, 255), new Scalar(0, 255, 0), new Scalar(255, 0, 0)};
+        String[] labels = {"P0", "P1", "P2"};
+        for (int i = 0; i < 3; i++) {
+            Imgproc.circle(preview, pts[i], 4, colors[i], -1);
+            Imgproc.putText(preview, labels[i], pts[i],
+                    Imgproc.FONT_HERSHEY_SIMPLEX, 0.4, colors[i], 1);
+        }
 
         saveDebugMat(folderName, fileName, preview);
     }
 
     private void saveTrianglePreview(Mat binary, Mat triangle, String folderName, String fileName) {
-        if (!DEBUG_SAVE || binary == null || binary.empty()) {
-            return;
-        }
+        if (!DEBUG_SAVE || binary == null || binary.empty()) return;
 
         Point[] pts = readTrianglePoints(triangle);
-        if (pts == null) {
-            return;
-        }
+        if (pts == null) return;
 
         Mat preview = new Mat();
         Imgproc.cvtColor(binary, preview, Imgproc.COLOR_GRAY2BGR);
@@ -491,13 +541,13 @@ public class ImagePreprocessor {
         Imgproc.line(preview, pts[1], pts[2], new Scalar(0, 255, 255), 1);
         Imgproc.line(preview, pts[2], pts[0], new Scalar(0, 255, 255), 1);
 
-        Imgproc.circle(preview, pts[0], 3, new Scalar(0, 0, 255), -1);
-        Imgproc.circle(preview, pts[1], 3, new Scalar(0, 255, 0), -1);
-        Imgproc.circle(preview, pts[2], 3, new Scalar(255, 0, 0), -1);
-
-        Imgproc.putText(preview, "P0", pts[0], Imgproc.FONT_HERSHEY_SIMPLEX, 0.4, new Scalar(0, 0, 255), 1);
-        Imgproc.putText(preview, "P1", pts[1], Imgproc.FONT_HERSHEY_SIMPLEX, 0.4, new Scalar(0, 255, 0), 1);
-        Imgproc.putText(preview, "P2", pts[2], Imgproc.FONT_HERSHEY_SIMPLEX, 0.4, new Scalar(255, 0, 0), 1);
+        Scalar[] colors = {new Scalar(0, 0, 255), new Scalar(0, 255, 0), new Scalar(255, 0, 0)};
+        String[] labels = {"P0", "P1", "P2"};
+        for (int i = 0; i < 3; i++) {
+            Imgproc.circle(preview, pts[i], 3, colors[i], -1);
+            Imgproc.putText(preview, labels[i], pts[i],
+                    Imgproc.FONT_HERSHEY_SIMPLEX, 0.4, colors[i], 1);
+        }
 
         saveDebugMat(folderName, fileName, preview);
     }
@@ -507,27 +557,23 @@ public class ImagePreprocessor {
     }
 
     private BufferedImage matToBufferedImage(Mat source) {
-        Mat normalized = new Mat();
-
+        Mat normalized;
         if (source.type() != CvType.CV_8UC1) {
+            normalized = new Mat();
             source.convertTo(normalized, CvType.CV_8UC1);
         } else {
             normalized = source;
         }
 
         BufferedImage image = new BufferedImage(
-                normalized.cols(),
-                normalized.rows(),
-                BufferedImage.TYPE_BYTE_GRAY
+                normalized.cols(), normalized.rows(), BufferedImage.TYPE_BYTE_GRAY
         );
 
-        byte[] sourceData = new byte[(int) (normalized.total() * normalized.channels())];
-        normalized.get(0, 0, sourceData);
+        byte[] src = new byte[(int) (normalized.total() * normalized.channels())];
+        normalized.get(0, 0, src);
 
-        byte[] targetData
-                = ((DataBufferByte) image.getRaster().getDataBuffer()).getData();
-
-        System.arraycopy(sourceData, 0, targetData, 0, sourceData.length);
+        byte[] dst = ((DataBufferByte) image.getRaster().getDataBuffer()).getData();
+        System.arraycopy(src, 0, dst, 0, src.length);
 
         return image;
     }
@@ -537,8 +583,7 @@ public class ImagePreprocessor {
 
         for (int y = 0; y < image.getHeight(); y++) {
             for (int x = 0; x < image.getWidth(); x++) {
-                int value = image.getRGB(x, y) & 0xFF;
-                matrix[y][x] = value / 255.0;
+                matrix[y][x] = (image.getRGB(x, y) & 0xFF) / 255.0;
             }
         }
 
