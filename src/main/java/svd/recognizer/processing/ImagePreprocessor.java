@@ -181,7 +181,7 @@ public class ImagePreprocessor {
         // Удалить точечный шум из кропнутой области (ядро 5x5 убирает объекты <5px,
         // линии треугольника толще и сохраняются)
         Mat kernelDenoise = Imgproc.getStructuringElement(
-                Imgproc.MORPH_ELLIPSE, new Size(5, 5));
+                Imgproc.MORPH_ELLIPSE, new Size(7, 7));
         Mat denoised = new Mat();
         Imgproc.morphologyEx(roi, denoised, Imgproc.MORPH_OPEN, kernelDenoise);
 
@@ -256,7 +256,7 @@ public class ImagePreprocessor {
                     warped,
                     transform,
                     new Size(OUTPUT_SIZE, OUTPUT_SIZE),
-                    Imgproc.INTER_LINEAR,
+                    Imgproc.INTER_NEAREST,
                     Core.BORDER_CONSTANT,
                     new Scalar(0)
             );
