@@ -75,7 +75,7 @@ public class TemplateStore implements Serializable {
 
         // --- Усреднённое изображение ---
         BufferedImage sample = templates.get(0).getNormalizedImage();
-        int width  = sample.getWidth();
+        int width = sample.getWidth();
         int height = sample.getHeight();
         double[] acc = new double[width * height];
 
@@ -92,7 +92,9 @@ public class TemplateStore implements Serializable {
         double maxVal = 0;
         for (int i = 0; i < acc.length; i++) {
             acc[i] /= templates.size();
-            if (acc[i] > maxVal) maxVal = acc[i];
+            if (acc[i] > maxVal) {
+                maxVal = acc[i];
+            }
         }
 
         // Нормализация [0..maxVal] → [0..255] только для визуализации.
@@ -106,6 +108,15 @@ public class TemplateStore implements Serializable {
                 gray = Math.min(255, Math.max(0, gray));
                 int rgb = (gray << 16) | (gray << 8) | gray;
                 averageImage.setRGB(x, y, rgb);
+            }
+        }
+        // В конце recalculateAverage(), перед закрывающей скобкой:
+// Инвертировать для отображения (белый фон, чёрные линии)
+        for (int y = 0; y < height; y++) {
+            for (int x = 0; x < width; x++) {
+                int rgb = averageImage.getRGB(x, y) & 0xFF;
+                int inv = 255 - rgb;
+                averageImage.setRGB(x, y, (inv << 16) | (inv << 8) | inv);
             }
         }
     }
