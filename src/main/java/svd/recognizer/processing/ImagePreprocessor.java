@@ -178,7 +178,7 @@ public class ImagePreprocessor {
 
         Mat roi = new Mat(binary, new Rect(x, y, w, h)).clone();
 
-        // Удалить точечный шум из кропнутой области (ядро 5x5 убирает объекты <5px,
+        // Удалить точечный шум из кропнутой области (ядро 7x7 убирает объекты <7px,
         // линии треугольника толще и сохраняются)
         Mat kernelDenoise = Imgproc.getStructuringElement(
                 Imgproc.MORPH_ELLIPSE, new Size(7, 7));
@@ -262,9 +262,15 @@ public class ImagePreprocessor {
             );
 
             // Восстановить бинарность после интерполяции warpAffine:
-            // INTER_LINEAR создаёт промежуточные серые значения на границах.
-            // Threshold возвращает чистые 0/255.
+            // INTER_NEAREST не даёт серых, но threshold оставляем как страховку.
             Imgproc.threshold(warped, warped, 64, 255, Imgproc.THRESH_BINARY);
+
+            // Обнулить всё что за пределами канонического треугольника
+            Core.bitwise_and(warped, buildCanonicalMask(), warped);
+
+            // Убрать точечный шум после warp (3x3 достаточно на 64x64)
+            Mat kPost = Imgproc.getStructuringElement(Imgproc.MORPH_ELLIPSE, new Size(3, 3));
+            Imgproc.morphologyEx(warped, warped, Imgproc.MORPH_OPEN, kPost);
 
             saveDebugMat(debugName, String.format("perm_%d.png", i), warped);
 
@@ -273,7 +279,7 @@ public class ImagePreprocessor {
 
             if (score > bestScore) {
                 bestScore = score;
-                best = warped;
+                best = warped.clone();
                 bestIndex = i;
             }
         }
