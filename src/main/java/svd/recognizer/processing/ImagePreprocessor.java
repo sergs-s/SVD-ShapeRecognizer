@@ -21,6 +21,7 @@ import org.opencv.core.Rect;
 import org.opencv.core.Scalar;
 import org.opencv.core.Size;
 import org.opencv.imgcodecs.Imgcodecs;
+import org.opencv.imgproc.CLAHE;
 import org.opencv.imgproc.Imgproc;
 
 public class ImagePreprocessor {
@@ -29,23 +30,20 @@ public class ImagePreprocessor {
     private static final int BBOX_PADDING = 12;
 
     /**
-     * Включает/выключает сохранение промежуточных изображений.
-     * Когда закончишь отладку, можно поставить false.
+     * Включает/выключает сохранение промежуточных изображений. Когда закончишь
+     * отладку, можно поставить false.
      */
     private static final boolean DEBUG_SAVE = true;
 
     /**
-     * Корневая папка для отладочных изображений.
-     * Внутри неё для каждого входного файла создаётся отдельная подпапка.
+     * Корневая папка для отладочных изображений. Внутри неё для каждого
+     * входного файла создаётся отдельная подпапка.
      */
     private static final String DEBUG_DIR = "debug-preprocess";
 
     /**
      * Канонический треугольник, к которому приводим все входные треугольники.
-     * Формат 64x64:
-     * - верхняя вершина
-     * - нижняя левая
-     * - нижняя правая
+     * Формат 64x64: - верхняя вершина - нижняя левая - нижняя правая
      */
     private static final Point[] CANONICAL = {
         new Point(32, 4),
@@ -54,6 +52,7 @@ public class ImagePreprocessor {
     };
 
     public static class PreprocessResult {
+
         private final BufferedImage image;
         private final double[][] matrix;
 
@@ -84,7 +83,7 @@ public class ImagePreprocessor {
         Mat gray = toGrayscale(source);
         saveDebugMat(debugName, "01_source_gray.png", gray);
 
-        Mat binary = binarizeOtsu(gray);
+        Mat binary = binarize(gray);
         saveDebugMat(debugName, "02_binary_otsu.png", binary);
 
         Mat cleaned = morphClean(binary);
@@ -117,33 +116,64 @@ public class ImagePreprocessor {
         return gray;
     }
 
-    private Mat binarizeOtsu(Mat gray) {
-        Mat blurred = new Mat();
-        Mat binary = new Mat();
+    /**
+     * Бинаризация для фото на телефон при плохом освещении.
+     *
+     * Шаги: 1. CLAHE — выравнивает локальный контраст, вытягивает слабые линии.
+     * 2. GaussianBlur 9x9 — убирает шум, неизбежный при плохом освещении. 3.
+     * adaptiveThreshold — бинаризует локально, не зависит от общей яркости.
+     *
+     * Почему не Отсу: Отсу ищет один глобальный порог. При тени в углу или
+     * неравномерном освещении этот порог "улетает" в пользу одной области, и в
+     * другой области линия либо теряется, либо фон становится белым.
+     */
+    private Mat binarize(Mat gray) {
+        // Шаг 1: CLAHE — адаптивное выравнивание гистограммы
+        // clipLimit = 2.0 — умеренно, чтобы не усиливать шум
+        // tileGridSize 8x8 — достаточно мелко для неравномерного освещения
+        CLAHE clahe = Imgproc.createCLAHE(2.0, new Size(8, 8));
+        Mat equalized = new Mat();
+        clahe.apply(gray, equalized);
 
-        Imgproc.GaussianBlur(gray, blurred, new Size(5, 5), 0.0);
-        Imgproc.threshold(
+        // Шаг 2: Размытие для подавления шума
+        Mat blurred = new Mat();
+        Imgproc.GaussianBlur(equalized, blurred, new Size(9, 9), 0.0);
+
+        // Шаг 3: Адаптивная бинаризация
+        // ADAPTIVE_THRESH_GAUSSIAN_C — взвешенное среднее по соседям (лучше для рукописи)
+        // THRESH_BINARY_INV — линия белая, фон чёрный
+        // blockSize 31 — размер блока, подбирается под масштаб линии на фото
+        // C = 10 — вычитаемая константа, убирает мелкий шум в фоне
+        Mat binary = new Mat();
+        Imgproc.adaptiveThreshold(
                 blurred,
                 binary,
-                0,
                 255,
-                Imgproc.THRESH_BINARY_INV + Imgproc.THRESH_OTSU
+                Imgproc.ADAPTIVE_THRESH_GAUSSIAN_C,
+                Imgproc.THRESH_BINARY_INV,
+                31,
+                10
         );
 
         return binary;
     }
 
     private Mat morphClean(Mat binary) {
-        Mat kernel = Imgproc.getStructuringElement(
-                Imgproc.MORPH_RECT,
-                new Size(3, 3)
-        );
+        // Ядро 5x5 для CLOSE — рваные линии от плохого освещения требуют
+        // более агрессивного закрытия разрывов.
+        Mat kernelClose = Imgproc.getStructuringElement(
+                Imgproc.MORPH_RECT, new Size(5, 5));
+
+        // Ядро 3x3 для OPEN — не переусердствуем с удалением шума,
+        // чтобы не "съесть" тонкие части линии.
+        Mat kernelOpen = Imgproc.getStructuringElement(
+                Imgproc.MORPH_RECT, new Size(3, 3));
 
         Mat closed = new Mat();
         Mat opened = new Mat();
 
-        Imgproc.morphologyEx(binary, closed, Imgproc.MORPH_CLOSE, kernel);
-        Imgproc.morphologyEx(closed, opened, Imgproc.MORPH_OPEN, kernel);
+        Imgproc.morphologyEx(binary, closed, Imgproc.MORPH_CLOSE, kernelClose);
+        Imgproc.morphologyEx(closed, opened, Imgproc.MORPH_OPEN, kernelOpen);
 
         return opened;
     }
@@ -286,14 +316,12 @@ public class ImagePreprocessor {
     }
 
     /**
-     * Пытается прочитать 3 вершины треугольника из Mat,
-     * который вернул minEnclosingTriangle.
+     * Пытается прочитать 3 вершины треугольника из Mat, который вернул
+     * minEnclosingTriangle.
      *
-     * В зависимости от сборки OpenCV Java формат может отличаться.
-     * Здесь покрываем самые типичные варианты:
-     * - rows=3, cols=1, channels=2
-     * - rows=3, cols=2, channels=1
-     * - rows=1, cols=3, channels=2
+     * В зависимости от сборки OpenCV Java формат может отличаться. Здесь
+     * покрываем самые типичные варианты: - rows=3, cols=1, channels=2 - rows=3,
+     * cols=2, channels=1 - rows=1, cols=3, channels=2
      */
     private Point[] readTrianglePoints(Mat triangle) {
         if (triangle == null || triangle.empty()) {
@@ -496,8 +524,8 @@ public class ImagePreprocessor {
         byte[] sourceData = new byte[(int) (normalized.total() * normalized.channels())];
         normalized.get(0, 0, sourceData);
 
-        byte[] targetData =
-                ((DataBufferByte) image.getRaster().getDataBuffer()).getData();
+        byte[] targetData
+                = ((DataBufferByte) image.getRaster().getDataBuffer()).getData();
 
         System.arraycopy(sourceData, 0, targetData, 0, sourceData.length);
 
