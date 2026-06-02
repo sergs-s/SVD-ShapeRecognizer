@@ -1,82 +1,83 @@
 package svd.recognizer.storage;
 
-import svd.recognizer.model.ShapeClass;
-import svd.recognizer.model.TemplateStore;
-import java.io.*;
+import java.io.EOFException;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.ObjectInputStream;
+import java.io.ObjectOutputStream;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.EnumMap;
+import java.util.Map;
+import svd.recognizer.model.ShapeClass;
+import svd.recognizer.model.TemplateStore;
 
 /**
- * Сохранение и загрузка эталонов на диск.
+ * Репозиторий эталонов в каталоге templates корня проекта.
  *
- * Каждый класс фигуры хранится в отдельном бинарном файле .dat
- * в папке templates/ рядом с JAR-файлом приложения.
+ * Правила хранения:
+ * 1. Для каждого класса фигур используется отдельный бинарный dat-файл
+ * 2. Если файл отсутствует или пуст, создаётся новый пустой TemplateStore
+ * 3. Верхний уровень не зависит от конкретной SVD-библиотеки, потому что
+ *    здесь хранятся уже вычисленные эталоны и усреднённые данные
  *
- * Формат: Java Object Serialization (ObjectOutputStream / ObjectInputStream)
- * Файлы: triangle.dat, square.dat, circle.dat
+ * Используемые файлы:
+ * - circle.dat
+ * - triangle.dat
+ * - rectangle.dat
+ *
+ * @author ssv
  */
 public class TemplateRepository {
-
-    /** Папка для хранения .dat файлов */
     private static final String TEMPLATES_DIR = "templates";
 
-    /**
-     * Сохранить TemplateStore для одного класса фигур.
-     *
-     * @param store  хранилище эталонов
-     * @throws IOException при ошибке записи
-     */
-    public void save(TemplateStore store) throws IOException {
-        // TODO:
-        //   Path path = getFilePath(store.getShapeClass());
-        //   Files.createDirectories(path.getParent());
-        //   try (ObjectOutputStream oos = new ObjectOutputStream(new FileOutputStream(path.toFile()))) {
-        //       oos.writeObject(store);
-        //   }
+    public void save(TemplateStore store) throws Exception {
+        Path path = getPath(store.getShapeClass());
+        Files.createDirectories(path.getParent());
+        try (ObjectOutputStream oos = new ObjectOutputStream(new FileOutputStream(path.toFile()))) {
+            oos.writeObject(store);
+        }
     }
 
-    /**
-     * Загрузить TemplateStore для одного класса фигур.
-     * Если файл не существует — вернуть пустой TemplateStore.
-     *
-     * @param shapeClass  класс фигуры
-     * @return            загруженное или новое хранилище
-     */
     public TemplateStore load(ShapeClass shapeClass) {
-        // TODO:
-        //   Path path = getFilePath(shapeClass);
-        //   if (!Files.exists(path)) return new TemplateStore(shapeClass);
-        //   try (ObjectInputStream ois = new ObjectInputStream(new FileInputStream(path.toFile()))) {
-        //       return (TemplateStore) ois.readObject();
-        //   }
+        Path path = getPath(shapeClass);
+        try {
+            if (!Files.exists(path) || Files.size(path) == 0) {
+                return new TemplateStore(shapeClass);
+            }
+            try (ObjectInputStream ois = new ObjectInputStream(new FileInputStream(path.toFile()))) {
+                Object object = ois.readObject();
+                if (object instanceof TemplateStore store) {
+                    return store;
+                }
+            }
+        } catch (EOFException ignored) {
+            return new TemplateStore(shapeClass);
+        } catch (Exception ignored) {
+            return new TemplateStore(shapeClass);
+        }
         return new TemplateStore(shapeClass);
     }
 
-    /**
-     * Загрузить эталоны для всех трёх классов.
-     *
-     * @return  массив из трёх TemplateStore (TRIANGLE, SQUARE, CIRCLE)
-     */
-    public TemplateStore[] loadAll() {
-        // TODO: for (ShapeClass sc : ShapeClass.values()) load(sc)
-        return new TemplateStore[]{
-            new TemplateStore(ShapeClass.TRIANGLE),
-            new TemplateStore(ShapeClass.SQUARE),
-            new TemplateStore(ShapeClass.CIRCLE)
-        };
+    public Map<ShapeClass, TemplateStore> loadAll() {
+        Map<ShapeClass, TemplateStore> map = new EnumMap<>(ShapeClass.class);
+        for (ShapeClass shapeClass : ShapeClass.values()) {
+            map.put(shapeClass, load(shapeClass));
+        }
+        return map;
     }
 
-    /**
-     * Удалить .dat файл для указанного класса (сброс эталонов).
-     *
-     * @param shapeClass  класс фигуры
-     */
-    public void delete(ShapeClass shapeClass) {
-        // TODO: Files.deleteIfExists(getFilePath(shapeClass))
+    public void reset(ShapeClass shapeClass) throws Exception {
+        Path path = getPath(shapeClass);
+        Files.createDirectories(path.getParent());
+        if (Files.exists(path)) {
+            Files.delete(path);
+        }
+        Files.createFile(path);
     }
 
-    /** Вернуть путь к .dat файлу для данного класса */
-    private Path getFilePath(ShapeClass shapeClass) {
+    private Path getPath(ShapeClass shapeClass) {
         return Paths.get(TEMPLATES_DIR, shapeClass.getFileName());
     }
 }

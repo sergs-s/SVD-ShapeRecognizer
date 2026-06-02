@@ -1,42 +1,106 @@
 package svd.recognizer.ui;
 
+import java.awt.Color;
+import java.awt.Dimension;
+import java.awt.Graphics;
+import java.awt.image.BufferedImage;
+
 /**
+ * Панель распознавания, встраиваемая в MainFrame.
+ *
+ * Содержит:
+ * 1. Область исходного изображения
+ * 2. Область усреднённого эталона распознанного класса
+ * 3. Область изображения после preprocessing 64x64
+ * 4. Progress bar выполнения операций
+ * 5. Текстовый журнал сообщений
+ *
+ * Таким образом MainFrame содержит только RecognitionPanel, а вся конкретная
+ * визуальная логика сосредоточена внутри панели.
  *
  * @author ssv
  */
 public class RecognitionPanel extends javax.swing.JPanel {
-
-    /**
-     * Creates new form RecognitionPanel
-     */
     public RecognitionPanel() {
         initComponents();
+        txtLog.setEditable(false);
+    }
+
+    public ImageView getSourceView() {
+        return pnlSource;
+    }
+
+    public ImageView getTemplateView() {
+        return pnlTemplate;
+    }
+
+    public ImageView getProcessedView() {
+        return pnlProcessed;
+    }
+
+    public javax.swing.JProgressBar getProgressBar() {
+        return progressBar;
+    }
+
+    public void appendLog(String message) {
+        txtLog.append(message + System.lineSeparator());
+    }
+
+    /**
+     * Универсальная панель отображения изображений.
+     *
+     * При отсутствии картинки выводится подпись "нет данных", чтобы
+     * пользователь видел, что область работает, но пока не заполнена.
+     */
+    public static class ImageView extends javax.swing.JPanel {
+        private BufferedImage image;
+
+        public ImageView() {
+            setPreferredSize(new Dimension(180, 180));
+            setBackground(Color.WHITE);
+            setBorder(javax.swing.BorderFactory.createLineBorder(Color.LIGHT_GRAY));
+        }
+
+        public void setImage(BufferedImage image) {
+            this.image = image;
+            repaint();
+        }
+
+        @Override
+        protected void paintComponent(Graphics g) {
+            super.paintComponent(g);
+            if (image == null) {
+                g.setColor(Color.GRAY);
+                g.drawString("нет данных", getWidth() / 2 - 30, getHeight() / 2);
+            } else {
+                g.drawImage(image, 0, 0, getWidth(), getHeight(), this);
+            }
+        }
     }
 
     @SuppressWarnings("unchecked")
     // <editor-fold defaultstate="collapsed" desc="Generated Code">//GEN-BEGIN:initComponents
     private void initComponents() {
-
-        pnlImage = new javax.swing.JPanel();
-        jScrollPane1 = new javax.swing.JScrollPane();
+        lblSource = new javax.swing.JLabel();
+        lblTemplate = new javax.swing.JLabel();
+        lblProcessed = new javax.swing.JLabel();
+        pnlSource = new ImageView();
+        pnlTemplate = new ImageView();
+        pnlProcessed = new ImageView();
+        progressBar = new javax.swing.JProgressBar();
+        scrollLog = new javax.swing.JScrollPane();
         txtLog = new javax.swing.JTextArea();
 
-        pnlImage.setBorder(javax.swing.BorderFactory.createTitledBorder("Image"));
-
-        javax.swing.GroupLayout pnlImageLayout = new javax.swing.GroupLayout(pnlImage);
-        pnlImage.setLayout(pnlImageLayout);
-        pnlImageLayout.setHorizontalGroup(
-            pnlImageLayout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
-            .addGap(0, 320, Short.MAX_VALUE)
-        );
-        pnlImageLayout.setVerticalGroup(
-            pnlImageLayout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
-            .addGap(0, 320, Short.MAX_VALUE)
-        );
+        lblSource.setHorizontalAlignment(javax.swing.SwingConstants.CENTER);
+        lblSource.setText("Source");
+        lblTemplate.setHorizontalAlignment(javax.swing.SwingConstants.CENTER);
+        lblTemplate.setText("Template");
+        lblProcessed.setHorizontalAlignment(javax.swing.SwingConstants.CENTER);
+        lblProcessed.setText("Processed 64x64");
 
         txtLog.setColumns(20);
-        txtLog.setRows(5);
-        jScrollPane1.setViewportView(txtLog);
+        txtLog.setRows(8);
+        scrollLog.setViewportView(txtLog);
 
         javax.swing.GroupLayout layout = new javax.swing.GroupLayout(this);
         this.setLayout(layout);
@@ -44,25 +108,52 @@ public class RecognitionPanel extends javax.swing.JPanel {
             layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
             .addGroup(layout.createSequentialGroup()
                 .addContainerGap()
-                .addComponent(pnlImage, javax.swing.GroupLayout.PREFERRED_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.PREFERRED_SIZE)
-                .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
-                .addComponent(jScrollPane1, javax.swing.GroupLayout.DEFAULT_SIZE, 330, Short.MAX_VALUE)
+                .addGroup(layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
+                    .addComponent(progressBar, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE)
+                    .addComponent(scrollLog)
+                    .addGroup(layout.createSequentialGroup()
+                        .addGroup(layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
+                            .addComponent(lblSource, javax.swing.GroupLayout.DEFAULT_SIZE, 190, Short.MAX_VALUE)
+                            .addComponent(pnlSource, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE))
+                        .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
+                        .addGroup(layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
+                            .addComponent(lblTemplate, javax.swing.GroupLayout.DEFAULT_SIZE, 190, Short.MAX_VALUE)
+                            .addComponent(pnlTemplate, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE))
+                        .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
+                        .addGroup(layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
+                            .addComponent(lblProcessed, javax.swing.GroupLayout.DEFAULT_SIZE, 190, Short.MAX_VALUE)
+                            .addComponent(pnlProcessed, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE))))
                 .addContainerGap())
         );
         layout.setVerticalGroup(
             layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
             .addGroup(layout.createSequentialGroup()
                 .addContainerGap()
+                .addGroup(layout.createParallelGroup(javax.swing.GroupLayout.Alignment.BASELINE)
+                    .addComponent(lblSource)
+                    .addComponent(lblTemplate)
+                    .addComponent(lblProcessed))
+                .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
                 .addGroup(layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
-                    .addComponent(pnlImage, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE)
-                    .addComponent(jScrollPane1, javax.swing.GroupLayout.DEFAULT_SIZE, 346, Short.MAX_VALUE))
+                    .addComponent(pnlSource, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE)
+                    .addComponent(pnlTemplate, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE)
+                    .addComponent(pnlProcessed, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE))
+                .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
+                .addComponent(progressBar, javax.swing.GroupLayout.PREFERRED_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.PREFERRED_SIZE)
+                .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
+                .addComponent(scrollLog, javax.swing.GroupLayout.PREFERRED_SIZE, 180, javax.swing.GroupLayout.PREFERRED_SIZE)
                 .addContainerGap())
         );
     }// </editor-fold>//GEN-END:initComponents
 
+    private javax.swing.JLabel lblProcessed;
     // Variables declaration - do not modify//GEN-BEGIN:variables
-    private javax.swing.JScrollPane jScrollPane1;
-    private javax.swing.JPanel pnlImage;
+    private javax.swing.JLabel lblSource;
+    private javax.swing.JLabel lblTemplate;
+    private ImageView pnlProcessed;
+    private ImageView pnlSource;
+    private ImageView pnlTemplate;
+    private javax.swing.JProgressBar progressBar;
+    private javax.swing.JScrollPane scrollLog;
     private javax.swing.JTextArea txtLog;
-    // End of variables declaration//GEN-END:variables
-}
+}    // End of variables declaration//GEN-END:variables

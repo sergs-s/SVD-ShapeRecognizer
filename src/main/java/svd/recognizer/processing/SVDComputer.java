@@ -1,40 +1,44 @@
 package svd.recognizer.processing;
 
-import java.awt.image.BufferedImage;
+import svd.recognizer.math.SvdEngine;
 
 /**
- * Вычисление SVD-сигнатуры изображения.
+ * Вычисление SVD-сигнатуры изображения через абстрактный интерфейс SvdEngine.
  *
- * Принимает нормализованное изображение 64×64 (из ImagePreprocessor),
- * строит матрицу яркостей, выполняет сингулярное разложение A = U·Σ·Vᵀ
- * и возвращает первые N сингулярных чисел в виде вектора признаков.
+ * Принцип работы:
+ * 1. На вход поступает матрица яркостей нормализованного изображения 64x64
+ * 2. Математический backend выполняет сингулярное разложение
+ * 3. Из результата извлекаются первые k сингулярных чисел
+ * 4. Признаковый вектор нормализуется по первому сингулярному значению
  *
- * Используется: Apache Commons Math — SingularValueDecomposition
+ * Благодаря этой схеме SVDComputer не знает, какая именно библиотека
+ * находится под ним: Apache Commons Math, EJML или любая другая.
+ *
+ * @author ssv
  */
 public class SVDComputer {
+    public static final int DEFAULT_FEATURE_COUNT = 20;
 
-    /** Количество сингулярных чисел в сигнатуре */
-    public static final int SIGNATURE_LENGTH = 20;
+    private final SvdEngine svdEngine;
 
-    /**
-     * Вычислить σ-вектор для изображения.
-     *
-     * @param image  нормализованное изображение 64×64
-     * @return       массив double[SIGNATURE_LENGTH] — сингулярные числа по убыванию
-     */
-    public double[] compute(BufferedImage image) {
-        // TODO:
-        //   1. Извлечь пиксели в double[][] matrix (64×64)
-        //   2. Создать RealMatrix: MatrixUtils.createRealMatrix(matrix)
-        //   3. SVD: new SingularValueDecomposition(realMatrix)
-        //   4. Взять первые SIGNATURE_LENGTH значений из getSingularValues()
-        //   5. Нормализовать: делить на sigma[0] (инвариантность к масштабу)
-        return new double[SIGNATURE_LENGTH];
+    public SVDComputer(SvdEngine svdEngine) {
+        this.svdEngine = svdEngine;
     }
 
-    /** Вспомогательный: BufferedImage → double[][] (яркость пикселей 0.0–1.0) */
-    private double[][] imageToMatrix(BufferedImage image) {
-        // TODO: (pixel & 0xFF) / 255.0
-        return new double[64][64];
+    public double[] computeFeatures(double[][] imageMatrix) {
+        return computeFeatures(imageMatrix, DEFAULT_FEATURE_COUNT);
+    }
+
+    public double[] computeFeatures(double[][] imageMatrix, int featureCount) {
+        double[] singularValues = svdEngine.computeTopSingularValues(imageMatrix, featureCount);
+        if (singularValues.length == 0) {
+            return singularValues;
+        }
+        double first = singularValues[0] == 0.0 ? 1.0 : singularValues[0];
+        double[] normalized = new double[singularValues.length];
+        for (int i = 0; i < singularValues.length; i++) {
+            normalized[i] = singularValues[i] / first;
+        }
+        return normalized;
     }
 }
