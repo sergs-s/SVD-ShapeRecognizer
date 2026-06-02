@@ -16,10 +16,12 @@ import svd.recognizer.storage.TemplateRepository;
 /**
  * Главное окно приложения.
  *
- * Назначение формы: 1. Загружать тестовое изображение фигуры 2. Запускать
- * preprocessing и распознавание 3. Отображать исходную фигуру, эталон и
- * результат preprocessing 4. Управлять порогом распознавания через JSpinner 5.
- * Открывать отдельную форму TemplatesFrame
+ * Назначение формы:
+ * 1. Загружать тестовое изображение фигуры
+ * 2. Запускать preprocessing и распознавание
+ * 3. Отображать исходную фигуру, эталон и результат preprocessing
+ * 4. Управлять порогом распознавания через JSpinner
+ * 5. Открывать отдельную форму TemplatesFrame
  *
  * Вся работа с эталонами вынесена в TemplatesFrame, а MainFrame только
  * использует уже сохранённые эталоны для распознавания.
@@ -27,12 +29,10 @@ import svd.recognizer.storage.TemplateRepository;
  * @author ssv
  */
 public class MainFrame extends javax.swing.JFrame {
-
     private final SVDComputer svdComputer;
     private final TemplateRepository repository;
     private final ImagePreprocessor preprocessor = new ImagePreprocessor();
     private final ShapeRecognizer recognizer = new ShapeRecognizer();
-    private final RecognitionPanel recognitionPanel = new RecognitionPanel();
     private Map<ShapeClass, TemplateStore> stores;
     private File selectedImageFile;
 
@@ -49,9 +49,8 @@ public class MainFrame extends javax.swing.JFrame {
     @SuppressWarnings("unchecked")
     // <editor-fold defaultstate="collapsed" desc="Generated Code">//GEN-BEGIN:initComponents
     private void initComponents() {
-
         lblTitle = new javax.swing.JLabel();
-        panelHost = new javax.swing.JPanel();
+        recognitionPanel = new RecognitionPanel();
         btnLoadImage = new javax.swing.JButton();
         btnRecognize = new javax.swing.JButton();
         btnTemplates = new javax.swing.JButton();
@@ -63,48 +62,31 @@ public class MainFrame extends javax.swing.JFrame {
         setDefaultCloseOperation(javax.swing.WindowConstants.EXIT_ON_CLOSE);
         setTitle("SVD Shape Recognizer");
 
-        lblTitle.setFont(new java.awt.Font("Segoe UI", 1, 18)); // NOI18N
+        lblTitle.setFont(new java.awt.Font("Segoe UI", 1, 18));
         lblTitle.setHorizontalAlignment(javax.swing.SwingConstants.CENTER);
         lblTitle.setText("SVD Shape Recognizer");
 
         btnLoadImage.setText("Load Image");
-        btnLoadImage.addActionListener(new java.awt.event.ActionListener() {
-            public void actionPerformed(java.awt.event.ActionEvent evt) {
-                btnLoadImageActionPerformed(evt);
-            }
-        });
-
         btnRecognize.setText("Recognize");
-        btnRecognize.addActionListener(new java.awt.event.ActionListener() {
-            public void actionPerformed(java.awt.event.ActionEvent evt) {
-                btnRecognizeActionPerformed(evt);
-            }
-        });
-
         btnTemplates.setText("Templates");
-        btnTemplates.addActionListener(new java.awt.event.ActionListener() {
-            public void actionPerformed(java.awt.event.ActionEvent evt) {
-                btnTemplatesActionPerformed(evt);
-            }
-        });
-
         btnExit.setText("Exit");
-        btnExit.addActionListener(new java.awt.event.ActionListener() {
-            public void actionPerformed(java.awt.event.ActionEvent evt) {
-                btnExitActionPerformed(evt);
-            }
-        });
-
         lblThreshold.setText("Threshold:");
-
+        spinnerThreshold.setModel(new SpinnerNumberModel(0.35d, 0.01d, 10.0d, 0.01d));
         btnAutoThreshold.setText("Auto Threshold");
+
+        btnLoadImage.addActionListener(e -> onLoadImage());
+        btnRecognize.addActionListener(e -> onRecognize());
+        btnTemplates.addActionListener(e -> onTemplates());
+        btnExit.addActionListener(e -> dispose());
+        btnAutoThreshold.addActionListener(e -> onAutoThreshold());
+        spinnerThreshold.addChangeListener(e -> recognizer.setThreshold(((Number) spinnerThreshold.getValue()).doubleValue()));
 
         javax.swing.GroupLayout layout = new javax.swing.GroupLayout(getContentPane());
         getContentPane().setLayout(layout);
         layout.setHorizontalGroup(
             layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
             .addComponent(lblTitle, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE)
-            .addComponent(panelHost, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE)
+            .addComponent(recognitionPanel, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE)
             .addGroup(layout.createSequentialGroup()
                 .addContainerGap()
                 .addComponent(btnLoadImage)
@@ -128,7 +110,7 @@ public class MainFrame extends javax.swing.JFrame {
                 .addContainerGap()
                 .addComponent(lblTitle)
                 .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
-                .addComponent(panelHost, javax.swing.GroupLayout.DEFAULT_SIZE, 295, Short.MAX_VALUE)
+                .addComponent(recognitionPanel, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE)
                 .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
                 .addGroup(layout.createParallelGroup(javax.swing.GroupLayout.Alignment.BASELINE)
                     .addComponent(btnLoadImage)
@@ -143,23 +125,6 @@ public class MainFrame extends javax.swing.JFrame {
 
         pack();
     }// </editor-fold>//GEN-END:initComponents
-
-    private void btnLoadImageActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_btnLoadImageActionPerformed
-        // TODO add your handling code here:
-    }//GEN-LAST:event_btnLoadImageActionPerformed
-
-    private void btnRecognizeActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_btnRecognizeActionPerformed
-        // TODO add your handling code here:
-    }//GEN-LAST:event_btnRecognizeActionPerformed
-
-    private void btnExitActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_btnExitActionPerformed
-        System.exit(0);
-    }//GEN-LAST:event_btnExitActionPerformed
-
-    private void btnTemplatesActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_btnTemplatesActionPerformed
-        TemplatesFrame templatesFrame = new TemplatesFrame(this, svdComputer, repository);
-        templatesFrame.setVisible(true);
-    }//GEN-LAST:event_btnTemplatesActionPerformed
 
     private void onLoadImage() {
         JFileChooser chooser = new JFileChooser();
@@ -234,7 +199,7 @@ public class MainFrame extends javax.swing.JFrame {
     private javax.swing.JButton btnTemplates;
     private javax.swing.JLabel lblThreshold;
     private javax.swing.JLabel lblTitle;
-    private javax.swing.JPanel panelHost;
+    private RecognitionPanel recognitionPanel;
     private javax.swing.JSpinner spinnerThreshold;
     // End of variables declaration//GEN-END:variables
 }

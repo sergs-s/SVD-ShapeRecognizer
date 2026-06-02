@@ -83,12 +83,12 @@
         <Property name="text" type="java.lang.String" value="Processed 64x64"/>
       </Properties>
     </Component>
-    <Container class="javax.swing.JPanel" name="pnlSource">
-    </Container>
-    <Container class="javax.swing.JPanel" name="pnlTemplate">
-    </Container>
-    <Container class="javax.swing.JPanel" name="pnlProcessed">
-    </Container>
+    <Component class="svd.recognizer.ui.ImageView" name="pnlSource">
+    </Component>
+    <Component class="svd.recognizer.ui.ImageView" name="pnlTemplate">
+    </Component>
+    <Component class="svd.recognizer.ui.ImageView" name="pnlProcessed">
+    </Component>
     <Component class="javax.swing.JProgressBar" name="progressBar">
     </Component>
     <Container class="javax.swing.JScrollPane" name="scrollLog">

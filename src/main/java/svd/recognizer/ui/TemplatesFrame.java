@@ -30,7 +30,6 @@ public class TemplatesFrame extends javax.swing.JFrame {
     private final SVDComputer svdComputer;
     private final TemplateRepository repository;
     private final ImagePreprocessor preprocessor = new ImagePreprocessor();
-    private final TemplatesPanel templatesPanel = new TemplatesPanel();
     private Map<ShapeClass, TemplateStore> stores;
 
     public TemplatesFrame(MainFrame owner, SVDComputer svdComputer, TemplateRepository repository) {
@@ -49,7 +48,7 @@ public class TemplatesFrame extends javax.swing.JFrame {
     private void initComponents() {
 
         lblTitle = new javax.swing.JLabel();
-        panelHost = new javax.swing.JPanel();
+        templatesPanel = new svd.recognizer.ui.TemplatesPanel();
         btnClose = new javax.swing.JButton();
 
         setDefaultCloseOperation(javax.swing.WindowConstants.DISPOSE_ON_CLOSE);
@@ -60,18 +59,13 @@ public class TemplatesFrame extends javax.swing.JFrame {
         lblTitle.setText("Shape Templates");
 
         btnClose.setText("Close");
-        btnClose.addActionListener(new java.awt.event.ActionListener() {
-            public void actionPerformed(java.awt.event.ActionEvent evt) {
-                btnCloseActionPerformed(evt);
-            }
-        });
 
         javax.swing.GroupLayout layout = new javax.swing.GroupLayout(getContentPane());
         getContentPane().setLayout(layout);
         layout.setHorizontalGroup(
             layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
             .addComponent(lblTitle, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE)
-            .addComponent(panelHost, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE)
+            .addComponent(templatesPanel, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE)
             .addGroup(javax.swing.GroupLayout.Alignment.TRAILING, layout.createSequentialGroup()
                 .addContainerGap(730, Short.MAX_VALUE)
                 .addComponent(btnClose)
@@ -83,8 +77,8 @@ public class TemplatesFrame extends javax.swing.JFrame {
                 .addContainerGap()
                 .addComponent(lblTitle)
                 .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
-                .addComponent(panelHost, javax.swing.GroupLayout.DEFAULT_SIZE, 250, Short.MAX_VALUE)
-                .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
+                .addComponent(templatesPanel, javax.swing.GroupLayout.PREFERRED_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.PREFERRED_SIZE)
+                .addGap(18, 18, Short.MAX_VALUE)
                 .addComponent(btnClose)
                 .addContainerGap())
         );
@@ -93,6 +87,7 @@ public class TemplatesFrame extends javax.swing.JFrame {
     }// </editor-fold>//GEN-END:initComponents
 
     private void btnCloseActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_btnCloseActionPerformed
+        owner.reloadStores();
         dispose();
     }//GEN-LAST:event_btnCloseActionPerformed
 
@@ -141,6 +136,6 @@ public class TemplatesFrame extends javax.swing.JFrame {
     // Variables declaration - do not modify//GEN-BEGIN:variables
     private javax.swing.JButton btnClose;
     private javax.swing.JLabel lblTitle;
-    private javax.swing.JPanel panelHost;
+    private svd.recognizer.ui.TemplatesPanel templatesPanel;
     // End of variables declaration//GEN-END:variables
 }

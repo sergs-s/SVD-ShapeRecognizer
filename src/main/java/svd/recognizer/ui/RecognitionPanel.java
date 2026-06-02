@@ -1,10 +1,5 @@
 package svd.recognizer.ui;
 
-import java.awt.Color;
-import java.awt.Dimension;
-import java.awt.Graphics;
-import java.awt.image.BufferedImage;
-
 /**
  * Панель распознавания, встраиваемая в MainFrame.
  *
@@ -21,6 +16,7 @@ import java.awt.image.BufferedImage;
  * @author ssv
  */
 public class RecognitionPanel extends javax.swing.JPanel {
+
     public RecognitionPanel() {
         initComponents();
         txtLog.setEditable(false);
@@ -46,41 +42,10 @@ public class RecognitionPanel extends javax.swing.JPanel {
         txtLog.append(message + System.lineSeparator());
     }
 
-    /**
-     * Универсальная панель отображения изображений.
-     *
-     * При отсутствии картинки выводится подпись "нет данных", чтобы
-     * пользователь видел, что область работает, но пока не заполнена.
-     */
-    public static class ImageView extends javax.swing.JPanel {
-        private BufferedImage image;
-
-        public ImageView() {
-            setPreferredSize(new Dimension(180, 180));
-            setBackground(Color.WHITE);
-            setBorder(javax.swing.BorderFactory.createLineBorder(Color.LIGHT_GRAY));
-        }
-
-        public void setImage(BufferedImage image) {
-            this.image = image;
-            repaint();
-        }
-
-        @Override
-        protected void paintComponent(Graphics g) {
-            super.paintComponent(g);
-            if (image == null) {
-                g.setColor(Color.GRAY);
-                g.drawString("нет данных", getWidth() / 2 - 30, getHeight() / 2);
-            } else {
-                g.drawImage(image, 0, 0, getWidth(), getHeight(), this);
-            }
-        }
-    }
-
     @SuppressWarnings("unchecked")
     // <editor-fold defaultstate="collapsed" desc="Generated Code">//GEN-BEGIN:initComponents
     private void initComponents() {
+
         lblSource = new javax.swing.JLabel();
         lblTemplate = new javax.swing.JLabel();
         lblProcessed = new javax.swing.JLabel();
@@ -93,8 +58,10 @@ public class RecognitionPanel extends javax.swing.JPanel {
 
         lblSource.setHorizontalAlignment(javax.swing.SwingConstants.CENTER);
         lblSource.setText("Source");
+
         lblTemplate.setHorizontalAlignment(javax.swing.SwingConstants.CENTER);
         lblTemplate.setText("Template");
+
         lblProcessed.setHorizontalAlignment(javax.swing.SwingConstants.CENTER);
         lblProcessed.setText("Processed 64x64");
 
@@ -146,14 +113,15 @@ public class RecognitionPanel extends javax.swing.JPanel {
         );
     }// </editor-fold>//GEN-END:initComponents
 
-    private javax.swing.JLabel lblProcessed;
     // Variables declaration - do not modify//GEN-BEGIN:variables
+    private javax.swing.JLabel lblProcessed;
     private javax.swing.JLabel lblSource;
     private javax.swing.JLabel lblTemplate;
-    private ImageView pnlProcessed;
-    private ImageView pnlSource;
-    private ImageView pnlTemplate;
+    private svd.recognizer.ui.ImageView pnlProcessed;
+    private svd.recognizer.ui.ImageView pnlSource;
+    private svd.recognizer.ui.ImageView pnlTemplate;
     private javax.swing.JProgressBar progressBar;
     private javax.swing.JScrollPane scrollLog;
     private javax.swing.JTextArea txtLog;
-}    // End of variables declaration//GEN-END:variables
+    // End of variables declaration//GEN-END:variables
+}
