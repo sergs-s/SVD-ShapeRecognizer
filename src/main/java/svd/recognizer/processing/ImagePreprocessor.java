@@ -265,12 +265,6 @@ public class ImagePreprocessor {
             // INTER_NEAREST не даёт серых, но threshold оставляем как страховку.
             Imgproc.threshold(warped, warped, 64, 255, Imgproc.THRESH_BINARY);
 
-            // Обнулить всё что за пределами канонического треугольника
-            Core.bitwise_and(warped, buildCanonicalMask(), warped);
-
-            // Убрать точечный шум после warp (3x3 достаточно на 64x64)
-            Mat kPost = Imgproc.getStructuringElement(Imgproc.MORPH_ELLIPSE, new Size(3, 3));
-            Imgproc.morphologyEx(warped, warped, Imgproc.MORPH_OPEN, kPost);
 
             saveDebugMat(debugName, String.format("perm_%d.png", i), warped);
 
