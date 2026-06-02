@@ -29,20 +29,9 @@ public class ImagePreprocessor {
     public static final int OUTPUT_SIZE = 64;
     private static final int BBOX_PADDING = 12;
 
-    /**
-     * Включает/выключает сохранение промежуточных изображений.
-     */
     private static final boolean DEBUG_SAVE = true;
-
-    /**
-     * Корневая папка для отладочных изображений.
-     */
     private static final String DEBUG_DIR = "debug-preprocess";
 
-    /**
-     * Канонический треугольник 64x64:
-     * P0 — верхняя вершина, P1 — нижняя левая, P2 — нижняя правая.
-     */
     private static final Point[] CANONICAL = {
         new Point(32, 4),
         new Point(4, 60),
@@ -96,10 +85,13 @@ public class ImagePreprocessor {
         Mat aligned = alignToCanonical(cropped, debugName);
         saveDebugMat(debugName, "07_best_aligned.png", aligned);
 
-        BufferedImage image = matToBufferedImage(aligned);
+        Mat denoised = removeSmallComponents(aligned, 25);
+        saveDebugMat(debugName, "08_denoised.png", denoised);
+
+        BufferedImage image = matToBufferedImage(denoised);
         double[][] matrix = imageToMatrix(image);
 
-        saveDebugMat(debugName, "08_final.png", aligned);
+        saveDebugMat(debugName, "09_final.png", denoised);
 
         return new PreprocessResult(image, matrix);
     }
@@ -114,13 +106,6 @@ public class ImagePreprocessor {
         return gray;
     }
 
-    /**
-     * Бинаризация для фото на телефон при плохом освещении.
-     *
-     * 1. CLAHE — адаптивное выравнивание локального контраста.
-     * 2. GaussianBlur 9x9 — подавление шума.
-     * 3. adaptiveThreshold — локальная бинаризация, не зависит от общей яркости.
-     */
     private Mat binarize(Mat gray) {
         CLAHE clahe = Imgproc.createCLAHE(2.0, new Size(8, 8));
         Mat equalized = new Mat();
@@ -143,15 +128,6 @@ public class ImagePreprocessor {
         return binary;
     }
 
-    /**
-     * Морфологическая очистка.
-     *
-     * Порядок операций:
-     * 1. DILATE 3x3 — утолщаем линию, чтобы залечить мелкие разрывы
-     *    от рваного контура при плохом освещении.
-     * 2. CLOSE 5x5 — закрываем крупные разрывы внутри линий.
-     * 3. OPEN  3x3 — убираем мелкий шум, не трогая основную линию.
-     */
     private Mat morphClean(Mat binary) {
         Mat kernelDilate = Imgproc.getStructuringElement(
                 Imgproc.MORPH_ELLIPSE, new Size(3, 3));
@@ -208,6 +184,26 @@ public class ImagePreprocessor {
         return new Mat(binary, new Rect(x, y, w, h)).clone();
     }
 
+    /**
+     * Убирает изолированные компоненты площадью меньше minArea пикселей.
+     * Основная фигура остаётся нетронутой — она всегда значительно крупнее.
+     */
+    private Mat removeSmallComponents(Mat binary, int minArea) {
+        List<MatOfPoint> contours = new ArrayList<>();
+        Imgproc.findContours(
+                binary.clone(), contours, new Mat(),
+                Imgproc.RETR_EXTERNAL, Imgproc.CHAIN_APPROX_SIMPLE
+        );
+
+        Mat result = Mat.zeros(binary.size(), binary.type());
+        for (MatOfPoint c : contours) {
+            if (Imgproc.contourArea(c) >= minArea) {
+                Imgproc.drawContours(result, List.of(c), 0, new Scalar(255), Core.FILLED);
+            }
+        }
+        return result;
+    }
+
     private Mat resizeToOutput(Mat source) {
         Mat resized = new Mat();
         Imgproc.resize(
@@ -220,19 +216,6 @@ public class ImagePreprocessor {
         return resized;
     }
 
-    /**
-     * Находит 3 вершины треугольника через approxPolyDP.
-     *
-     * Стратегия:
-     * 1. Берём крупнейший контур.
-     * 2. Пробуем approxPolyDP с убывающим epsilon пока не получим ровно 3 точки.
-     *    epsilon начинается с 10% периметра и уменьшается по 5% до минимума 1%.
-     * 3. Если так и не вышло 3 точки — fallback на minEnclosingTriangle.
-     *
-     * Важно: вершины — это реальные точки контура, а не описывающий треугольник.
-     * Поэтому warpAffine применяется к оригинальному бинарному изображению
-     * и сохраняет реальные неровности линий, нужные для SVD.
-     */
     private Mat alignToCanonical(Mat binary, String debugName) {
         List<MatOfPoint> contours = new ArrayList<>();
 
@@ -256,10 +239,8 @@ public class ImagePreprocessor {
 
         saveContourPreview(binary, largest, debugName, "05a_largest_contour.png");
 
-        // Пробуем approxPolyDP
         Point[] srcPts = approxTriangle(largest, debugName);
 
-        // Fallback: minEnclosingTriangle
         if (srcPts == null) {
             System.out.println("approxPolyDP не дал 3 точек, fallback → minEnclosingTriangle");
             Mat triangleMat = new Mat();
@@ -319,14 +300,6 @@ public class ImagePreprocessor {
         return best;
     }
 
-    /**
-     * Пытается аппроксимировать контур до ровно 3 вершин через approxPolyDP.
-     *
-     * Перебирает epsilon от 10% до 1% периметра с шагом 1%.
-     * Возвращает 3 точки при первом успехе, иначе null.
-     *
-     * Отладочное изображение сохраняется сразу при нахождении 3 точек.
-     */
     private Point[] approxTriangle(MatOfPoint contour, String debugName) {
         MatOfPoint2f contour2f = new MatOfPoint2f(contour.toArray());
         double perimeter = Imgproc.arcLength(contour2f, true);
@@ -340,8 +313,6 @@ public class ImagePreprocessor {
                 Point[] pts = approx.toArray();
                 System.out.println("approxPolyDP: 3 точки при epsilon=" + String.format("%.1f", epsilon)
                         + " (" + pct + "% периметра)");
-
-                // Сохраняем превью найденных вершин
                 saveApproxPreview(contour, pts, debugName, "05b_approx_triangle.png");
                 return pts;
             }
@@ -351,16 +322,11 @@ public class ImagePreprocessor {
         return null;
     }
 
-    /**
-     * Читает 3 вершины из Mat, возвращённого minEnclosingTriangle.
-     * Покрывает разные форматы в зависимости от сборки OpenCV Java.
-     */
     private Point[] readTrianglePoints(Mat triangle) {
         if (triangle == null || triangle.empty()) {
             return null;
         }
 
-        // rows=3, cols=1, 2-channel
         if (triangle.rows() == 3 && triangle.cols() == 1) {
             Point[] pts = new Point[3];
             for (int i = 0; i < 3; i++) {
@@ -371,7 +337,6 @@ public class ImagePreprocessor {
             return pts;
         }
 
-        // rows=3, cols=2, 1-channel
         if (triangle.rows() == 3 && triangle.cols() == 2 && triangle.channels() == 1) {
             Point[] pts = new Point[3];
             for (int i = 0; i < 3; i++) {
@@ -383,7 +348,6 @@ public class ImagePreprocessor {
             return pts;
         }
 
-        // rows=1, cols=3, 2-channel
         if (triangle.rows() == 1 && triangle.cols() == 3) {
             Point[] pts = new Point[3];
             for (int i = 0; i < 3; i++) {
@@ -492,13 +456,9 @@ public class ImagePreprocessor {
         saveDebugMat(folderName, fileName, preview);
     }
 
-    /**
-     * Превью для approxPolyDP: рисует три стороны и помечает вершины.
-     */
     private void saveApproxPreview(MatOfPoint contour, Point[] pts, String folderName, String fileName) {
         if (!DEBUG_SAVE || contour == null || pts == null || pts.length != 3) return;
 
-        // Создаём временный Mat из bounding box контура для подложки
         Rect rect = Imgproc.boundingRect(contour);
         Mat preview = Mat.zeros(
                 rect.y + rect.height + BBOX_PADDING,
@@ -506,17 +466,14 @@ public class ImagePreprocessor {
                 CvType.CV_8UC3
         );
 
-        // Рисуем исходный контур серым
         List<MatOfPoint> one = new ArrayList<>();
         one.add(contour);
         Imgproc.drawContours(preview, one, 0, new Scalar(80, 80, 80), 1);
 
-        // Рисуем найденный треугольник жёлтым
         Imgproc.line(preview, pts[0], pts[1], new Scalar(0, 255, 255), 1);
         Imgproc.line(preview, pts[1], pts[2], new Scalar(0, 255, 255), 1);
         Imgproc.line(preview, pts[2], pts[0], new Scalar(0, 255, 255), 1);
 
-        // Вершины: P0=красный, P1=зелёный, P2=синий
         Scalar[] colors = {new Scalar(0, 0, 255), new Scalar(0, 255, 0), new Scalar(255, 0, 0)};
         String[] labels = {"P0", "P1", "P2"};
         for (int i = 0; i < 3; i++) {

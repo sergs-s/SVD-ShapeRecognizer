@@ -60,6 +60,7 @@ public class TemplateStore implements Serializable {
             return;
         }
 
+        // --- σ-вектор ---
         int featureCount = templates.get(0).getSingularValues().length;
         averageSingularValues = new double[featureCount];
         for (Template template : templates) {
@@ -72,31 +73,44 @@ public class TemplateStore implements Serializable {
             averageSingularValues[i] /= templates.size();
         }
 
+        // --- Усреднённое изображение ---
         BufferedImage sample = templates.get(0).getNormalizedImage();
-        int width = sample.getWidth();
+        int width  = sample.getWidth();
         int height = sample.getHeight();
         double[] acc = new double[width * height];
+
         for (Template template : templates) {
-            BufferedImage image = scale(template.getNormalizedImage(), width, height);
+            BufferedImage image = scaleImage(template.getNormalizedImage(), width, height);
             for (int y = 0; y < height; y++) {
                 for (int x = 0; x < width; x++) {
-                    int rgb = image.getRGB(x, y) & 0xFF;
-                    acc[y * width + x] += rgb;
+                    acc[y * width + x] += image.getRGB(x, y) & 0xFF;
                 }
             }
         }
 
+        // Честное среднее
+        double maxVal = 0;
+        for (int i = 0; i < acc.length; i++) {
+            acc[i] /= templates.size();
+            if (acc[i] > maxVal) maxVal = acc[i];
+        }
+
+        // Нормализация [0..maxVal] → [0..255] только для визуализации.
+        // На σ-векторы не влияет: они считаются из оригинальных образцов.
+        double normScale = (maxVal > 0) ? (255.0 / maxVal) : 1.0;
+
         averageImage = new BufferedImage(width, height, BufferedImage.TYPE_BYTE_GRAY);
         for (int y = 0; y < height; y++) {
             for (int x = 0; x < width; x++) {
-                int gray = (int) Math.round(acc[y * width + x] / templates.size());
+                int gray = (int) Math.round(acc[y * width + x] * normScale);
+                gray = Math.min(255, Math.max(0, gray));
                 int rgb = (gray << 16) | (gray << 8) | gray;
                 averageImage.setRGB(x, y, rgb);
             }
         }
     }
 
-    private BufferedImage scale(BufferedImage source, int width, int height) {
+    private BufferedImage scaleImage(BufferedImage source, int width, int height) {
         if (source.getWidth() == width && source.getHeight() == height) {
             return source;
         }
