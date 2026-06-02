@@ -83,15 +83,10 @@ public class ImagePreprocessor {
         saveDebugMat(debugName, "05_canonical_mask.png", canonicalMask);
 
         Mat aligned = alignToCanonical(cropped, debugName);
-        saveDebugMat(debugName, "07_best_aligned.png", aligned);
+        saveDebugMat(debugName, "06_best_aligned.png", aligned);
 
-        Mat denoised = removeSmallComponents(aligned, 25);
-        saveDebugMat(debugName, "08_denoised.png", denoised);
-
-        BufferedImage image = matToBufferedImage(denoised);
+        BufferedImage image = matToBufferedImage(aligned);
         double[][] matrix = imageToMatrix(image);
-
-        saveDebugMat(debugName, "09_final.png", denoised);
 
         return new PreprocessResult(image, matrix);
     }
@@ -184,26 +179,6 @@ public class ImagePreprocessor {
         return new Mat(binary, new Rect(x, y, w, h)).clone();
     }
 
-    /**
-     * Убирает изолированные компоненты площадью меньше minArea пикселей.
-     * Основная фигура остаётся нетронутой — она всегда значительно крупнее.
-     */
-    private Mat removeSmallComponents(Mat binary, int minArea) {
-        List<MatOfPoint> contours = new ArrayList<>();
-        Imgproc.findContours(
-                binary.clone(), contours, new Mat(),
-                Imgproc.RETR_EXTERNAL, Imgproc.CHAIN_APPROX_SIMPLE
-        );
-
-        Mat result = Mat.zeros(binary.size(), binary.type());
-        for (MatOfPoint c : contours) {
-            if (Imgproc.contourArea(c) >= minArea) {
-                Imgproc.drawContours(result, List.of(c), 0, new Scalar(255), Core.FILLED);
-            }
-        }
-        return result;
-    }
-
     private Mat resizeToOutput(Mat source) {
         Mat resized = new Mat();
         Imgproc.resize(
@@ -229,7 +204,7 @@ public class ImagePreprocessor {
 
         if (contours.isEmpty()) {
             Mat fallback = resizeToOutput(binary);
-            saveDebugMat(debugName, "06_fallback_no_contours.png", fallback);
+            saveDebugMat(debugName, "fallback_no_contours.png", fallback);
             return fallback;
         }
 
@@ -251,7 +226,7 @@ public class ImagePreprocessor {
 
         if (srcPts == null) {
             Mat fallback = resizeToOutput(binary);
-            saveDebugMat(debugName, "06_fallback_bad_triangle.png", fallback);
+            saveDebugMat(debugName, "fallback_bad_triangle.png", fallback);
             return fallback;
         }
 
@@ -277,7 +252,7 @@ public class ImagePreprocessor {
                     new Scalar(0)
             );
 
-            saveDebugMat(debugName, String.format("06_perm_%d.png", i), warped);
+            saveDebugMat(debugName, String.format("perm_%d.png", i), warped);
 
             double score = scoreTriangleAlignment(warped);
             System.out.println("perm " + i + " score = " + score);
@@ -293,7 +268,7 @@ public class ImagePreprocessor {
 
         if (best == null) {
             Mat fallback = resizeToOutput(binary);
-            saveDebugMat(debugName, "06_fallback_no_best.png", fallback);
+            saveDebugMat(debugName, "fallback_no_best.png", fallback);
             return fallback;
         }
 
