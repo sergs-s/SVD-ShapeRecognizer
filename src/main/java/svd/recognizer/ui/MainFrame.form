@@ -1,4 +1,5 @@
-<?xml version="1.1" encoding="UTF-8" ?>
+<?xml version="1.0" encoding="UTF-8" ?>
+
 <Form version="1.5" maxVersion="1.9" type="org.netbeans.modules.form.forminfo.JFrameFormInfo">
   <Properties>
     <Property name="defaultCloseOperation" type="int" value="3"/>
@@ -19,49 +20,50 @@
     <AuxValue name="FormSettings_variablesLocal" type="java.lang.Boolean" value="false"/>
     <AuxValue name="FormSettings_variablesModifier" type="java.lang.Integer" value="2"/>
   </AuxValues>
+
   <Layout>
     <DimensionLayout dim="0">
       <Group type="103" groupAlignment="0" attributes="0">
-        <Component id="lblTitle" alignment="0" max="32767" attributes="0"/>
-        <Component id="recognitionPanel" alignment="0" max="32767" attributes="0"/>
-        <Group type="102" attributes="0">
-          <EmptySpace max="-2" attributes="0"/>
-          <Component id="btnLoadImage" min="-2" max="-2" attributes="0"/>
-          <EmptySpace max="-2" attributes="0"/>
-          <Component id="btnRecognize" min="-2" max="-2" attributes="0"/>
-          <EmptySpace max="-2" attributes="0"/>
-          <Component id="btnTemplates" min="-2" max="-2" attributes="0"/>
-          <EmptySpace max="-2" attributes="0"/>
-          <Component id="btnAutoThreshold" min="-2" max="-2" attributes="0"/>
-          <EmptySpace type="unrelated" max="-2" attributes="0"/>
-          <Component id="lblThreshold" min="-2" max="-2" attributes="0"/>
-          <EmptySpace max="-2" attributes="0"/>
-          <Component id="spinnerThreshold" min="-2" pref="90" max="-2" attributes="0"/>
-          <EmptySpace pref="130" max="32767" attributes="0"/>
-          <Component id="btnExit" min="-2" max="-2" attributes="0"/>
-          <EmptySpace max="-2" attributes="0"/>
-        </Group>
+          <Component id="lblTitle" alignment="0" max="32767" attributes="0"/>
+          <Component id="recognitionPanel" alignment="0" max="32767" attributes="0"/>
+          <Group type="102" attributes="0">
+              <EmptySpace max="-2" attributes="0"/>
+              <Component id="btnLoadImage" min="-2" max="-2" attributes="0"/>
+              <EmptySpace max="-2" attributes="0"/>
+              <Component id="btnRecognize" min="-2" max="-2" attributes="0"/>
+              <EmptySpace max="-2" attributes="0"/>
+              <Component id="btnTemplates" min="-2" max="-2" attributes="0"/>
+              <EmptySpace max="-2" attributes="0"/>
+              <Component id="btnAutoThreshold" min="-2" max="-2" attributes="0"/>
+              <EmptySpace type="unrelated" max="-2" attributes="0"/>
+              <Component id="lblThreshold" min="-2" max="-2" attributes="0"/>
+              <EmptySpace max="-2" attributes="0"/>
+              <Component id="spinnerThreshold" min="-2" pref="90" max="-2" attributes="0"/>
+              <EmptySpace pref="130" max="32767" attributes="0"/>
+              <Component id="btnExit" min="-2" max="-2" attributes="0"/>
+              <EmptySpace max="-2" attributes="0"/>
+          </Group>
       </Group>
     </DimensionLayout>
     <DimensionLayout dim="1">
       <Group type="103" groupAlignment="0" attributes="0">
-        <Group type="102" attributes="0">
-          <EmptySpace max="-2" attributes="0"/>
-          <Component id="lblTitle" min="-2" max="-2" attributes="0"/>
-          <EmptySpace max="-2" attributes="0"/>
-          <Component id="recognitionPanel" max="32767" attributes="0"/>
-          <EmptySpace max="-2" attributes="0"/>
-          <Group type="103" groupAlignment="3" attributes="0">
-            <Component id="btnLoadImage" alignment="3" min="-2" max="-2" attributes="0"/>
-            <Component id="btnRecognize" alignment="3" min="-2" max="-2" attributes="0"/>
-            <Component id="btnTemplates" alignment="3" min="-2" max="-2" attributes="0"/>
-            <Component id="btnExit" alignment="3" min="-2" max="-2" attributes="0"/>
-            <Component id="lblThreshold" alignment="3" min="-2" max="-2" attributes="0"/>
-            <Component id="spinnerThreshold" alignment="3" min="-2" max="-2" attributes="0"/>
-            <Component id="btnAutoThreshold" alignment="3" min="-2" max="-2" attributes="0"/>
+          <Group type="102" attributes="0">
+              <EmptySpace max="-2" attributes="0"/>
+              <Component id="lblTitle" min="-2" max="-2" attributes="0"/>
+              <EmptySpace max="-2" attributes="0"/>
+              <Component id="recognitionPanel" max="32767" attributes="0"/>
+              <EmptySpace max="-2" attributes="0"/>
+              <Group type="103" groupAlignment="3" attributes="0">
+                  <Component id="btnLoadImage" alignment="3" min="-2" max="-2" attributes="0"/>
+                  <Component id="btnRecognize" alignment="3" min="-2" max="-2" attributes="0"/>
+                  <Component id="btnTemplates" alignment="3" min="-2" max="-2" attributes="0"/>
+                  <Component id="btnExit" alignment="3" min="-2" max="-2" attributes="0"/>
+                  <Component id="lblThreshold" alignment="3" min="-2" max="-2" attributes="0"/>
+                  <Component id="spinnerThreshold" alignment="3" min="-2" max="-2" attributes="0"/>
+                  <Component id="btnAutoThreshold" alignment="3" min="-2" max="-2" attributes="0"/>
+              </Group>
+              <EmptySpace max="-2" attributes="0"/>
           </Group>
-          <EmptySpace max="-2" attributes="0"/>
-        </Group>
       </Group>
     </DimensionLayout>
   </Layout>

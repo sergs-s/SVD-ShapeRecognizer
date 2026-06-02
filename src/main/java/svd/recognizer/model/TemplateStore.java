@@ -3,6 +3,8 @@ package svd.recognizer.model;
 import java.awt.Graphics2D;
 import java.awt.RenderingHints;
 import java.awt.image.BufferedImage;
+import java.io.IOException;
+import java.io.ObjectInputStream;
 import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -11,11 +13,10 @@ import java.util.List;
 /**
  * Хранилище эталонов одного класса фигур.
  *
- * Обязанности класса:
- * 1. Хранить список загруженных шаблонов выбранного класса
- * 2. Автоматически пересчитывать усреднённый σ-вектор
- * 3. Автоматически пересчитывать усреднённое изображение
- * 4. Поддерживать признак готовности набора при количестве 5 и более
+ * Обязанности класса: 1. Хранить список загруженных шаблонов выбранного класса
+ * 2. Автоматически пересчитывать усреднённый σ-вектор 3. Автоматически
+ * пересчитывать усреднённое изображение 4. Поддерживать признак готовности
+ * набора при количестве 5 и более
  *
  * После каждого добавления или сброса вызывается пересчёт усреднённых данных,
  * чтобы TemplatesPanel сразу обновляла счётчики и предпросмотр эталона.
@@ -23,6 +24,7 @@ import java.util.List;
  * @author ssv
  */
 public class TemplateStore implements Serializable {
+
     private static final long serialVersionUID = 1L;
     public static final int MIN_TEMPLATES = 5;
 
@@ -44,6 +46,11 @@ public class TemplateStore implements Serializable {
         templates.clear();
         averageSingularValues = null;
         averageImage = null;
+    }
+
+    private void readObject(ObjectInputStream in) throws IOException, ClassNotFoundException {
+        in.defaultReadObject();
+        recalculateAverage();
     }
 
     private void recalculateAverage() {

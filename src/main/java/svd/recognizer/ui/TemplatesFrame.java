@@ -4,6 +4,7 @@ import java.io.File;
 import java.util.Map;
 import javax.swing.JFileChooser;
 import javax.swing.JOptionPane;
+import javax.swing.filechooser.FileNameExtensionFilter;
 import svd.recognizer.model.ShapeClass;
 import svd.recognizer.model.Template;
 import svd.recognizer.model.TemplateStore;
@@ -59,6 +60,11 @@ public class TemplatesFrame extends javax.swing.JFrame {
         lblTitle.setText("Shape Templates");
 
         btnClose.setText("Close");
+        btnClose.addActionListener(new java.awt.event.ActionListener() {
+            public void actionPerformed(java.awt.event.ActionEvent evt) {
+                btnCloseActionPerformed(evt);
+            }
+        });
 
         javax.swing.GroupLayout layout = new javax.swing.GroupLayout(getContentPane());
         getContentPane().setLayout(layout);
@@ -100,8 +106,18 @@ public class TemplatesFrame extends javax.swing.JFrame {
         templatesPanel.getBtnResetRectangle().addActionListener(e -> resetStore(ShapeClass.RECTANGLE));
     }
 
-    private void addTemplate(ShapeClass shapeClass) {
+    private JFileChooser createJpegChooser() {
         JFileChooser chooser = new JFileChooser();
+        chooser.setCurrentDirectory(new File(System.getProperty("user.dir")));
+        chooser.setAcceptAllFileFilterUsed(false);
+        chooser.setFileSelectionMode(JFileChooser.FILES_ONLY);
+        chooser.setMultiSelectionEnabled(false);
+        chooser.setFileFilter(new FileNameExtensionFilter("JPEG images (*.jpg, *.jpeg)", "jpg", "jpeg"));
+        return chooser;
+    }
+
+    private void addTemplate(ShapeClass shapeClass) {
+        JFileChooser chooser = createJpegChooser();
         if (chooser.showOpenDialog(this) != JFileChooser.APPROVE_OPTION) {
             return;
         }

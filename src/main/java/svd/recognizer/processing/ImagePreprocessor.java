@@ -3,8 +3,14 @@ package svd.recognizer.processing;
 import java.awt.image.BufferedImage;
 import java.awt.image.DataBufferByte;
 import java.io.File;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
+
 import org.opencv.core.Core;
 import org.opencv.core.CvType;
 import org.opencv.core.Mat;
@@ -12,50 +18,41 @@ import org.opencv.core.MatOfPoint;
 import org.opencv.core.MatOfPoint2f;
 import org.opencv.core.Point;
 import org.opencv.core.Rect;
-import org.opencv.core.RotatedRect;
 import org.opencv.core.Scalar;
 import org.opencv.core.Size;
 import org.opencv.imgcodecs.Imgcodecs;
 import org.opencv.imgproc.Imgproc;
 
-/**
- * Конвейер предобработки изображения перед подачей в SVD.
- *
- * Шаги конвейера:
- * 1. Загрузка JPEG с диска
- * 2. Перевод в оттенки серого
- * 3. Бинаризация методом Оцу (адаптивный порог, не зависит от цвета ручки)
- * 4. Морфологические операции (убрать шум, соединить разрывы линии)
- * 5. Поиск контура и обрезка по bounding box с запасом
- * 6. Помещение ROI на увеличенный холст перед поворотом
- * 7. Грубое выравнивание угла через PCA-подобную оценку ориентации
- * 8. Поворот через аффинную матрицу OpenCV 2x3, применяемую функцией warpAffine
- * 9. Масштабирование до 64×64 пикселей
- * 10. Возврат нормализованного изображения и матрицы яркостей
- *
- * Важные замечания:
- * - перед поворотом ROI помещается на увеличенный холст с коэффициентом CANVAS_SCALE = 1.6,
- *   чтобы warpAffine не срезал углы;
- * - PCA используется только как грубое выравнивание оси;
- * - для симметричных фигур возможна неоднозначность по 180 градусов;
- * - для круга ориентация почти неинформативна.
- *
- * Требует инициализации OpenCV: nu.pattern.OpenCV.loadLocally()
- *
- * @author ssv
- */
 public class ImagePreprocessor {
+
     public static final int OUTPUT_SIZE = 64;
     private static final int BBOX_PADDING = 12;
-    private static final double CANVAS_SCALE = 1.6;
 
     /**
-     * Контейнер результата предобработки.
-     *
-     * Хранит:
-     * 1. Нормализованное изображение 64x64 для GUI и усреднения эталонов
-     * 2. Матрицу яркостей double[][] для вычисления SVD-признаков
+     * Включает/выключает сохранение промежуточных изображений.
+     * Когда закончишь отладку, можно поставить false.
      */
+    private static final boolean DEBUG_SAVE = true;
+
+    /**
+     * Корневая папка для отладочных изображений.
+     * Внутри неё для каждого входного файла создаётся отдельная подпапка.
+     */
+    private static final String DEBUG_DIR = "debug-preprocess";
+
+    /**
+     * Канонический треугольник, к которому приводим все входные треугольники.
+     * Формат 64x64:
+     * - верхняя вершина
+     * - нижняя левая
+     * - нижняя правая
+     */
+    private static final Point[] CANONICAL = {
+        new Point(32, 4),
+        new Point(4, 60),
+        new Point(60, 60)
+    };
+
     public static class PreprocessResult {
         private final BufferedImage image;
         private final double[][] matrix;
@@ -77,17 +74,36 @@ public class ImagePreprocessor {
     public PreprocessResult preprocess(File imageFile) throws Exception {
         Mat source = Imgcodecs.imread(imageFile.getAbsolutePath());
         if (source.empty()) {
-            throw new IllegalArgumentException("Не удалось загрузить изображение: " + imageFile.getAbsolutePath());
+            throw new IllegalArgumentException(
+                    "Не удалось загрузить изображение: " + imageFile.getAbsolutePath()
+            );
         }
 
+        String debugName = sanitizeFileName(imageFile.getName());
+
         Mat gray = toGrayscale(source);
+        saveDebugMat(debugName, "01_source_gray.png", gray);
+
         Mat binary = binarizeOtsu(gray);
+        saveDebugMat(debugName, "02_binary_otsu.png", binary);
+
         Mat cleaned = morphClean(binary);
+        saveDebugMat(debugName, "03_cleaned.png", cleaned);
+
         Mat cropped = extractROI(cleaned);
-        Mat aligned = normalizeAngle(cropped);
-        Mat resized = resize64(aligned);
-        BufferedImage image = matToBufferedImage(resized);
+        saveDebugMat(debugName, "04_cropped.png", cropped);
+
+        Mat canonicalMask = buildCanonicalMask();
+        saveDebugMat(debugName, "05_canonical_mask.png", canonicalMask);
+
+        Mat aligned = alignToCanonical(cropped, debugName);
+        saveDebugMat(debugName, "07_best_aligned.png", aligned);
+
+        BufferedImage image = matToBufferedImage(aligned);
         double[][] matrix = imageToMatrix(image);
+
+        saveDebugMat(debugName, "08_final.png", aligned);
+
         return new PreprocessResult(image, matrix);
     }
 
@@ -104,30 +120,53 @@ public class ImagePreprocessor {
     private Mat binarizeOtsu(Mat gray) {
         Mat blurred = new Mat();
         Mat binary = new Mat();
+
         Imgproc.GaussianBlur(gray, blurred, new Size(5, 5), 0.0);
-        Imgproc.threshold(blurred, binary, 0, 255, Imgproc.THRESH_BINARY_INV + Imgproc.THRESH_OTSU);
+        Imgproc.threshold(
+                blurred,
+                binary,
+                0,
+                255,
+                Imgproc.THRESH_BINARY_INV + Imgproc.THRESH_OTSU
+        );
+
         return binary;
     }
 
     private Mat morphClean(Mat binary) {
-        Mat kernel = Imgproc.getStructuringElement(Imgproc.MORPH_RECT, new Size(3, 3));
+        Mat kernel = Imgproc.getStructuringElement(
+                Imgproc.MORPH_RECT,
+                new Size(3, 3)
+        );
+
         Mat closed = new Mat();
         Mat opened = new Mat();
+
         Imgproc.morphologyEx(binary, closed, Imgproc.MORPH_CLOSE, kernel);
         Imgproc.morphologyEx(closed, opened, Imgproc.MORPH_OPEN, kernel);
+
         return opened;
     }
 
     private Mat extractROI(Mat binary) {
         List<MatOfPoint> contours = new ArrayList<>();
         Mat hierarchy = new Mat();
-        Imgproc.findContours(binary.clone(), contours, hierarchy, Imgproc.RETR_EXTERNAL, Imgproc.CHAIN_APPROX_SIMPLE);
+
+        Imgproc.findContours(
+                binary.clone(),
+                contours,
+                hierarchy,
+                Imgproc.RETR_EXTERNAL,
+                Imgproc.CHAIN_APPROX_SIMPLE
+        );
+
         if (contours.isEmpty()) {
             return binary.clone();
         }
 
         MatOfPoint largest = contours.get(0);
         double maxArea = Imgproc.contourArea(largest);
+
         for (MatOfPoint contour : contours) {
             double area = Imgproc.contourArea(contour);
             if (area > maxArea) {
@@ -137,89 +176,344 @@ public class ImagePreprocessor {
         }
 
         Rect rect = Imgproc.boundingRect(largest);
+
         int x = Math.max(0, rect.x - BBOX_PADDING);
         int y = Math.max(0, rect.y - BBOX_PADDING);
         int w = Math.min(binary.cols() - x, rect.width + 2 * BBOX_PADDING);
         int h = Math.min(binary.rows() - y, rect.height + 2 * BBOX_PADDING);
+
         return new Mat(binary, new Rect(x, y, w, h)).clone();
     }
 
-    private Mat normalizeAngle(Mat cropped) {
-        double angle = estimateOrientationAngle(cropped);
-        int canvasWidth = Math.max(1, (int) Math.round(cropped.cols() * CANVAS_SCALE));
-        int canvasHeight = Math.max(1, (int) Math.round(cropped.rows() * CANVAS_SCALE));
-        Mat canvas = Mat.zeros(canvasHeight, canvasWidth, cropped.type());
-        int offsetX = (canvasWidth - cropped.cols()) / 2;
-        int offsetY = (canvasHeight - cropped.rows()) / 2;
-        cropped.copyTo(canvas.submat(new Rect(offsetX, offsetY, cropped.cols(), cropped.rows())));
-
-        Point center = new Point(canvas.cols() / 2.0, canvas.rows() / 2.0);
-        Mat rotation = Imgproc.getRotationMatrix2D(center, -angle, 1.0);
-        Mat rotated = new Mat();
-        Imgproc.warpAffine(
-                canvas,
-                rotated,
-                rotation,
-                new Size(canvas.cols(), canvas.rows()),
-                Imgproc.INTER_LINEAR,
-                Core.BORDER_CONSTANT,
-                new Scalar(0)
+    private Mat resizeToOutput(Mat source) {
+        Mat resized = new Mat();
+        Imgproc.resize(
+                source,
+                resized,
+                new Size(OUTPUT_SIZE, OUTPUT_SIZE),
+                0,
+                0,
+                Imgproc.INTER_AREA
         );
-        return extractROI(rotated);
+        return resized;
     }
 
-    private double estimateOrientationAngle(Mat binary) {
-        List<Point> points = new ArrayList<>();
-        for (int y = 0; y < binary.rows(); y++) {
-            for (int x = 0; x < binary.cols(); x++) {
-                double[] pixel = binary.get(y, x);
-                if (pixel != null && pixel[0] > 0) {
-                    points.add(new Point(x, y));
+    private Mat alignToCanonical(Mat binary, String debugName) {
+        List<MatOfPoint> contours = new ArrayList<>();
+
+        Imgproc.findContours(
+                binary.clone(),
+                contours,
+                new Mat(),
+                Imgproc.RETR_EXTERNAL,
+                Imgproc.CHAIN_APPROX_SIMPLE
+        );
+
+        if (contours.isEmpty()) {
+            Mat fallback = resizeToOutput(binary);
+            saveDebugMat(debugName, "06_fallback_no_contours.png", fallback);
+            return fallback;
+        }
+
+        MatOfPoint largest = contours.stream()
+                .max(Comparator.comparingDouble(Imgproc::contourArea))
+                .orElse(contours.get(0));
+
+        saveContourPreview(binary, largest, debugName, "05a_largest_contour.png");
+
+        Mat triangle = new Mat();
+        Imgproc.minEnclosingTriangle(new MatOfPoint2f(largest.toArray()), triangle);
+
+        System.out.println("triangle rows=" + triangle.rows()
+                + ", cols=" + triangle.cols()
+                + ", channels=" + triangle.channels()
+                + ", type=" + triangle.type());
+
+        saveTrianglePreview(binary, triangle, debugName, "05b_min_enclosing_triangle.png");
+
+        Point[] srcPts = readTrianglePoints(triangle);
+        if (srcPts == null) {
+            Mat fallback = resizeToOutput(binary);
+            saveDebugMat(debugName, "06_fallback_bad_triangle.png", fallback);
+            return fallback;
+        }
+
+        Point[][] perms = permutations(srcPts);
+
+        Mat best = null;
+        double bestScore = Double.NEGATIVE_INFINITY;
+        int bestIndex = -1;
+
+        for (int i = 0; i < perms.length; i++) {
+            Point[] perm = perms[i];
+
+            MatOfPoint2f src = new MatOfPoint2f(perm);
+            MatOfPoint2f dst = new MatOfPoint2f(CANONICAL);
+            Mat transform = Imgproc.getAffineTransform(src, dst);
+
+            Mat warped = new Mat();
+            Imgproc.warpAffine(
+                    binary,
+                    warped,
+                    transform,
+                    new Size(OUTPUT_SIZE, OUTPUT_SIZE),
+                    Imgproc.INTER_LINEAR,
+                    Core.BORDER_CONSTANT,
+                    new Scalar(0)
+            );
+
+            saveDebugMat(debugName, String.format("06_perm_%d.png", i), warped);
+
+            double score = scoreTriangleAlignment(warped);
+            System.out.println("perm " + i + " score = " + score);
+
+            if (score > bestScore) {
+                bestScore = score;
+                best = warped;
+                bestIndex = i;
+            }
+        }
+
+        System.out.println("best permutation index = " + bestIndex + ", score = " + bestScore);
+
+        if (best == null) {
+            Mat fallback = resizeToOutput(binary);
+            saveDebugMat(debugName, "06_fallback_no_best.png", fallback);
+            return fallback;
+        }
+
+        return best;
+    }
+
+    /**
+     * Пытается прочитать 3 вершины треугольника из Mat,
+     * который вернул minEnclosingTriangle.
+     *
+     * В зависимости от сборки OpenCV Java формат может отличаться.
+     * Здесь покрываем самые типичные варианты:
+     * - rows=3, cols=1, channels=2
+     * - rows=3, cols=2, channels=1
+     * - rows=1, cols=3, channels=2
+     */
+    private Point[] readTrianglePoints(Mat triangle) {
+        if (triangle == null || triangle.empty()) {
+            return null;
+        }
+
+        // Случай 1: 3x1, 2-channel
+        if (triangle.rows() == 3 && triangle.cols() == 1) {
+            Point[] pts = new Point[3];
+            for (int i = 0; i < 3; i++) {
+                double[] v = triangle.get(i, 0);
+                if (v == null || v.length < 2) {
+                    return null;
+                }
+                pts[i] = new Point(v[0], v[1]);
+            }
+            return pts;
+        }
+
+        // Случай 2: 3x2, 1-channel
+        if (triangle.rows() == 3 && triangle.cols() == 2 && triangle.channels() == 1) {
+            Point[] pts = new Point[3];
+            for (int i = 0; i < 3; i++) {
+                double[] x = triangle.get(i, 0);
+                double[] y = triangle.get(i, 1);
+                if (x == null || y == null || x.length < 1 || y.length < 1) {
+                    return null;
+                }
+                pts[i] = new Point(x[0], y[0]);
+            }
+            return pts;
+        }
+
+        // Случай 3: 1x3, 2-channel
+        if (triangle.rows() == 1 && triangle.cols() == 3) {
+            Point[] pts = new Point[3];
+            for (int i = 0; i < 3; i++) {
+                double[] v = triangle.get(0, i);
+                if (v == null || v.length < 2) {
+                    return null;
+                }
+                pts[i] = new Point(v[0], v[1]);
+            }
+            return pts;
+        }
+
+        return null;
+    }
+
+    private Point[][] permutations(Point[] pts) {
+        if (pts == null || pts.length != 3) {
+            throw new IllegalArgumentException("Нужно ровно 3 точки");
+        }
+
+        return new Point[][]{
+            {pts[0], pts[1], pts[2]},
+            {pts[0], pts[2], pts[1]},
+            {pts[1], pts[0], pts[2]},
+            {pts[1], pts[2], pts[0]},
+            {pts[2], pts[0], pts[1]},
+            {pts[2], pts[1], pts[0]}
+        };
+    }
+
+    private double scoreTriangleAlignment(Mat img) {
+        Mat mask = buildCanonicalMask();
+
+        double inside = 0.0;
+        double outside = 0.0;
+
+        for (int y = 0; y < img.rows(); y++) {
+            for (int x = 0; x < img.cols(); x++) {
+                double[] pv = img.get(y, x);
+                double[] mv = mask.get(y, x);
+
+                double value = (pv == null) ? 0.0 : pv[0];
+                double maskValue = (mv == null) ? 0.0 : mv[0];
+
+                if (maskValue > 0) {
+                    inside += value;
+                } else {
+                    outside += value;
                 }
             }
         }
-        if (points.size() < 5) {
-            return 0.0;
-        }
-        MatOfPoint2f pointSet = new MatOfPoint2f();
-        pointSet.fromList(points);
-        RotatedRect box = Imgproc.minAreaRect(pointSet);
-        double angle = box.angle;
-        if (box.size.width < box.size.height) {
-            angle += 90.0;
-        }
-        return angle;
+
+        return inside - outside;
     }
 
-    private Mat resize64(Mat source) {
-        Mat resized = new Mat();
-        Imgproc.resize(source, resized, new Size(OUTPUT_SIZE, OUTPUT_SIZE), 0, 0, Imgproc.INTER_AREA);
-        return resized;
+    private Mat buildCanonicalMask() {
+        Mat mask = Mat.zeros(OUTPUT_SIZE, OUTPUT_SIZE, CvType.CV_8UC1);
+        MatOfPoint poly = new MatOfPoint(
+                new Point(32, 4),
+                new Point(4, 60),
+                new Point(60, 60)
+        );
+        Imgproc.fillConvexPoly(mask, poly, new Scalar(255));
+        return mask;
+    }
+
+    private void saveDebugMat(String folderName, String fileName, Mat mat) {
+        if (!DEBUG_SAVE || mat == null || mat.empty()) {
+            return;
+        }
+
+        try {
+            Path dir = Paths.get(DEBUG_DIR, folderName);
+            Files.createDirectories(dir);
+
+            String fullPath = dir.resolve(fileName).toString();
+
+            Mat out = new Mat();
+            if (mat.type() == CvType.CV_8UC1 || mat.type() == CvType.CV_8UC3) {
+                out = mat;
+            } else {
+                mat.convertTo(out, CvType.CV_8UC1);
+            }
+
+            boolean ok = Imgcodecs.imwrite(fullPath, out);
+            if (!ok) {
+                System.err.println("Не удалось сохранить debug image: " + fullPath);
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+
+    private void saveContourPreview(Mat binary, MatOfPoint contour, String folderName, String fileName) {
+        if (!DEBUG_SAVE || binary == null || binary.empty() || contour == null) {
+            return;
+        }
+
+        Mat preview = new Mat();
+        Imgproc.cvtColor(binary, preview, Imgproc.COLOR_GRAY2BGR);
+
+        List<MatOfPoint> one = new ArrayList<>();
+        one.add(contour);
+
+        Imgproc.drawContours(preview, one, 0, new Scalar(0, 255, 0), 1);
+
+        Rect rect = Imgproc.boundingRect(contour);
+        Imgproc.rectangle(
+                preview,
+                new Point(rect.x, rect.y),
+                new Point(rect.x + rect.width, rect.y + rect.height),
+                new Scalar(255, 0, 0),
+                1
+        );
+
+        saveDebugMat(folderName, fileName, preview);
+    }
+
+    private void saveTrianglePreview(Mat binary, Mat triangle, String folderName, String fileName) {
+        if (!DEBUG_SAVE || binary == null || binary.empty()) {
+            return;
+        }
+
+        Point[] pts = readTrianglePoints(triangle);
+        if (pts == null) {
+            return;
+        }
+
+        Mat preview = new Mat();
+        Imgproc.cvtColor(binary, preview, Imgproc.COLOR_GRAY2BGR);
+
+        Imgproc.line(preview, pts[0], pts[1], new Scalar(0, 255, 255), 1);
+        Imgproc.line(preview, pts[1], pts[2], new Scalar(0, 255, 255), 1);
+        Imgproc.line(preview, pts[2], pts[0], new Scalar(0, 255, 255), 1);
+
+        Imgproc.circle(preview, pts[0], 3, new Scalar(0, 0, 255), -1);
+        Imgproc.circle(preview, pts[1], 3, new Scalar(0, 255, 0), -1);
+        Imgproc.circle(preview, pts[2], 3, new Scalar(255, 0, 0), -1);
+
+        Imgproc.putText(preview, "P0", pts[0], Imgproc.FONT_HERSHEY_SIMPLEX, 0.4, new Scalar(0, 0, 255), 1);
+        Imgproc.putText(preview, "P1", pts[1], Imgproc.FONT_HERSHEY_SIMPLEX, 0.4, new Scalar(0, 255, 0), 1);
+        Imgproc.putText(preview, "P2", pts[2], Imgproc.FONT_HERSHEY_SIMPLEX, 0.4, new Scalar(255, 0, 0), 1);
+
+        saveDebugMat(folderName, fileName, preview);
+    }
+
+    private String sanitizeFileName(String name) {
+        return name.replaceAll("[^a-zA-Z0-9._-]", "_");
     }
 
     private BufferedImage matToBufferedImage(Mat source) {
         Mat normalized = new Mat();
+
         if (source.type() != CvType.CV_8UC1) {
             source.convertTo(normalized, CvType.CV_8UC1);
         } else {
             normalized = source;
         }
-        BufferedImage image = new BufferedImage(normalized.cols(), normalized.rows(), BufferedImage.TYPE_BYTE_GRAY);
+
+        BufferedImage image = new BufferedImage(
+                normalized.cols(),
+                normalized.rows(),
+                BufferedImage.TYPE_BYTE_GRAY
+        );
+
         byte[] sourceData = new byte[(int) (normalized.total() * normalized.channels())];
         normalized.get(0, 0, sourceData);
-        byte[] targetData = ((DataBufferByte) image.getRaster().getDataBuffer()).getData();
+
+        byte[] targetData =
+                ((DataBufferByte) image.getRaster().getDataBuffer()).getData();
+
         System.arraycopy(sourceData, 0, targetData, 0, sourceData.length);
+
         return image;
     }
 
     private double[][] imageToMatrix(BufferedImage image) {
         double[][] matrix = new double[image.getHeight()][image.getWidth()];
+
         for (int y = 0; y < image.getHeight(); y++) {
             for (int x = 0; x < image.getWidth(); x++) {
                 int value = image.getRGB(x, y) & 0xFF;
                 matrix[y][x] = value / 255.0;
             }
         }
+
         return matrix;
     }
 }

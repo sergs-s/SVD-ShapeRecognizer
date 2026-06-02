@@ -5,6 +5,7 @@ import java.util.Map;
 import javax.swing.JFileChooser;
 import javax.swing.JOptionPane;
 import javax.swing.SpinnerNumberModel;
+import javax.swing.filechooser.FileNameExtensionFilter;
 import svd.recognizer.model.ShapeClass;
 import svd.recognizer.model.TemplateStore;
 import svd.recognizer.processing.ImagePreprocessor;
@@ -16,12 +17,10 @@ import svd.recognizer.storage.TemplateRepository;
 /**
  * Главное окно приложения.
  *
- * Назначение формы:
- * 1. Загружать тестовое изображение фигуры
- * 2. Запускать preprocessing и распознавание
- * 3. Отображать исходную фигуру, эталон и результат preprocessing
- * 4. Управлять порогом распознавания через JSpinner
- * 5. Открывать отдельную форму TemplatesFrame
+ * Назначение формы: 1. Загружать тестовое изображение фигуры 2. Запускать
+ * preprocessing и распознавание 3. Отображать исходную фигуру, эталон и
+ * результат preprocessing 4. Управлять порогом распознавания через JSpinner 5.
+ * Открывать отдельную форму TemplatesFrame
  *
  * Вся работа с эталонами вынесена в TemplatesFrame, а MainFrame только
  * использует уже сохранённые эталоны для распознавания.
@@ -29,6 +28,7 @@ import svd.recognizer.storage.TemplateRepository;
  * @author ssv
  */
 public class MainFrame extends javax.swing.JFrame {
+
     private final SVDComputer svdComputer;
     private final TemplateRepository repository;
     private final ImagePreprocessor preprocessor = new ImagePreprocessor();
@@ -126,8 +126,18 @@ public class MainFrame extends javax.swing.JFrame {
         pack();
     }// </editor-fold>//GEN-END:initComponents
 
-    private void onLoadImage() {
+    private JFileChooser createJpegChooser() {
         JFileChooser chooser = new JFileChooser();
+        chooser.setCurrentDirectory(new File(System.getProperty("user.dir")));
+        chooser.setAcceptAllFileFilterUsed(false);
+        chooser.setFileSelectionMode(JFileChooser.FILES_ONLY);
+        chooser.setMultiSelectionEnabled(false);
+        chooser.setFileFilter(new FileNameExtensionFilter("JPEG images (*.jpg, *.jpeg)", "jpg", "jpeg"));
+        return chooser;
+    }
+
+    private void onLoadImage() {
+        JFileChooser chooser = createJpegChooser();
         if (chooser.showOpenDialog(this) == JFileChooser.APPROVE_OPTION) {
             selectedImageFile = chooser.getSelectedFile();
             try {
