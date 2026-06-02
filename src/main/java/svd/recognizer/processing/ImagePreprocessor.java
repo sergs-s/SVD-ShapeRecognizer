@@ -176,7 +176,16 @@ public class ImagePreprocessor {
         int w = Math.min(binary.cols() - x, rect.width  + 2 * BBOX_PADDING);
         int h = Math.min(binary.rows() - y, rect.height + 2 * BBOX_PADDING);
 
-        return new Mat(binary, new Rect(x, y, w, h)).clone();
+        Mat roi = new Mat(binary, new Rect(x, y, w, h)).clone();
+
+        // Удалить точечный шум из кропнутой области (ядро 5x5 убирает объекты <5px,
+        // линии треугольника толще и сохраняются)
+        Mat kernelDenoise = Imgproc.getStructuringElement(
+                Imgproc.MORPH_ELLIPSE, new Size(5, 5));
+        Mat denoised = new Mat();
+        Imgproc.morphologyEx(roi, denoised, Imgproc.MORPH_OPEN, kernelDenoise);
+
+        return denoised;
     }
 
     private Mat resizeToOutput(Mat source) {
