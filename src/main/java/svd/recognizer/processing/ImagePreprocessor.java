@@ -24,6 +24,7 @@ import org.opencv.core.Scalar;
 import org.opencv.core.Size;
 import org.opencv.imgcodecs.Imgcodecs;
 import org.opencv.imgproc.Imgproc;
+import org.opencv.imgproc.Moments;
 
 public class ImagePreprocessor {
 
@@ -143,16 +144,12 @@ public class ImagePreprocessor {
      * @return ConcavityScore с maxDepthNorm, sumDepthNorm, defectCount
      */
     public ConcavityScore computeConcavityScore(MatOfPoint contour) {
-        // Строим выпуклую оболочку (индексы)
         MatOfInt hullIdx = new MatOfInt();
         Imgproc.convexHull(contour, hullIdx);
 
-        // convexityDefects требует, чтобы hull был отсортирован против часовой стрелки
-        // (OpenCV обычно даёт CW — убедимся в правильном порядке через флаг clockwise=false)
         MatOfInt hullIdxCCW = new MatOfInt();
         Imgproc.convexHull(contour, hullIdxCCW, false);
 
-        // Периметр hull для нормировки
         int[] idxArr = hullIdxCCW.toArray();
         Point[] allPts = contour.toArray();
         double hullPerimeter = 0;
@@ -172,7 +169,6 @@ public class ImagePreprocessor {
         try {
             Imgproc.convexityDefects(contour, hullIdxCCW, defects);
         } catch (Exception e) {
-            // Контур слишком маленький или вырожденный
             System.out.println("convexityDefects: " + e.getMessage());
             return new ConcavityScore(0, 0, 0);
         }
@@ -187,7 +183,6 @@ public class ImagePreprocessor {
         double sumDepth = 0;
 
         for (int i = 0; i < defectCount; i++) {
-            // depth хранится как depth * 256 (fixed-point)
             double depth = d[i * 4 + 3] / 256.0;
             if (depth > maxDepth) maxDepth = depth;
             sumDepth += depth;
@@ -205,7 +200,7 @@ public class ImagePreprocessor {
     }
 
     // =========================================================================
-    // Приватные методы обработки (без изменений, кроме approxTriangle)
+    // Приватные методы обработки
     // =========================================================================
 
     private Mat toGrayscale(Mat source) {
@@ -255,12 +250,6 @@ public class ImagePreprocessor {
         return new Mat(binary, new Rect(x, y, w, h)).clone();
     }
 
-    /**
-     * Любой треугольник любого размера приводим к единому масштабу:
-     * находим bbox содержимого, масштабируем так, чтобы max(w,h) = NORMALIZED_SHAPE_SIZE,
-     * добавляем паддинг.
-     * morphClose залатывает дыры на гранях без внесения лишних пикселей.
-     */
     private Mat normalizeScale(Mat binary) {
         Mat closeKernel = Imgproc.getStructuringElement(Imgproc.MORPH_ELLIPSE, new Size(5, 5));
         Mat closed = new Mat();
@@ -387,12 +376,6 @@ public class ImagePreprocessor {
         return cropToBboxAndResize(best);
     }
 
-    /**
-     * Геометрический скор пермутации:
-     * Правильная ориентация — вершина в верхней трети холста,
-     * основание в нижней трети холста.
-     * Бонус +1000 за каждое выполненное условие.
-     */
     private double scoreTriangleAlignment(Mat warpedBig) {
         if (warpedBig.empty()) return Double.NEGATIVE_INFINITY;
 
@@ -460,19 +443,12 @@ public class ImagePreprocessor {
     }
 
     /**
-     * Сдвигает бинарное изображение так, чтобы центр масс контура оказался
-     * в геометрическом центре холста (cols/2, rows/2).
-     *
-     * <p>Использует нулевой (m00) и первые (m10, m01) моменты для вычисления
-     * centroid, затем применяет целочисленный сдвиг через warpAffine.
-     * Инвариантен к форме — одинаково корректен для треугольников, прямоугольников
-     * и кругов. При пустом изображении возвращает оригинал без изменений.
-     *
-     * @param binary бинарное изображение CV_8UC1 (0/255)
-     * @return центрированное изображение того же размера
+     * Сдвигает бинарное изображение так, чтобы центр масс оказался
+     * в центре холста (cols/2, rows/2).
+     * При пустом изображении возвращает оригинал без изменений.
      */
     private Mat centerOnMass(Mat binary) {
-        org.opencv.core.Moments m = Imgproc.moments(binary, true);
+        Moments m = Imgproc.moments(binary, true);
         if (m.get_m00() < 1.0) return binary;
 
         double cx = m.get_m10() / m.get_m00();
@@ -493,23 +469,7 @@ public class ImagePreprocessor {
         return centered;
     }
 
-    /**
-     * Аппроксимирует контур треугольником через approxPolyDP.
-     *
-     * <p><b>Новая логика (concavity-aware):</b><br>
-     * Перед запуском approxPolyDP вычисляется {@link ConcavityScore}.
-     * Если вогнутость превышает пороги ({@code MAX_DEPTH_NORM_THRESHOLD} /
-     * {@code SUM_DEPTH_NORM_THRESHOLD}), контур считается слишком ломаным:
-     * approxPolyDP выполняется для дебага, но возвращается {@code null},
-     * что переключает {@code alignToCanonical} на minEnclosingTriangle.
-     * При низкой вогнутости работает прежняя логика.
-     *
-     * @param contour   контур фигуры
-     * @param debugName имя папки для дебаг-сохранения
-     * @return массив из 3 точек или {@code null} для fallback
-     */
     private Point[] approxTriangle(MatOfPoint contour, String debugName) {
-        // --- Оценка вогнутости ---
         ConcavityScore cs = computeConcavityScore(contour);
         boolean tooConcave = cs.isTooHighFor(MAX_DEPTH_NORM_THRESHOLD, SUM_DEPTH_NORM_THRESHOLD);
 
@@ -520,7 +480,6 @@ public class ImagePreprocessor {
             );
         }
 
-        // --- Строим hull для approxPolyDP (как раньше) ---
         MatOfInt hullIdx = new MatOfInt();
         Imgproc.convexHull(contour, hullIdx);
         int[] idx = hullIdx.toArray();
@@ -566,10 +525,8 @@ public class ImagePreprocessor {
             return null;
         }
 
-        // Всегда сохраняем approx для дебага
         saveApproxPreview(contour, approxPts, debugName, "05b_approx_triangle.png");
 
-        // Если вогнутость высокая — approx идёт только в дебаг, возвращаем null → fallback
         if (tooConcave) {
             System.out.println("approxPolyDP сохранён для дебага, но для warp используется fallback (высокая вогнутость)");
             return null;
