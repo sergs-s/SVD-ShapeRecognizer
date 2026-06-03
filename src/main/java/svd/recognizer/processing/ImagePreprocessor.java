@@ -15,6 +15,7 @@ import org.opencv.core.Core;
 import org.opencv.core.CvType;
 import org.opencv.core.Mat;
 import org.opencv.core.MatOfInt;
+import org.opencv.core.MatOfInt4;
 import org.opencv.core.MatOfPoint;
 import org.opencv.core.MatOfPoint2f;
 import org.opencv.core.Point;
@@ -50,6 +51,26 @@ public class ImagePreprocessor {
         new Point(CANONICAL[1].x * WARP_SCALE, CANONICAL[1].y * WARP_SCALE), // (16, 240)
         new Point(CANONICAL[2].x * WARP_SCALE, CANONICAL[2].y * WARP_SCALE)  // (240, 240)
     };
+
+    /**
+     * Пороги для оценки вогнутости контура.
+     * Если maxDepthNorm >= MAX_DEPTH_NORM_THRESHOLD или
+     *    sumDepthNorm >= SUM_DEPTH_NORM_THRESHOLD,
+     * контур считается «слишком вогнутым» и approxPolyDP используется только для дебага,
+     * а для warp берётся minEnclosingTriangle.
+     * Подбирайте на своих примерах.
+     */
+    private static final double MAX_DEPTH_NORM_THRESHOLD = 0.04;
+    private static final double SUM_DEPTH_NORM_THRESHOLD = 0.10;
+
+    // -------------------------------------------------------------------------
+    // Публичный record — результат оценки вогнутости
+    // -------------------------------------------------------------------------
+    public record ConcavityScore(double maxDepthNorm, double sumDepthNorm, int defectCount) {
+        public boolean isTooHighFor(double maxThresh, double sumThresh) {
+            return maxDepthNorm >= maxThresh || sumDepthNorm >= sumThresh;
+        }
+    }
 
     public static class PreprocessResult {
 
@@ -106,6 +127,86 @@ public class ImagePreprocessor {
 
         return new PreprocessResult(image, matrix);
     }
+
+    // =========================================================================
+    // Оценка вогнутости контура через convexityDefects
+    // =========================================================================
+
+    /**
+     * Вычисляет нормированные метрики вогнутости контура.
+     *
+     * <p>Использует {@code Imgproc.convexityDefects}: каждый дефект описывается
+     * как (startIdx, endIdx, farIdx, depth*256). Глубина нормируется на периметр
+     * выпуклой оболочки, чтобы быть независимой от масштаба фигуры.
+     *
+     * @param contour входной контур (MatOfPoint)
+     * @return ConcavityScore с maxDepthNorm, sumDepthNorm, defectCount
+     */
+    public ConcavityScore computeConcavityScore(MatOfPoint contour) {
+        // Строим выпуклую оболочку (индексы)
+        MatOfInt hullIdx = new MatOfInt();
+        Imgproc.convexHull(contour, hullIdx);
+
+        // convexityDefects требует, чтобы hull был отсортирован против часовой стрелки
+        // (OpenCV обычно даёт CW — убедимся в правильном порядке через флаг clockwise=false)
+        MatOfInt hullIdxCCW = new MatOfInt();
+        Imgproc.convexHull(contour, hullIdxCCW, false);
+
+        // Периметр hull для нормировки
+        int[] idxArr = hullIdxCCW.toArray();
+        Point[] allPts = contour.toArray();
+        double hullPerimeter = 0;
+        for (int i = 0; i < idxArr.length; i++) {
+            Point p1 = allPts[idxArr[i]];
+            Point p2 = allPts[idxArr[(i + 1) % idxArr.length]];
+            double dx = p2.x - p1.x;
+            double dy = p2.y - p1.y;
+            hullPerimeter += Math.sqrt(dx * dx + dy * dy);
+        }
+
+        if (hullPerimeter < 1.0) {
+            return new ConcavityScore(0, 0, 0);
+        }
+
+        MatOfInt4 defects = new MatOfInt4();
+        try {
+            Imgproc.convexityDefects(contour, hullIdxCCW, defects);
+        } catch (Exception e) {
+            // Контур слишком маленький или вырожденный
+            System.out.println("convexityDefects: " + e.getMessage());
+            return new ConcavityScore(0, 0, 0);
+        }
+
+        if (defects.empty()) {
+            return new ConcavityScore(0, 0, 0);
+        }
+
+        int[] d = defects.toArray();
+        int defectCount = d.length / 4;
+        double maxDepth = 0;
+        double sumDepth = 0;
+
+        for (int i = 0; i < defectCount; i++) {
+            // depth хранится как depth * 256 (fixed-point)
+            double depth = d[i * 4 + 3] / 256.0;
+            if (depth > maxDepth) maxDepth = depth;
+            sumDepth += depth;
+        }
+
+        double maxDepthNorm = maxDepth / hullPerimeter;
+        double sumDepthNorm = sumDepth / hullPerimeter;
+
+        System.out.printf(
+            "ConcavityScore: defects=%d  maxDepthNorm=%.4f  sumDepthNorm=%.4f%n",
+            defectCount, maxDepthNorm, sumDepthNorm
+        );
+
+        return new ConcavityScore(maxDepthNorm, sumDepthNorm, defectCount);
+    }
+
+    // =========================================================================
+    // Приватные методы обработки (без изменений, кроме approxTriangle)
+    // =========================================================================
 
     private Mat toGrayscale(Mat source) {
         Mat gray = new Mat();
@@ -358,7 +459,34 @@ public class ImagePreprocessor {
         return result;
     }
 
+    /**
+     * Аппроксимирует контур треугольником через approxPolyDP.
+     *
+     * <p><b>Новая логика (concavity-aware):</b><br>
+     * Перед запуском approxPolyDP вычисляется {@link ConcavityScore}.
+     * Если вогнутость превышает пороги ({@code MAX_DEPTH_NORM_THRESHOLD} /
+     * {@code SUM_DEPTH_NORM_THRESHOLD}), контур считается слишком ломаным:
+     * approxPolyDP выполняется для дебага, но возвращается {@code null},
+     * что переключает {@code alignToCanonical} на minEnclosingTriangle.
+     * При низкой вогнутости работает прежняя логика.
+     *
+     * @param contour   контур фигуры
+     * @param debugName имя папки для дебаг-сохранения
+     * @return массив из 3 точек или {@code null} для fallback
+     */
     private Point[] approxTriangle(MatOfPoint contour, String debugName) {
+        // --- Оценка вогнутости ---
+        ConcavityScore cs = computeConcavityScore(contour);
+        boolean tooConcave = cs.isTooHighFor(MAX_DEPTH_NORM_THRESHOLD, SUM_DEPTH_NORM_THRESHOLD);
+
+        if (tooConcave) {
+            System.out.printf(
+                "Контур слишком вогнутый (maxDepthNorm=%.4f, sumDepthNorm=%.4f, defects=%d) → fallback%n",
+                cs.maxDepthNorm(), cs.sumDepthNorm(), cs.defectCount()
+            );
+        }
+
+        // --- Строим hull для approxPolyDP (как раньше) ---
         MatOfInt hullIdx = new MatOfInt();
         Imgproc.convexHull(contour, hullIdx);
         int[] idx = hullIdx.toArray();
@@ -370,34 +498,50 @@ public class ImagePreprocessor {
         MatOfPoint2f contour2f = new MatOfPoint2f(hullPts);
         double perimeter = Imgproc.arcLength(contour2f, true);
 
+        Point[] approxPts = null;
+
+        outer:
         for (int pct = 10; pct >= 1; pct--) {
             double epsilon = (pct / 100.0) * perimeter;
             MatOfPoint2f approx = new MatOfPoint2f();
             Imgproc.approxPolyDP(contour2f, approx, epsilon, true);
             if (approx.rows() == 3) {
-                Point[] pts = approx.toArray();
+                approxPts = approx.toArray();
                 System.out.println("approxPolyDP (hull): 3 точки при epsilon=" + String.format("%.1f", epsilon)
                         + " (" + pct + "% периметра)");
-                saveApproxPreview(contour, pts, debugName, "05b_approx_triangle.png");
-                return pts;
+                break outer;
             }
         }
 
-        for (int tenths = 9; tenths >= 5; tenths--) {
-            double epsilon = (tenths / 1000.0) * perimeter;
-            MatOfPoint2f approx = new MatOfPoint2f();
-            Imgproc.approxPolyDP(contour2f, approx, epsilon, true);
-            if (approx.rows() == 3) {
-                Point[] pts = approx.toArray();
-                System.out.println("approxPolyDP (hull): 3 точки при epsilon=" + String.format("%.1f", epsilon)
-                        + " (0." + tenths + "% периметра)");
-                saveApproxPreview(contour, pts, debugName, "05b_approx_triangle.png");
-                return pts;
+        if (approxPts == null) {
+            for (int tenths = 9; tenths >= 5; tenths--) {
+                double epsilon = (tenths / 1000.0) * perimeter;
+                MatOfPoint2f approx = new MatOfPoint2f();
+                Imgproc.approxPolyDP(contour2f, approx, epsilon, true);
+                if (approx.rows() == 3) {
+                    approxPts = approx.toArray();
+                    System.out.println("approxPolyDP (hull): 3 точки при epsilon=" + String.format("%.1f", epsilon)
+                            + " (0." + tenths + "% периметра)");
+                    break;
+                }
             }
         }
 
-        System.out.println("approxPolyDP (hull): не удалось получить 3 точки (периметр=" + String.format("%.1f", perimeter) + ")");
-        return null;
+        if (approxPts == null) {
+            System.out.println("approxPolyDP (hull): не удалось получить 3 точки (периметр=" + String.format("%.1f", perimeter) + ")");
+            return null;
+        }
+
+        // Всегда сохраняем approx для дебага
+        saveApproxPreview(contour, approxPts, debugName, "05b_approx_triangle.png");
+
+        // Если вогнутость высокая — approx идёт только в дебаг, возвращаем null → fallback
+        if (tooConcave) {
+            System.out.println("approxPolyDP сохранён для дебага, но для warp используется fallback (высокая вогнутость)");
+            return null;
+        }
+
+        return approxPts;
     }
 
     private Point[] readTrianglePoints(Mat triangle) {
@@ -584,7 +728,7 @@ public class ImagePreprocessor {
     }
 
     private String sanitizeFileName(String name) {
-        return name.replaceAll("[^a-zA-Z0-9._\\-]", "_");
+        return name.replaceAll("[^a-zA-Z0-9._\\\\-]", "_");
     }
 
     private double[][] imageToMatrix(BufferedImage image) {
