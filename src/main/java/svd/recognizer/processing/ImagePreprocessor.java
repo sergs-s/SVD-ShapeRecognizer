@@ -132,12 +132,12 @@ public class ImagePreprocessor {
                 Imgproc.MORPH_RECT, new Size(3, 3));
 
         Mat dilated = new Mat();
-        Mat closed  = new Mat();
-        Mat opened  = new Mat();
+        Mat closed = new Mat();
+        Mat opened = new Mat();
 
         Imgproc.dilate(binary, dilated, kernelDilate);
         Imgproc.morphologyEx(dilated, closed, Imgproc.MORPH_CLOSE, kernelClose);
-        Imgproc.morphologyEx(closed,  opened, Imgproc.MORPH_OPEN,  kernelOpen);
+        Imgproc.morphologyEx(closed, opened, Imgproc.MORPH_OPEN, kernelOpen);
 
         return opened;
     }
@@ -173,7 +173,7 @@ public class ImagePreprocessor {
 
         int x = Math.max(0, rect.x - BBOX_PADDING);
         int y = Math.max(0, rect.y - BBOX_PADDING);
-        int w = Math.min(binary.cols() - x, rect.width  + 2 * BBOX_PADDING);
+        int w = Math.min(binary.cols() - x, rect.width + 2 * BBOX_PADDING);
         int h = Math.min(binary.rows() - y, rect.height + 2 * BBOX_PADDING);
 
         Mat roi = new Mat(binary, new Rect(x, y, w, h)).clone();
@@ -261,13 +261,12 @@ public class ImagePreprocessor {
                     new Scalar(0)
             );
 
-            // Восстановить бинарность после интерполяции warpAffine:
-            // INTER_NEAREST не даёт серых, но threshold оставляем как страховку.
+// Восстановить бинарность после интерполяции warpAffine:
+// INTER_NEAREST не даёт серых, но threshold оставляем как страховку.
             Imgproc.threshold(warped, warped, 64, 255, Imgproc.THRESH_BINARY);
-
+            warped = removeSmallComponents(warped, 6);
 
             saveDebugMat(debugName, String.format("perm_%d.png", i), warped);
-
             double score = scoreTriangleAlignment(warped);
             System.out.println("perm " + i + " score = " + score);
 
@@ -320,7 +319,9 @@ public class ImagePreprocessor {
             Point[] pts = new Point[3];
             for (int i = 0; i < 3; i++) {
                 double[] v = triangle.get(i, 0);
-                if (v == null || v.length < 2) return null;
+                if (v == null || v.length < 2) {
+                    return null;
+                }
                 pts[i] = new Point(v[0], v[1]);
             }
             return pts;
@@ -331,7 +332,9 @@ public class ImagePreprocessor {
             for (int i = 0; i < 3; i++) {
                 double[] x = triangle.get(i, 0);
                 double[] y = triangle.get(i, 1);
-                if (x == null || y == null) return null;
+                if (x == null || y == null) {
+                    return null;
+                }
                 pts[i] = new Point(x[0], y[0]);
             }
             return pts;
@@ -341,7 +344,9 @@ public class ImagePreprocessor {
             Point[] pts = new Point[3];
             for (int i = 0; i < 3; i++) {
                 double[] v = triangle.get(0, i);
-                if (v == null || v.length < 2) return null;
+                if (v == null || v.length < 2) {
+                    return null;
+                }
                 pts[i] = new Point(v[0], v[1]);
             }
             return pts;
@@ -364,10 +369,38 @@ public class ImagePreprocessor {
         };
     }
 
+    private Mat removeSmallComponents(Mat binary, int minArea) {
+        Mat labels = new Mat();
+        Mat stats = new Mat();
+        Mat centroids = new Mat();
+
+        int n = Imgproc.connectedComponentsWithStats(
+                binary,
+                labels,
+                stats,
+                centroids,
+                8,
+                CvType.CV_32S
+        );
+
+        Mat cleaned = Mat.zeros(binary.size(), CvType.CV_8UC1);
+
+        for (int label = 1; label < n; label++) {
+            int area = (int) stats.get(label, Imgproc.CC_STAT_AREA)[0];
+            if (area >= minArea) {
+                Mat mask = new Mat();
+                Core.compare(labels, new Scalar(label), mask, Core.CMP_EQ);
+                cleaned.setTo(new Scalar(255), mask);
+            }
+        }
+
+        return cleaned;
+    }
+
     private double scoreTriangleAlignment(Mat img) {
         Mat mask = buildCanonicalMask();
 
-        double inside  = 0.0;
+        double inside = 0.0;
         double outside = 0.0;
 
         for (int y = 0; y < img.rows(); y++) {
@@ -375,11 +408,11 @@ public class ImagePreprocessor {
                 double[] pv = img.get(y, x);
                 double[] mv = mask.get(y, x);
 
-                double value     = (pv == null) ? 0.0 : pv[0];
+                double value = (pv == null) ? 0.0 : pv[0];
                 double maskValue = (mv == null) ? 0.0 : mv[0];
 
                 if (maskValue > 0) {
-                    inside  += value;
+                    inside += value;
                 } else {
                     outside += value;
                 }
@@ -401,9 +434,10 @@ public class ImagePreprocessor {
     }
 
     // ─── Debug helpers ────────────────────────────────────────────────────────
-
     private void saveDebugMat(String folderName, String fileName, Mat mat) {
-        if (!DEBUG_SAVE || mat == null || mat.empty()) return;
+        if (!DEBUG_SAVE || mat == null || mat.empty()) {
+            return;
+        }
 
         try {
             Path dir = Paths.get(DEBUG_DIR, folderName);
@@ -427,7 +461,9 @@ public class ImagePreprocessor {
     }
 
     private void saveContourPreview(Mat binary, MatOfPoint contour, String folderName, String fileName) {
-        if (!DEBUG_SAVE || binary == null || binary.empty() || contour == null) return;
+        if (!DEBUG_SAVE || binary == null || binary.empty() || contour == null) {
+            return;
+        }
 
         Mat preview = new Mat();
         Imgproc.cvtColor(binary, preview, Imgproc.COLOR_GRAY2BGR);
@@ -446,12 +482,14 @@ public class ImagePreprocessor {
     }
 
     private void saveApproxPreview(MatOfPoint contour, Point[] pts, String folderName, String fileName) {
-        if (!DEBUG_SAVE || contour == null || pts == null || pts.length != 3) return;
+        if (!DEBUG_SAVE || contour == null || pts == null || pts.length != 3) {
+            return;
+        }
 
         Rect rect = Imgproc.boundingRect(contour);
         Mat preview = Mat.zeros(
                 rect.y + rect.height + BBOX_PADDING,
-                rect.x + rect.width  + BBOX_PADDING,
+                rect.x + rect.width + BBOX_PADDING,
                 CvType.CV_8UC3
         );
 
@@ -475,10 +513,14 @@ public class ImagePreprocessor {
     }
 
     private void saveTrianglePreview(Mat binary, Mat triangle, String folderName, String fileName) {
-        if (!DEBUG_SAVE || binary == null || binary.empty()) return;
+        if (!DEBUG_SAVE || binary == null || binary.empty()) {
+            return;
+        }
 
         Point[] pts = readTrianglePoints(triangle);
-        if (pts == null) return;
+        if (pts == null) {
+            return;
+        }
 
         Mat preview = new Mat();
         Imgproc.cvtColor(binary, preview, Imgproc.COLOR_GRAY2BGR);
