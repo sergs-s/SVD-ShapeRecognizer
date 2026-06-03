@@ -456,7 +456,41 @@ public class ImagePreprocessor {
         Mat result = new Mat();
         Imgproc.resize(cropped, result, new Size(OUTPUT_SIZE, OUTPUT_SIZE), 0, 0, Imgproc.INTER_AREA);
         Imgproc.threshold(result, result, 64, 255, Imgproc.THRESH_BINARY);
-        return result;
+        return centerOnMass(result);
+    }
+
+    /**
+     * Сдвигает бинарное изображение так, чтобы центр масс контура оказался
+     * в геометрическом центре холста (cols/2, rows/2).
+     *
+     * <p>Использует нулевой (m00) и первые (m10, m01) моменты для вычисления
+     * centroid, затем применяет целочисленный сдвиг через warpAffine.
+     * Инвариантен к форме — одинаково корректен для треугольников, прямоугольников
+     * и кругов. При пустом изображении возвращает оригинал без изменений.
+     *
+     * @param binary бинарное изображение CV_8UC1 (0/255)
+     * @return центрированное изображение того же размера
+     */
+    private Mat centerOnMass(Mat binary) {
+        org.opencv.core.Moments m = Imgproc.moments(binary, true);
+        if (m.get_m00() < 1.0) return binary;
+
+        double cx = m.get_m10() / m.get_m00();
+        double cy = m.get_m01() / m.get_m00();
+
+        double tx = binary.cols() / 2.0 - cx;
+        double ty = binary.rows() / 2.0 - cy;
+
+        Mat T = Mat.eye(2, 3, CvType.CV_64F);
+        T.put(0, 2, tx);
+        T.put(1, 2, ty);
+
+        Mat centered = new Mat();
+        Imgproc.warpAffine(binary, centered, T,
+                binary.size(), Imgproc.INTER_NEAREST,
+                Core.BORDER_CONSTANT, new Scalar(0));
+        Imgproc.threshold(centered, centered, 64, 255, Imgproc.THRESH_BINARY);
+        return centered;
     }
 
     /**
