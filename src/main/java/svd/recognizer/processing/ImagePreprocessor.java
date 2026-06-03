@@ -136,13 +136,10 @@ public class ImagePreprocessor {
         int w = Math.min(binary.cols() - x, rect.width + 2 * BBOX_PADDING);
         int h = Math.min(binary.rows() - y, rect.height + 2 * BBOX_PADDING);
 
-        Mat roi = new Mat(binary, new Rect(x, y, w, h)).clone();
-
-        Mat kernelDenoise = Imgproc.getStructuringElement(Imgproc.MORPH_ELLIPSE, new Size(7, 7));
-        Mat denoised = new Mat();
-        Imgproc.morphologyEx(roi, denoised, Imgproc.MORPH_OPEN, kernelDenoise);
-
-        return denoised;
+        // Возвращаем кроп без дополнительного MORPH_OPEN:
+        // MORPH_OPEN 7x7 убивает тонкие линии (~2-3px) треугольника.
+        // Шум уже удалён на шаге morphClean (3x3).
+        return new Mat(binary, new Rect(x, y, w, h)).clone();
     }
 
     private Mat buildCanonicalMask() {
