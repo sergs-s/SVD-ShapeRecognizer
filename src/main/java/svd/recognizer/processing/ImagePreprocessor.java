@@ -14,6 +14,7 @@ import java.util.List;
 import org.opencv.core.Core;
 import org.opencv.core.CvType;
 import org.opencv.core.Mat;
+import org.opencv.core.MatOfInt;
 import org.opencv.core.MatOfPoint;
 import org.opencv.core.MatOfPoint2f;
 import org.opencv.core.Point;
@@ -21,7 +22,6 @@ import org.opencv.core.Rect;
 import org.opencv.core.Scalar;
 import org.opencv.core.Size;
 import org.opencv.imgcodecs.Imgcodecs;
-import org.opencv.imgproc.CLAHE;
 import org.opencv.imgproc.Imgproc;
 
 public class ImagePreprocessor {
@@ -221,8 +221,23 @@ public class ImagePreprocessor {
         return best;
     }
 
+    /**
+     * Аппроксимируем треугольник из контура.
+     * Для вогнутых / невыпуклых контуров (напр., triangle2) сначала
+     * строим выпуклую оболочку — это даёт чистый выпуклый полигон
+     * вместо вогнутого контура, и approxPolyDP уже легко даёт 3 точки.
+     */
     private Point[] approxTriangle(MatOfPoint contour, String debugName) {
-        MatOfPoint2f contour2f = new MatOfPoint2f(contour.toArray());
+        // Строим выпуклую оболочку — убирает вогнутость на гранях triangle2
+        MatOfInt hullIdx = new MatOfInt();
+        Imgproc.convexHull(contour, hullIdx);
+        int[] idx = hullIdx.toArray();
+        Point[] allPts = contour.toArray();
+        Point[] hullPts = new Point[idx.length];
+        for (int i = 0; i < idx.length; i++) {
+            hullPts[i] = allPts[idx[i]];
+        }
+        MatOfPoint2f contour2f = new MatOfPoint2f(hullPts);
         double perimeter = Imgproc.arcLength(contour2f, true);
 
         // Шаг 1: грубые значения 10%..1%
@@ -233,14 +248,14 @@ public class ImagePreprocessor {
 
             if (approx.rows() == 3) {
                 Point[] pts = approx.toArray();
-                System.out.println("approxPolyDP: 3 точки при epsilon=" + String.format("%.1f", epsilon)
+                System.out.println("approxPolyDP (hull): 3 точки при epsilon=" + String.format("%.1f", epsilon)
                         + " (" + pct + "% периметра)");
                 saveApproxPreview(contour, pts, debugName, "05b_approx_triangle.png");
                 return pts;
             }
         }
 
-        // Шаг 2: мелкие значения 0.9%..0.5% — для сложных контуров (перевёрнутые, вогнутые)
+        // Шаг 2: мелкие значения 0.9%..0.5%
         for (int tenths = 9; tenths >= 5; tenths--) {
             double epsilon = (tenths / 1000.0) * perimeter;
             MatOfPoint2f approx = new MatOfPoint2f();
@@ -248,14 +263,14 @@ public class ImagePreprocessor {
 
             if (approx.rows() == 3) {
                 Point[] pts = approx.toArray();
-                System.out.println("approxPolyDP: 3 точки при epsilon=" + String.format("%.1f", epsilon)
+                System.out.println("approxPolyDP (hull): 3 точки при epsilon=" + String.format("%.1f", epsilon)
                         + " (0." + tenths + "% периметра)");
                 saveApproxPreview(contour, pts, debugName, "05b_approx_triangle.png");
                 return pts;
             }
         }
 
-        System.out.println("approxPolyDP: не удалось получить 3 точки (периметр=" + String.format("%.1f", perimeter) + ")");
+        System.out.println("approxPolyDP (hull): не удалось получить 3 точки (периметр=" + String.format("%.1f", perimeter) + ")");
         return null;
     }
 
@@ -294,31 +309,28 @@ public class ImagePreprocessor {
         return pts.size() == 3 ? pts.toArray(new Point[0]) : null;
     }
 
+    /**
+     * Нейтральная метрика выравнивания: пересечение с дилатированной канонической маской.
+     * Не зависит от ориентации треугольника — правильно выбирает любую пермутацию.
+     */
     private double scoreTriangleAlignment(Mat warped) {
         if (warped.empty()) return Double.NEGATIVE_INFINITY;
 
-        int sz = OUTPUT_SIZE;
-        double score = 0;
+        // Дилатируем каноническую маску на ±4px — допуск на погрешность warp
+        Mat canonical = buildCanonicalMask();
+        Mat kernel = Imgproc.getStructuringElement(Imgproc.MORPH_RECT, new Size(9, 9));
+        Mat dilated = new Mat();
+        Imgproc.dilate(canonical, dilated, kernel);
 
-        for (int row = 0; row < warped.rows(); row++) {
-            for (int col = 0; col < warped.cols(); col++) {
-                double pixel = warped.get(row, col)[0];
-                if (pixel < 128) continue;
+        Mat intersection = new Mat();
+        Core.bitwise_and(warped, dilated, intersection);
 
-                double expectedHalfWidth = (row / (double) sz) * (sz / 2.0);
-                double centerCol = sz / 2.0;
-                double leftBound = centerCol - expectedHalfWidth;
-                double rightBound = centerCol + expectedHalfWidth;
+        double hits = Core.countNonZero(intersection);
+        double total = Core.countNonZero(warped);
+        if (total == 0) return Double.NEGATIVE_INFINITY;
 
-                if (col >= leftBound && col <= rightBound) {
-                    score += 1.0;
-                } else {
-                    score -= 0.5;
-                }
-            }
-        }
-
-        return score;
+        // Награда за пиксели внутри дилатированной маски, штраф за выбросы за её пределы
+        return hits - (total - hits) * 2.0;
     }
 
     private Point[][] permutations(Point[] pts) {
