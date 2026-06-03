@@ -429,7 +429,9 @@ public class ImagePreprocessor {
                 })
                 .orElse(new Rect(0, 0, big.cols(), big.rows()));
 
-        int pad = 4;
+        // pad=16 (было 4): гарантирует, что вершина не окажется на краю холста
+        // после downscale 256→64, откуда centerOnMass её выталкивал за пределы.
+        int pad = 16;
         int x = Math.max(0, bbox.x - pad);
         int y = Math.max(0, bbox.y - pad);
         int w = Math.min(big.cols() - x, bbox.width  + 2 * pad);
@@ -439,13 +441,15 @@ public class ImagePreprocessor {
         Mat result = new Mat();
         Imgproc.resize(cropped, result, new Size(OUTPUT_SIZE, OUTPUT_SIZE), 0, 0, Imgproc.INTER_AREA);
         Imgproc.threshold(result, result, 64, 255, Imgproc.THRESH_BINARY);
-        return centerOnMass(result);
+        // centerOnMass убран: он сдвигал вершину за пределы холста (top_row=0, ty<0)
+        return result;
     }
 
     /**
      * Сдвигает бинарное изображение так, чтобы центр масс оказался
      * в центре холста (cols/2, rows/2).
      * При пустом изображении возвращает оригинал без изменений.
+     * Метод сохранён для возможного использования в будущем.
      */
     private Mat centerOnMass(Mat binary) {
         Moments m = Imgproc.moments(binary, true);
