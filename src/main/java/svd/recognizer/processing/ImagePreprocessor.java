@@ -27,16 +27,26 @@ import org.opencv.imgproc.Imgproc;
 public class ImagePreprocessor {
 
     public static final int OUTPUT_SIZE = 64;
-    // Увеличен с 12 до 24: вершины треугольника не вылетают за край холста при warpAffine
     private static final int BBOX_PADDING = 24;
 
     private static final boolean DEBUG_SAVE = true;
     private static final String DEBUG_DIR = "debug-preprocess";
 
+    // Канонические точки для финального 64x64 холста
     private static final Point[] CANONICAL = {
         new Point(32, 4),
         new Point(4, 60),
         new Point(60, 60)
+    };
+
+    // Увеличенный холст для warpAffine — чтобы грани не вылетали за край
+    private static final int WARP_SCALE = 3;
+    private static final int WARP_SIZE  = OUTPUT_SIZE * WARP_SCALE; // 192
+
+    private static final Point[] CANONICAL_BIG = {
+        new Point(CANONICAL[0].x * WARP_SCALE, CANONICAL[0].y * WARP_SCALE), // (96, 12)
+        new Point(CANONICAL[1].x * WARP_SCALE, CANONICAL[1].y * WARP_SCALE), // (12, 180)
+        new Point(CANONICAL[2].x * WARP_SCALE, CANONICAL[2].y * WARP_SCALE)  // (180, 180)
     };
 
     public static class PreprocessResult {
@@ -136,9 +146,6 @@ public class ImagePreprocessor {
         int w = Math.min(binary.cols() - x, rect.width + 2 * BBOX_PADDING);
         int h = Math.min(binary.rows() - y, rect.height + 2 * BBOX_PADDING);
 
-        // Возвращаем кроп без дополнительного MORPH_OPEN:
-        // MORPH_OPEN 7x7 убивает тонкие линии (~2-3px) треугольника.
-        // Шум уже удалён на шаге morphClean (3x3).
         return new Mat(binary, new Rect(x, y, w, h)).clone();
     }
 
@@ -189,25 +196,27 @@ public class ImagePreprocessor {
 
         for (int i = 0; i < perms.length; i++) {
             MatOfPoint2f src = new MatOfPoint2f(perms[i]);
-            MatOfPoint2f dst = new MatOfPoint2f(CANONICAL);
+            MatOfPoint2f dst = new MatOfPoint2f(CANONICAL_BIG);
             Mat transform = Imgproc.getAffineTransform(src, dst);
 
-            Mat warped = new Mat();
-            Imgproc.warpAffine(binary, warped, transform,
-                    new Size(OUTPUT_SIZE, OUTPUT_SIZE),
+            Mat warpedBig = new Mat();
+            Imgproc.warpAffine(binary, warpedBig, transform,
+                    new Size(WARP_SIZE, WARP_SIZE),
                     Imgproc.INTER_NEAREST, Core.BORDER_CONSTANT, new Scalar(0));
 
-            Imgproc.threshold(warped, warped, 64, 255, Imgproc.THRESH_BINARY);
-            warped = removeSmallComponents(warped, 6);
+            Imgproc.threshold(warpedBig, warpedBig, 64, 255, Imgproc.THRESH_BINARY);
+            warpedBig = removeSmallComponents(warpedBig, 6 * WARP_SCALE * WARP_SCALE);
 
-            saveDebugMat(debugName, String.format("perm_%d.png", i), warped);
+            saveDebugMat(debugName, String.format("perm_%d.png", i), warpedBig);
 
-            double score = scoreTriangleAlignment(warped);
+            // Лучшая пермутация — та, где больше белых пикселей:
+            // больше пикселей = меньше граней вылетело за пределы холста
+            double score = Core.countNonZero(warpedBig);
             System.out.println("perm " + i + " score = " + score);
 
             if (score > bestScore) {
                 bestScore = score;
-                best = warped.clone();
+                best = warpedBig.clone();
                 bestIndex = i;
             }
         }
@@ -218,17 +227,56 @@ public class ImagePreprocessor {
             return resizeToOutput(binary);
         }
 
-        return best;
+        // Кроп по содержимому на большом холсте → resize до OUTPUT_SIZE
+        return cropToBboxAndResize(best);
+    }
+
+    /**
+     * После выбора лучшей пермутации: находим bbox всех контуров на большом холсте,
+     * делаем точный кроп с небольшим паддингом, ресайзим до 64x64.
+     * Это сохраняет все грани и не режет то, что вылетело бы при прямом варпе в 64x64.
+     */
+    private Mat cropToBboxAndResize(Mat big) {
+        List<MatOfPoint> contours = new ArrayList<>();
+        Imgproc.findContours(big.clone(), contours, new Mat(),
+                Imgproc.RETR_EXTERNAL, Imgproc.CHAIN_APPROX_SIMPLE);
+
+        if (contours.isEmpty()) {
+            return resizeToOutput(big);
+        }
+
+        // Объединяем bbox всех контуров
+        Rect bbox = contours.stream()
+                .map(Imgproc::boundingRect)
+                .reduce((a, b) -> {
+                    int x  = Math.min(a.x, b.x);
+                    int y  = Math.min(a.y, b.y);
+                    int x2 = Math.max(a.x + a.width,  b.x + b.width);
+                    int y2 = Math.max(a.y + a.height, b.y + b.height);
+                    return new Rect(x, y, x2 - x, y2 - y);
+                })
+                .orElse(new Rect(0, 0, big.cols(), big.rows()));
+
+        int pad = 4;
+        int x = Math.max(0, bbox.x - pad);
+        int y = Math.max(0, bbox.y - pad);
+        int w = Math.min(big.cols() - x, bbox.width  + 2 * pad);
+        int h = Math.min(big.rows() - y, bbox.height + 2 * pad);
+
+        Mat cropped = new Mat(big, new Rect(x, y, w, h));
+        Mat result = new Mat();
+        // INTER_AREA лучше сохраняет тонкие линии при уменьшении
+        Imgproc.resize(cropped, result, new Size(OUTPUT_SIZE, OUTPUT_SIZE), 0, 0, Imgproc.INTER_AREA);
+        Imgproc.threshold(result, result, 64, 255, Imgproc.THRESH_BINARY);
+        return result;
     }
 
     /**
      * Аппроксимируем треугольник из контура.
-     * Для вогнутых / невыпуклых контуров (напр., triangle2) сначала
-     * строим выпуклую оболочку — это даёт чистый выпуклый полигон
-     * вместо вогнутого контура, и approxPolyDP уже легко даёт 3 точки.
+     * Для вогнутых / невыпуклых контуров сначала строим выпуклую оболочку —
+     * это даёт чистый выпуклый полигон, и approxPolyDP легко даёт 3 точки.
      */
     private Point[] approxTriangle(MatOfPoint contour, String debugName) {
-        // Строим выпуклую оболочку — убирает вогнутость на гранях triangle2
         MatOfInt hullIdx = new MatOfInt();
         Imgproc.convexHull(contour, hullIdx);
         int[] idx = hullIdx.toArray();
@@ -307,30 +355,6 @@ public class ImagePreprocessor {
             }
         }
         return pts.size() == 3 ? pts.toArray(new Point[0]) : null;
-    }
-
-    /**
-     * Нейтральная метрика выравнивания: пересечение с дилатированной канонической маской.
-     * Не зависит от ориентации треугольника — правильно выбирает любую пермутацию.
-     */
-    private double scoreTriangleAlignment(Mat warped) {
-        if (warped.empty()) return Double.NEGATIVE_INFINITY;
-
-        // Дилатируем каноническую маску на ±4px — допуск на погрешность warp
-        Mat canonical = buildCanonicalMask();
-        Mat kernel = Imgproc.getStructuringElement(Imgproc.MORPH_RECT, new Size(9, 9));
-        Mat dilated = new Mat();
-        Imgproc.dilate(canonical, dilated, kernel);
-
-        Mat intersection = new Mat();
-        Core.bitwise_and(warped, dilated, intersection);
-
-        double hits = Core.countNonZero(intersection);
-        double total = Core.countNonZero(warped);
-        if (total == 0) return Double.NEGATIVE_INFINITY;
-
-        // Награда за пиксели внутри дилатированной маски, штраф за выбросы за её пределы
-        return hits - (total - hits) * 2.0;
     }
 
     private Point[][] permutations(Point[] pts) {
