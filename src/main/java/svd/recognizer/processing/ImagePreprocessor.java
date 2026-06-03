@@ -32,21 +32,24 @@ public class ImagePreprocessor {
     private static final boolean DEBUG_SAVE = true;
     private static final String DEBUG_DIR = "debug-preprocess";
 
-    // Канонические точки для финального 64x64 холста
     private static final Point[] CANONICAL = {
         new Point(32, 4),
         new Point(4, 60),
         new Point(60, 60)
     };
 
-    // Увеличенный холст для warpAffine — чтобы грани не вылетали за край
+    // Нормализованный холст перед affine-обработкой: любой треугольник сначала
+    // приводим к примерно одинаковому масштабу, чтобы он занимал схожую площадь.
+    private static final int NORMALIZED_SHAPE_SIZE = 180;
+    private static final int NORMALIZED_PADDING = 12;
+
     private static final int WARP_SCALE = 3;
     private static final int WARP_SIZE  = OUTPUT_SIZE * WARP_SCALE; // 192
 
     private static final Point[] CANONICAL_BIG = {
-        new Point(CANONICAL[0].x * WARP_SCALE, CANONICAL[0].y * WARP_SCALE), // (96, 12)
-        new Point(CANONICAL[1].x * WARP_SCALE, CANONICAL[1].y * WARP_SCALE), // (12, 180)
-        new Point(CANONICAL[2].x * WARP_SCALE, CANONICAL[2].y * WARP_SCALE)  // (180, 180)
+        new Point(CANONICAL[0].x * WARP_SCALE, CANONICAL[0].y * WARP_SCALE),
+        new Point(CANONICAL[1].x * WARP_SCALE, CANONICAL[1].y * WARP_SCALE),
+        new Point(CANONICAL[2].x * WARP_SCALE, CANONICAL[2].y * WARP_SCALE)
     };
 
     public static class PreprocessResult {
@@ -90,10 +93,13 @@ public class ImagePreprocessor {
         Mat cropped = extractROI(cleaned);
         saveDebugMat(debugName, "04_cropped.png", cropped);
 
+        Mat normalized = normalizeScale(cropped);
+        saveDebugMat(debugName, "04b_normalized.png", normalized);
+
         Mat canonicalMask = buildCanonicalMask();
         saveDebugMat(debugName, "05_canonical_mask.png", canonicalMask);
 
-        Mat aligned = alignToCanonical(cropped, debugName);
+        Mat aligned = alignToCanonical(normalized, debugName);
         saveDebugMat(debugName, "06_best_aligned.png", aligned);
 
         BufferedImage image = matToBufferedImage(aligned);
@@ -147,6 +153,54 @@ public class ImagePreprocessor {
         int h = Math.min(binary.rows() - y, rect.height + 2 * BBOX_PADDING);
 
         return new Mat(binary, new Rect(x, y, w, h)).clone();
+    }
+
+    /**
+     * Любой треугольник любого размера приводим к единому масштабу:
+     * сначала находим bbox содержимого, затем масштабируем так, чтобы
+     * max(width, height) ~= NORMALIZED_SHAPE_SIZE, и добавляем паддинг.
+     */
+    private Mat normalizeScale(Mat binary) {
+        List<MatOfPoint> contours = new ArrayList<>();
+        Imgproc.findContours(binary.clone(), contours, new Mat(),
+                Imgproc.RETR_EXTERNAL, Imgproc.CHAIN_APPROX_SIMPLE);
+
+        if (contours.isEmpty()) {
+            return binary;
+        }
+
+        Rect bbox = contours.stream()
+                .map(Imgproc::boundingRect)
+                .reduce((a, b) -> {
+                    int x  = Math.min(a.x, b.x);
+                    int y  = Math.min(a.y, b.y);
+                    int x2 = Math.max(a.x + a.width,  b.x + b.width);
+                    int y2 = Math.max(a.y + a.height, b.y + b.height);
+                    return new Rect(x, y, x2 - x, y2 - y);
+                })
+                .orElse(new Rect(0, 0, binary.cols(), binary.rows()));
+
+        int x = Math.max(0, bbox.x);
+        int y = Math.max(0, bbox.y);
+        int w = Math.min(binary.cols() - x, bbox.width);
+        int h = Math.min(binary.rows() - y, bbox.height);
+
+        Mat cropped = new Mat(binary, new Rect(x, y, w, h)).clone();
+
+        double scale = (double) NORMALIZED_SHAPE_SIZE / Math.max(cropped.cols(), cropped.rows());
+        int newW = Math.max(1, (int) Math.round(cropped.cols() * scale));
+        int newH = Math.max(1, (int) Math.round(cropped.rows() * scale));
+
+        Mat resized = new Mat();
+        Imgproc.resize(cropped, resized, new Size(newW, newH), 0, 0, Imgproc.INTER_AREA);
+        Imgproc.threshold(resized, resized, 64, 255, Imgproc.THRESH_BINARY);
+
+        Mat padded = new Mat();
+        Core.copyMakeBorder(resized, padded,
+                NORMALIZED_PADDING, NORMALIZED_PADDING,
+                NORMALIZED_PADDING, NORMALIZED_PADDING,
+                Core.BORDER_CONSTANT, new Scalar(0));
+        return padded;
     }
 
     private Mat buildCanonicalMask() {
@@ -209,8 +263,8 @@ public class ImagePreprocessor {
 
             saveDebugMat(debugName, String.format("perm_%d.png", i), warpedBig);
 
-            // Лучшая пермутация — та, где больше белых пикселей:
-            // больше пикселей = меньше граней вылетело за пределы холста
+            // После normalizeScale все треугольники имеют сопоставимый масштаб,
+            // поэтому countNonZero снова становится корректной и простой метрикой.
             double score = Core.countNonZero(warpedBig);
             System.out.println("perm " + i + " score = " + score);
 
@@ -227,15 +281,9 @@ public class ImagePreprocessor {
             return resizeToOutput(binary);
         }
 
-        // Кроп по содержимому на большом холсте → resize до OUTPUT_SIZE
         return cropToBboxAndResize(best);
     }
 
-    /**
-     * После выбора лучшей пермутации: находим bbox всех контуров на большом холсте,
-     * делаем точный кроп с небольшим паддингом, ресайзим до 64x64.
-     * Это сохраняет все грани и не режет то, что вылетело бы при прямом варпе в 64x64.
-     */
     private Mat cropToBboxAndResize(Mat big) {
         List<MatOfPoint> contours = new ArrayList<>();
         Imgproc.findContours(big.clone(), contours, new Mat(),
@@ -245,7 +293,6 @@ public class ImagePreprocessor {
             return resizeToOutput(big);
         }
 
-        // Объединяем bbox всех контуров
         Rect bbox = contours.stream()
                 .map(Imgproc::boundingRect)
                 .reduce((a, b) -> {
@@ -265,17 +312,11 @@ public class ImagePreprocessor {
 
         Mat cropped = new Mat(big, new Rect(x, y, w, h));
         Mat result = new Mat();
-        // INTER_AREA лучше сохраняет тонкие линии при уменьшении
         Imgproc.resize(cropped, result, new Size(OUTPUT_SIZE, OUTPUT_SIZE), 0, 0, Imgproc.INTER_AREA);
         Imgproc.threshold(result, result, 64, 255, Imgproc.THRESH_BINARY);
         return result;
     }
 
-    /**
-     * Аппроксимируем треугольник из контура.
-     * Для вогнутых / невыпуклых контуров сначала строим выпуклую оболочку —
-     * это даёт чистый выпуклый полигон, и approxPolyDP легко даёт 3 точки.
-     */
     private Point[] approxTriangle(MatOfPoint contour, String debugName) {
         MatOfInt hullIdx = new MatOfInt();
         Imgproc.convexHull(contour, hullIdx);
@@ -288,7 +329,6 @@ public class ImagePreprocessor {
         MatOfPoint2f contour2f = new MatOfPoint2f(hullPts);
         double perimeter = Imgproc.arcLength(contour2f, true);
 
-        // Шаг 1: грубые значения 10%..1%
         for (int pct = 10; pct >= 1; pct--) {
             double epsilon = (pct / 100.0) * perimeter;
             MatOfPoint2f approx = new MatOfPoint2f();
@@ -303,7 +343,6 @@ public class ImagePreprocessor {
             }
         }
 
-        // Шаг 2: мелкие значения 0.9%..0.5%
         for (int tenths = 9; tenths >= 5; tenths--) {
             double epsilon = (tenths / 1000.0) * perimeter;
             MatOfPoint2f approx = new MatOfPoint2f();
@@ -398,8 +437,6 @@ public class ImagePreprocessor {
         Imgproc.resize(src, resized, new Size(OUTPUT_SIZE, OUTPUT_SIZE), 0, 0, Imgproc.INTER_NEAREST);
         return resized;
     }
-
-    // ─────────────────────────────── debug helpers ───────────────────────────────
 
     private void saveDebugMat(String debugName, String fileName, Mat mat) {
         if (!DEBUG_SAVE) return;
