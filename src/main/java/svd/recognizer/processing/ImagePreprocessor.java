@@ -38,17 +38,17 @@ public class ImagePreprocessor {
         new Point(60, 60)
     };
 
-    // Любой треугольник любого размера приводим к единому масштабу перед affine-обработкой
     private static final int NORMALIZED_SHAPE_SIZE = 180;
     private static final int NORMALIZED_PADDING = 12;
 
-    private static final int WARP_SCALE = 3;
-    private static final int WARP_SIZE  = OUTPUT_SIZE * WARP_SCALE; // 192
+    // WARP_SCALE=4 (вместо 3): даёт запас 256×256 для скошенных и перевёрнутых треугольников
+    private static final int WARP_SCALE = 4;
+    private static final int WARP_SIZE  = OUTPUT_SIZE * WARP_SCALE; // 256
 
     private static final Point[] CANONICAL_BIG = {
-        new Point(CANONICAL[0].x * WARP_SCALE, CANONICAL[0].y * WARP_SCALE), // (96, 12)
-        new Point(CANONICAL[1].x * WARP_SCALE, CANONICAL[1].y * WARP_SCALE), // (12, 180)
-        new Point(CANONICAL[2].x * WARP_SCALE, CANONICAL[2].y * WARP_SCALE)  // (180, 180)
+        new Point(CANONICAL[0].x * WARP_SCALE, CANONICAL[0].y * WARP_SCALE), // (128, 16)
+        new Point(CANONICAL[1].x * WARP_SCALE, CANONICAL[1].y * WARP_SCALE), // (16, 240)
+        new Point(CANONICAL[2].x * WARP_SCALE, CANONICAL[2].y * WARP_SCALE)  // (240, 240)
     };
 
     public static class PreprocessResult {
@@ -158,10 +158,9 @@ public class ImagePreprocessor {
      * Любой треугольник любого размера приводим к единому масштабу:
      * находим bbox содержимого, масштабируем так, чтобы max(w,h) = NORMALIZED_SHAPE_SIZE,
      * добавляем паддинг.
-     * morphClose перед масштабированием залатывает дыры на гранях (triangle2 и др.)
+     * morphClose залатывает дыры на гранях без внесения лишних пикселей.
      */
     private Mat normalizeScale(Mat binary) {
-        // morphClose залатывает разрывы на гранях без потери тонких линий
         Mat closeKernel = Imgproc.getStructuringElement(Imgproc.MORPH_ELLIPSE, new Size(5, 5));
         Mat closed = new Mat();
         Imgproc.morphologyEx(binary, closed, Imgproc.MORPH_CLOSE, closeKernel);
@@ -190,7 +189,6 @@ public class ImagePreprocessor {
         int w = Math.min(binary.cols() - x, bbox.width);
         int h = Math.min(binary.rows() - y, bbox.height);
 
-        // Кропаем из исходного binary (не из closed) — чтобы не добавлять лишних пикселей
         Mat cropped = new Mat(binary, new Rect(x, y, w, h)).clone();
 
         double scale = (double) NORMALIZED_SHAPE_SIZE / Math.max(cropped.cols(), cropped.rows());
@@ -292,8 +290,7 @@ public class ImagePreprocessor {
      * Геометрический скор пермутации:
      * Правильная ориентация — вершина в верхней трети холста,
      * основание в нижней трети холста.
-     * Бонус +1000 за каждое выполненное условие — любая правильная
-     * пермутация всегда обойдёт неправильную.
+     * Бонус +1000 за каждое выполненное условие.
      */
     private double scoreTriangleAlignment(Mat warpedBig) {
         if (warpedBig.empty()) return Double.NEGATIVE_INFINITY;
@@ -301,7 +298,6 @@ public class ImagePreprocessor {
         int H = warpedBig.rows();
         int W = warpedBig.cols();
 
-        // Самый высокий белый пиксель (вершина) — должен быть в верхней трети
         int topRow = H;
         for (int r = 0; r < H; r++) {
             if (Core.countNonZero(warpedBig.row(r)) > 0) {
@@ -311,7 +307,6 @@ public class ImagePreprocessor {
         }
         boolean apexOk = topRow < H / 3;
 
-        // Строка с максимальным числом белых пикселей (основание) — должна быть в нижней трети
         int maxRowPixels = 0;
         int bottomRow = 0;
         for (int r = H * 2 / 3; r < H; r++) {
@@ -326,7 +321,6 @@ public class ImagePreprocessor {
         double total = Core.countNonZero(warpedBig);
         if (total == 0) return Double.NEGATIVE_INFINITY;
 
-        // Бонус за правильную геометрию: +1000 за вершину, +1000 за основание
         double bonus = (apexOk ? 1000.0 : 0.0) + (baseOk ? 1000.0 : 0.0);
         return bonus + total;
     }
