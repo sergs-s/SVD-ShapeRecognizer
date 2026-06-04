@@ -22,24 +22,14 @@ import org.opencv.core.Scalar;
 import org.opencv.core.Size;
 import org.opencv.imgcodecs.Imgcodecs;
 import org.opencv.imgproc.Imgproc;
+import org.opencv.imgproc.Moments;
 
-/**
- * Предобработка изображения для SVD-распознавания.
- *
- * Пайплайн для треугольников:
- *   morphClean → extractROI (crop)
- *   → renderOnCanvas (масштаб до 64×64)   ← СНАЧАЛА масштаб
- *   → alignTriangle (поворот на 64×64)    ← ПОТОМ поворот
- *
- * Ключевое решение: сначала масштабировать, потом вращать.
- * Поворот на маленьком холсте — линии не теряются при сжатии.
- */
 public class ImagePreprocessor {
 
     public static final int OUTPUT_SIZE = 64;
     private static final int BBOX_PADDING = 24;
-    private static final int NORMALIZED_SHAPE_SIZE = 52;
-    private static final int CANVAS_SIZE = OUTPUT_SIZE;
+    private static final int NORMALIZED_SHAPE_SIZE = 52; // фигура занимает ~52px из 64
+    private static final int CANVAS_SIZE = OUTPUT_SIZE;  // итоговый холст 64×64
 
     private static final boolean DEBUG_SAVE = true;
     private static final String DEBUG_DIR = "debug-preprocess";
@@ -78,10 +68,7 @@ public class ImagePreprocessor {
         Mat cropped = extractROI(cleaned);
         saveDebugMat(debugName, "04_cropped.png", cropped);
 
-        Mat canvas = renderOnCanvas(cropped);
-        saveDebugMat(debugName, "05_canvas.png", canvas);
-
-        Mat aligned = alignTriangle(canvas, debugName);
+        Mat aligned = alignTriangle(cropped, debugName);
         saveDebugMat(debugName, "05_aligned.png", aligned);
 
         BufferedImage image = matToBufferedImage(aligned);
@@ -91,52 +78,69 @@ public class ImagePreprocessor {
     }
 
     // =========================================================================
-    // Выравнивание: работаем на уже готовом 64×64 холсте
+    // Выравнивание треугольника: поворот основания вниз, вершина вверх
     // =========================================================================
 
-    private Mat alignTriangle(Mat canvas64, String debugName) {
+    private Mat alignTriangle(Mat binary, String debugName) {
         List<MatOfPoint> contours = new ArrayList<>();
-        Imgproc.findContours(canvas64.clone(), contours, new Mat(),
+        Imgproc.findContours(binary.clone(), contours, new Mat(),
             Imgproc.RETR_EXTERNAL, Imgproc.CHAIN_APPROX_SIMPLE);
 
         if (contours.isEmpty()) {
-            return canvas64;
+            return renderOnCanvas(binary);
         }
 
         MatOfPoint largest = contours.stream()
             .max(Comparator.comparingDouble(Imgproc::contourArea))
             .orElse(contours.get(0));
 
-        Point[] vertices = getTriangleVertices(largest, canvas64, debugName);
+        // Получаем 3 вершины
+        Point[] vertices = getTriangleVertices(largest, debugName);
         if (vertices == null) {
-            System.out.println("Не удалось получить 3 вершины, возвращаем canvas");
-            return canvas64;
+            System.out.println("Не удалось получить 3 вершины, fallback to renderOnCanvas");
+            return renderOnCanvas(binary);
         }
 
+        // Находим основание — самую длинную сторону
         int baseIdx = longestSideIndex(vertices);
         Point baseA = vertices[baseIdx];
         Point baseB = vertices[(baseIdx + 1) % 3];
         Point apex  = vertices[(baseIdx + 2) % 3];
 
+        // Угол наклона основания
         double angle = Math.toDegrees(Math.atan2(baseB.y - baseA.y, baseB.x - baseA.x));
 
-        Point center = new Point(CANVAS_SIZE / 2.0, CANVAS_SIZE / 2.0);
+        // Поворачиваем изображение так, чтобы основание было горизонтально
+        Point center = new Point(binary.cols() / 2.0, binary.rows() / 2.0);
         Mat rot = Imgproc.getRotationMatrix2D(center, angle, 1.0);
+
+        // Вычисляем новый размер холста после поворота, чтобы ничего не обрезалось
+        int diagonal = (int) Math.ceil(
+            Math.sqrt(binary.cols() * binary.cols() + binary.rows() * binary.rows()));
+        Size rotSize = new Size(diagonal, diagonal);
+        rot = Imgproc.getRotationMatrix2D(
+            new Point(binary.cols() / 2.0, binary.rows() / 2.0), angle, 1.0);
+        // Поправка смещения для нового центра
+        rot.put(0, 2, rot.get(0, 2)[0] + (diagonal - binary.cols()) / 2.0);
+        rot.put(1, 2, rot.get(1, 2)[0] + (diagonal - binary.rows()) / 2.0);
+
         Mat rotated = new Mat();
-        Imgproc.warpAffine(canvas64, rotated, rot, new Size(CANVAS_SIZE, CANVAS_SIZE),
+        Imgproc.warpAffine(binary, rotated, rot, rotSize,
             Imgproc.INTER_NEAREST, Core.BORDER_CONSTANT, new Scalar(0));
         Imgproc.threshold(rotated, rotated, 64, 255, Imgproc.THRESH_BINARY);
         saveDebugMat(debugName, "05a_rotated.png", rotated);
 
+        // Повернуть apex тоже, чтобы понять — он сверху или снизу
         double[] apexRot = applyAffine(rot, apex);
-        if (apexRot[1] > CANVAS_SIZE / 2.0) {
+        double midY = diagonal / 2.0;
+        if (apexRot[1] > midY) {
             Mat flipped = new Mat();
             Core.flip(rotated, flipped, 0);
             rotated = flipped;
             saveDebugMat(debugName, "05b_flipped.png", rotated);
         }
 
-        return rotated;
+        return renderOnCanvas(rotated);
     }
 
     private double[] applyAffine(Mat m, Point p) {
@@ -145,7 +149,7 @@ public class ImagePreprocessor {
         return new double[]{x, y};
     }
 
-    private Point[] getTriangleVertices(MatOfPoint contour, Mat canvas64, String debugName) {
+    private Point[] getTriangleVertices(MatOfPoint contour, String debugName) {
         MatOfPoint2f contour2f = new MatOfPoint2f(contour.toArray());
         double perimeter = Imgproc.arcLength(contour2f, true);
 
@@ -155,7 +159,7 @@ public class ImagePreprocessor {
             Imgproc.approxPolyDP(contour2f, approx, epsilon, true);
             if (approx.rows() == 3) {
                 Point[] pts = approx.toArray();
-                saveApproxPreview(canvas64, pts, debugName, "05b_approx_triangle.png");
+                saveApproxPreview(contour, pts, debugName, "05b_approx_triangle.png");
                 System.out.println("approxPolyDP: 3 вершины при epsilon=" +
                     String.format("%.1f", epsilon) + " (" + pct + "% периметра)");
                 return pts;
@@ -165,7 +169,7 @@ public class ImagePreprocessor {
         System.out.println("approxPolyDP не дал 3 точек → minEnclosingTriangle");
         Mat triMat = new Mat();
         Imgproc.minEnclosingTriangle(new MatOfPoint2f(contour.toArray()), triMat);
-        saveTrianglePreview(canvas64, triMat, debugName, "05b_min_enclosing_triangle.png");
+        saveTrianglePreview(contour, triMat, debugName, "05b_min_enclosing_triangle.png");
         return readTrianglePoints(triMat);
     }
 
@@ -180,10 +184,6 @@ public class ImagePreprocessor {
         }
         return idx;
     }
-
-    // =========================================================================
-    // Масштабирование в холст 64×64
-    // =========================================================================
 
     private Mat renderOnCanvas(Mat binary) {
         List<MatOfPoint> contours = new ArrayList<>();
@@ -218,7 +218,7 @@ public class ImagePreprocessor {
         int newH = Math.max(1, (int) Math.round(h * scale));
 
         Mat resized = new Mat();
-        Imgproc.resize(cropped, resized, new Size(newW, newH), 0, 0, Imgproc.INTER_NEAREST);
+        Imgproc.resize(cropped, resized, new Size(newW, newH), 0, 0, Imgproc.INTER_AREA);
         Imgproc.threshold(resized, resized, 64, 255, Imgproc.THRESH_BINARY);
 
         Mat canvas = Mat.zeros(new Size(CANVAS_SIZE, CANVAS_SIZE), CvType.CV_8UC1);
@@ -283,6 +283,22 @@ public class ImagePreprocessor {
     }
 
     // =========================================================================
+    // Вспомогательные методы для получения вершин
+    // =========================================================================
+
+    private Point[] readTrianglePoints(Mat triangle) {
+        if (triangle == null || triangle.empty()) return null;
+        List<Point> pts = new ArrayList<>();
+        for (int r = 0; r < triangle.rows() && pts.size() < 3; r++) {
+            for (int c = 0; c < triangle.cols() && pts.size() < 3; c++) {
+                double[] v = triangle.get(r, c);
+                if (v != null && v.length >= 2) pts.add(new Point(v[0], v[1]));
+            }
+        }
+        return pts.size() == 3 ? pts.toArray(new Point[0]) : null;
+    }
+
+    // =========================================================================
     // Debug-вывод
     // =========================================================================
 
@@ -302,60 +318,62 @@ public class ImagePreprocessor {
         }
     }
 
-    private void saveApproxPreview(Mat canvas64, Point[] approx,
+    private void saveApproxPreview(MatOfPoint contour, Point[] approx,
                                     String debugName, String filename) {
-        Mat vis = new Mat();
-        Imgproc.cvtColor(canvas64, vis, Imgproc.COLOR_GRAY2BGR);
+        Rect bound = Imgproc.boundingRect(contour);
+        int margin = 20;
+        int W = bound.x + bound.width  + margin;
+        int H = bound.y + bound.height + margin;
+        Mat canvas = Mat.zeros(H, W, CvType.CV_8UC3);
+
+        List<MatOfPoint> list = new ArrayList<>();
+        list.add(contour);
+        Imgproc.drawContours(canvas, list, 0, new Scalar(255, 255, 255), 1);
 
         MatOfPoint poly = new MatOfPoint(approx);
         List<MatOfPoint> polyList = new ArrayList<>();
         polyList.add(poly);
-        Imgproc.drawContours(vis, polyList, 0, new Scalar(0, 255, 255), 1);
+        Imgproc.drawContours(canvas, polyList, 0, new Scalar(0, 255, 255), 1);
 
         String[] labels = {"P1", "P2", "P3"};
         Scalar[] colors = {new Scalar(0,255,0), new Scalar(0,0,255), new Scalar(255,0,0)};
         for (int i = 0; i < approx.length; i++) {
-            Imgproc.circle(vis, approx[i], 3, colors[i], -1);
-            Imgproc.putText(vis, labels[i],
-                new Point(approx[i].x + 3, approx[i].y - 3),
-                Imgproc.FONT_HERSHEY_SIMPLEX, 0.3, colors[i], 1);
+            Imgproc.circle(canvas, approx[i], 4, colors[i], -1);
+            Imgproc.putText(canvas, labels[i],
+                new Point(approx[i].x + 5, approx[i].y - 5),
+                Imgproc.FONT_HERSHEY_SIMPLEX, 0.4, colors[i], 1);
         }
-        saveDebugMat(debugName, filename, vis);
+        saveDebugMat(debugName, filename, canvas);
     }
 
-    private void saveTrianglePreview(Mat canvas64, Mat triangleMat,
+    private void saveTrianglePreview(MatOfPoint contour, Mat triangleMat,
                                       String debugName, String filename) {
-        Mat vis = new Mat();
-        Imgproc.cvtColor(canvas64, vis, Imgproc.COLOR_GRAY2BGR);
+        Rect bound = Imgproc.boundingRect(contour);
+        int margin = 20;
+        int W = bound.x + bound.width  + margin;
+        int H = bound.y + bound.height + margin;
+        Mat canvas = Mat.zeros(H, W, CvType.CV_8UC3);
+
+        List<MatOfPoint> list = new ArrayList<>();
+        list.add(contour);
+        Imgproc.drawContours(canvas, list, 0, new Scalar(255, 255, 255), 1);
 
         Point[] pts = readTrianglePoints(triangleMat);
         if (pts != null && pts.length == 3) {
             Scalar yellow = new Scalar(0, 255, 255);
-            Imgproc.line(vis, pts[0], pts[1], yellow, 1);
-            Imgproc.line(vis, pts[1], pts[2], yellow, 1);
-            Imgproc.line(vis, pts[2], pts[0], yellow, 1);
+            Imgproc.line(canvas, pts[0], pts[1], yellow, 1);
+            Imgproc.line(canvas, pts[1], pts[2], yellow, 1);
+            Imgproc.line(canvas, pts[2], pts[0], yellow, 1);
             String[] labels = {"P1", "P2", "P3"};
             Scalar[] colors = {new Scalar(0,255,0), new Scalar(0,0,255), new Scalar(255,0,0)};
             for (int i = 0; i < pts.length; i++) {
-                Imgproc.circle(vis, pts[i], 3, colors[i], -1);
-                Imgproc.putText(vis, labels[i],
-                    new Point(pts[i].x + 3, pts[i].y - 3),
-                    Imgproc.FONT_HERSHEY_SIMPLEX, 0.3, colors[i], 1);
+                Imgproc.circle(canvas, pts[i], 5, colors[i], -1);
+                Imgproc.putText(canvas, labels[i],
+                    new Point(pts[i].x + 6, pts[i].y - 6),
+                    Imgproc.FONT_HERSHEY_SIMPLEX, 0.5, colors[i], 1);
             }
         }
-        saveDebugMat(debugName, filename, vis);
-    }
-
-    private Point[] readTrianglePoints(Mat triangle) {
-        if (triangle == null || triangle.empty()) return null;
-        List<Point> pts = new ArrayList<>();
-        for (int r = 0; r < triangle.rows() && pts.size() < 3; r++) {
-            for (int c = 0; c < triangle.cols() && pts.size() < 3; c++) {
-                double[] v = triangle.get(r, c);
-                if (v != null && v.length >= 2) pts.add(new Point(v[0], v[1]));
-            }
-        }
-        return pts.size() == 3 ? pts.toArray(new Point[0]) : null;
+        saveDebugMat(debugName, filename, canvas);
     }
 
     // =========================================================================
