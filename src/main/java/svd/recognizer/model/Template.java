@@ -14,7 +14,7 @@ import javax.imageio.ImageIO;
  * 1. Нормализованный σ-вектор признаков
  * 2. Нормализованное изображение 64x64 для интерфейса и усреднения
  * 3. Путь к исходному файлу для трассировки происхождения данных
- * 4. Флаг lowQuality и причина — для отображения в превью
+ * 4. Флаг низкого качества препроцессинга + причина
  *
  * Изображение сериализуется вручную через PNG-представление, чтобы dat-файл
  * содержал не только вектор признаков, но и сам нормализованный эталон.
@@ -34,6 +34,11 @@ public class Template implements Serializable {
     }
 
     public Template(double[] singularValues, BufferedImage normalizedImage,
+                    String sourceFilePath) {
+        this(singularValues, normalizedImage, sourceFilePath, false, "");
+    }
+
+    public Template(double[] singularValues, BufferedImage normalizedImage,
                     String sourceFilePath, boolean lowQuality, String qualityReason) {
         this.singularValues  = singularValues;
         this.normalizedImage = normalizedImage;
@@ -42,17 +47,17 @@ public class Template implements Serializable {
         this.qualityReason   = qualityReason;
     }
 
-    public double[]      getSingularValues()  { return singularValues; }
-    public BufferedImage getNormalizedImage()  { return normalizedImage; }
-    public String        getSourceFilePath()   { return sourceFilePath; }
-    public boolean       isLowQuality()        { return lowQuality; }
-    public String        getQualityReason()    { return qualityReason; }
+    public double[] getSingularValues()          { return singularValues; }
+    public BufferedImage getNormalizedImage()     { return normalizedImage; }
+    public String getSourceFilePath()            { return sourceFilePath; }
+    public boolean isLowQuality()                { return lowQuality; }
+    public String getQualityReason()             { return qualityReason; }
 
-    public void setSingularValues(double[] singularValues)    { this.singularValues  = singularValues; }
-    public void setNormalizedImage(BufferedImage img)         { this.normalizedImage  = img; }
-    public void setSourceFilePath(String sourceFilePath)      { this.sourceFilePath  = sourceFilePath; }
-    public void setLowQuality(boolean lowQuality)             { this.lowQuality      = lowQuality; }
-    public void setQualityReason(String qualityReason)        { this.qualityReason   = qualityReason; }
+    public void setSingularValues(double[] singularValues)      { this.singularValues = singularValues; }
+    public void setNormalizedImage(BufferedImage normalizedImage){ this.normalizedImage = normalizedImage; }
+    public void setSourceFilePath(String sourceFilePath)        { this.sourceFilePath = sourceFilePath; }
+    public void setLowQuality(boolean lowQuality)               { this.lowQuality = lowQuality; }
+    public void setQualityReason(String qualityReason)          { this.qualityReason = qualityReason; }
 
     private void writeObject(ObjectOutputStream out) throws IOException {
         out.defaultWriteObject();

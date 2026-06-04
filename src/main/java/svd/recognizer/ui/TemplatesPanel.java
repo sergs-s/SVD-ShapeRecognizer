@@ -20,10 +20,8 @@ import svd.recognizer.model.TemplateStore;
  * Панель управления эталонами.
  *
  * Для каждого класса фигур отображаются ВСЕ загруженные нормализованные
- * изображения в виде горизонтальной прокручиваемой полосы.
- *
- * Шаблоны с флагом lowQuality выделяются двойной красной рамкой
- * и подписью с причиной.
+ * изображения в виде горизонтальной прокручиваемой полосы — для отладки
+ * препроцессинга.
  *
  * @author ssv
  */
@@ -66,9 +64,9 @@ public class TemplatesPanel extends javax.swing.JPanel {
         private static final int THUMB = 128;
         private static final int GAP   = 4;
 
-        private static final Color COLOR_BAD_BORDER = new Color(220, 0, 0);
-        private static final Color COLOR_BAD_FILL   = new Color(220, 0, 0, 60);
-        private static final Font  FONT_WARN        = new Font("SansSerif", Font.BOLD, 10);
+        private static final Color BAD_BORDER = new Color(210, 0, 0);
+        private static final Color BAD_LABEL_BG = new Color(210, 0, 0, 200);
+        private static final Color BAD_LABEL_FG = Color.WHITE;
 
         private List<Template> samples = List.of();
 
@@ -104,26 +102,26 @@ public class TemplatesPanel extends javax.swing.JPanel {
                     g.fillRect(x, GAP, THUMB, THUMB);
                 }
 
-                // Красная рамка и подпись для low-quality шаблонов
                 if (t.isLowQuality()) {
-                    // Полупрозрачная красная заливка
-                    g.setColor(COLOR_BAD_FILL);
-                    g.fillRect(x, GAP, THUMB, THUMB);
-
                     // Двойная красная рамка
-                    g.setColor(COLOR_BAD_BORDER);
+                    g.setColor(BAD_BORDER);
                     g.drawRect(x,     GAP,     THUMB - 1, THUMB - 1);
                     g.drawRect(x + 1, GAP + 1, THUMB - 3, THUMB - 3);
 
-                    // Подпись "Низкое качество" снизу миниатюры
-                    g.setFont(FONT_WARN);
+                    // Подпись «BAD» внизу миниатюры
+                    Font badFont = new Font("SansSerif", Font.BOLD, 11);
+                    g.setFont(badFont);
                     FontMetrics fm = g.getFontMetrics();
-                    String label = "Низкое качество";
-                    int lx = x + (THUMB - fm.stringWidth(label)) / 2;
-                    int ly = GAP + THUMB - fm.getDescent() - 2;
-                    g.setColor(new Color(180, 0, 0, 200));
-                    g.fillRect(x, ly - fm.getAscent(), THUMB, fm.getHeight());
-                    g.setColor(Color.WHITE);
+                    String label = "BAD";
+                    int lw = fm.stringWidth(label);
+                    int lh = fm.getHeight();
+                    int lx = x + (THUMB - lw) / 2;
+                    int ly = GAP + THUMB - 2;
+                    // фон подписи
+                    g.setColor(BAD_LABEL_BG);
+                    g.fillRect(lx - 2, ly - lh + 2, lw + 4, lh);
+                    // текст
+                    g.setColor(BAD_LABEL_FG);
                     g.drawString(label, lx, ly);
                 }
 
@@ -229,46 +227,45 @@ public class TemplatesPanel extends javax.swing.JPanel {
             .addComponent(scroll, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE)
             .addComponent(count,  javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE)
             .addGroup(layout.createSequentialGroup()
-                .addComponent(add,   javax.swing.GroupLayout.DEFAULT_SIZE, 120, Short.MAX_VALUE)
+                .addComponent(add,   javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE)
                 .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
-                .addComponent(reset, javax.swing.GroupLayout.DEFAULT_SIZE, 120, Short.MAX_VALUE))
+                .addComponent(reset, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE))
         );
         layout.setVerticalGroup(
-            layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
-            .addGroup(layout.createSequentialGroup()
+            layout.createSequentialGroup()
                 .addComponent(title)
                 .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
-                .addComponent(scroll, javax.swing.GroupLayout.PREFERRED_SIZE, 144, javax.swing.GroupLayout.PREFERRED_SIZE)
+                .addComponent(scroll, javax.swing.GroupLayout.PREFERRED_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.PREFERRED_SIZE)
                 .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
                 .addComponent(count)
                 .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
                 .addGroup(layout.createParallelGroup(javax.swing.GroupLayout.Alignment.BASELINE)
                     .addComponent(add)
                     .addComponent(reset))
-                .addGap(0, 0, Short.MAX_VALUE))
         );
     }
 
-    // Variables declaration
+    // Variables declaration - do not modify//GEN-BEGIN:variables
     private javax.swing.JButton btnAddCircle;
     private javax.swing.JButton btnAddRectangle;
     private javax.swing.JButton btnAddTriangle;
     private javax.swing.JButton btnResetCircle;
     private javax.swing.JButton btnResetRectangle;
     private javax.swing.JButton btnResetTriangle;
-    private javax.swing.JLabel  lblCircleCount;
-    private javax.swing.JLabel  lblCircleTitle;
-    private javax.swing.JLabel  lblRectangleCount;
-    private javax.swing.JLabel  lblRectangleTitle;
-    private javax.swing.JLabel  lblTriangleCount;
-    private javax.swing.JLabel  lblTriangleTitle;
-    private javax.swing.JPanel  pnlCircle;
-    private javax.swing.JPanel  pnlRectangle;
-    private javax.swing.JPanel  pnlTriangle;
-    private SampleStripPanel    stripCircle;
-    private SampleStripPanel    stripTriangle;
-    private SampleStripPanel    stripRectangle;
-    private JScrollPane         scrollCircle;
-    private JScrollPane         scrollTriangle;
-    private JScrollPane         scrollRectangle;
+    private javax.swing.JLabel lblCircleCount;
+    private javax.swing.JLabel lblCircleTitle;
+    private javax.swing.JLabel lblRectangleCount;
+    private javax.swing.JLabel lblRectangleTitle;
+    private javax.swing.JLabel lblTriangleCount;
+    private javax.swing.JLabel lblTriangleTitle;
+    private javax.swing.JPanel pnlCircle;
+    private javax.swing.JPanel pnlRectangle;
+    private javax.swing.JPanel pnlTriangle;
+    private JScrollPane scrollCircle;
+    private JScrollPane scrollRectangle;
+    private JScrollPane scrollTriangle;
+    private SampleStripPanel stripCircle;
+    private SampleStripPanel stripRectangle;
+    private SampleStripPanel stripTriangle;
+    // End of variables declaration//GEN-END:variables
 }

@@ -22,6 +22,7 @@ import org.opencv.core.Scalar;
 import org.opencv.core.Size;
 import org.opencv.imgcodecs.Imgcodecs;
 import org.opencv.imgproc.Imgproc;
+import svd.recognizer.model.ShapeClass;
 
 public class ImagePreprocessor {
 
@@ -60,10 +61,18 @@ public class ImagePreprocessor {
     }
 
     // =========================================================================
-    // preprocess
+    // preprocess (без ShapeClass — обратная совместимость)
     // =========================================================================
 
     public PreprocessResult preprocess(File imageFile) throws Exception {
+        return preprocess(imageFile, null);
+    }
+
+    // =========================================================================
+    // preprocess с ShapeClass
+    // =========================================================================
+
+    public PreprocessResult preprocess(File imageFile, ShapeClass shapeClass) throws Exception {
         Mat source = Imgcodecs.imread(imageFile.getAbsolutePath());
         if (source.empty()) {
             throw new IllegalArgumentException(
@@ -87,7 +96,14 @@ public class ImagePreprocessor {
         Mat cropped = extractROI(cleaned);
         saveDebugMat(debugName, "04_cropped.png", cropped);
 
-        Mat aligned = alignTriangle(cropped, debugName, lowQualityFlag, qualityReason);
+        Mat aligned;
+        if (shapeClass == ShapeClass.RECTANGLE) {
+            aligned = alignRectangle(cropped, debugName, lowQualityFlag, qualityReason);
+        } else {
+            // TRIANGLE и null (неизвестный класс) — стандартный путь с поиском треугольника
+            aligned = alignTriangle(cropped, debugName, lowQualityFlag, qualityReason,
+                    shapeClass == ShapeClass.TRIANGLE);
+        }
         saveDebugMat(debugName, "05_aligned.png", aligned);
 
         BufferedImage image = matToBufferedImage(aligned);
@@ -135,8 +151,14 @@ public class ImagePreprocessor {
     // Выравнивание треугольника
     // =========================================================================
 
+    /**
+     * @param validateVertices если true — ставим lowQuality при отсутствии 3 вершин.
+     *                         false — выравниваем как можем, флаг не ставим
+     *                         (используется для CIRCLE и неизвестного класса).
+     */
     private Mat alignTriangle(Mat binary, String debugName,
-                               boolean[] lowQualityFlag, String[] qualityReason) {
+                               boolean[] lowQualityFlag, String[] qualityReason,
+                               boolean validateVertices) {
         List<MatOfPoint> contours = new ArrayList<>();
         Imgproc.findContours(binary.clone(), contours, new Mat(),
             Imgproc.RETR_EXTERNAL, Imgproc.CHAIN_APPROX_SIMPLE);
@@ -151,11 +173,12 @@ public class ImagePreprocessor {
 
         Point[] vertices = getTriangleVertices(largest, debugName);
         if (vertices == null) {
-            if (!lowQualityFlag[0]) {
+            if (validateVertices && !lowQualityFlag[0]) {
                 lowQualityFlag[0] = true;
                 qualityReason[0]  = "не удалось распознать треугольник: не найдены 3 вершины";
             }
-            System.out.println("alignTriangle: не удалось получить 3 вершины → low quality");
+            System.out.println("alignTriangle: не удалось получить 3 вершины"
+                + (validateVertices ? " → low quality" : ""));
             return renderOnCanvas(binary);
         }
 
@@ -192,11 +215,61 @@ public class ImagePreprocessor {
         return renderOnCanvas(rotated);
     }
 
-    private double[] applyAffine(Mat m, Point p) {
-        double x = m.get(0, 0)[0] * p.x + m.get(0, 1)[0] * p.y + m.get(0, 2)[0];
-        double y = m.get(1, 0)[0] * p.x + m.get(1, 1)[0] * p.y + m.get(1, 2)[0];
-        return new double[]{x, y};
+    // =========================================================================
+    // Выравнивание прямоугольника
+    // =========================================================================
+
+    private Mat alignRectangle(Mat binary, String debugName,
+                                boolean[] lowQualityFlag, String[] qualityReason) {
+        List<MatOfPoint> contours = new ArrayList<>();
+        Imgproc.findContours(binary.clone(), contours, new Mat(),
+            Imgproc.RETR_EXTERNAL, Imgproc.CHAIN_APPROX_SIMPLE);
+
+        if (contours.isEmpty()) {
+            return renderOnCanvas(binary);
+        }
+
+        MatOfPoint largest = contours.stream()
+            .max(Comparator.comparingDouble(Imgproc::contourArea))
+            .orElse(contours.get(0));
+
+        Point[] vertices = getRectangleVertices(largest, debugName);
+        if (vertices == null) {
+            if (!lowQualityFlag[0]) {
+                lowQualityFlag[0] = true;
+                qualityReason[0]  = "не удалось распознать прямоугольник: не найдены 4 вершины";
+            }
+            System.out.println("alignRectangle: не удалось получить 4 вершины → low quality");
+            return renderOnCanvas(binary);
+        }
+
+        // Выравниваем по длинной стороне (как у треугольника — по основанию)
+        int baseIdx = longestSideIndex4(vertices);
+        Point baseA = vertices[baseIdx];
+        Point baseB = vertices[(baseIdx + 1) % 4];
+
+        double angle = Math.toDegrees(Math.atan2(baseB.y - baseA.y, baseB.x - baseA.x));
+
+        int diagonal = (int) Math.ceil(
+            Math.sqrt(binary.cols() * binary.cols() + binary.rows() * binary.rows()));
+        Size rotSize = new Size(diagonal, diagonal);
+        Mat rot = Imgproc.getRotationMatrix2D(
+            new Point(binary.cols() / 2.0, binary.rows() / 2.0), angle, 1.0);
+        rot.put(0, 2, rot.get(0, 2)[0] + (diagonal - binary.cols()) / 2.0);
+        rot.put(1, 2, rot.get(1, 2)[0] + (diagonal - binary.rows()) / 2.0);
+
+        Mat rotated = new Mat();
+        Imgproc.warpAffine(binary, rotated, rot, rotSize,
+            Imgproc.INTER_NEAREST, Core.BORDER_CONSTANT, new Scalar(0));
+        Imgproc.threshold(rotated, rotated, 40, 255, Imgproc.THRESH_BINARY);
+        saveDebugMat(debugName, "05a_rotated_rect.png", rotated);
+
+        return renderOnCanvas(rotated);
     }
+
+    // =========================================================================
+    // Поиск вершин
+    // =========================================================================
 
     private Point[] getTriangleVertices(MatOfPoint contour, String debugName) {
         MatOfPoint2f contour2f = new MatOfPoint2f(contour.toArray());
@@ -222,6 +295,26 @@ public class ImagePreprocessor {
         return readTrianglePoints(triMat);
     }
 
+    private Point[] getRectangleVertices(MatOfPoint contour, String debugName) {
+        MatOfPoint2f contour2f = new MatOfPoint2f(contour.toArray());
+        double perimeter = Imgproc.arcLength(contour2f, true);
+
+        for (int pct = 10; pct >= 1; pct--) {
+            double epsilon = (pct / 100.0) * perimeter;
+            MatOfPoint2f approx = new MatOfPoint2f();
+            Imgproc.approxPolyDP(contour2f, approx, epsilon, true);
+            if (approx.rows() == 4) {
+                Point[] pts = approx.toArray();
+                System.out.println("approxPolyDP: 4 вершины при epsilon=" +
+                    String.format("%.1f", epsilon) + " (" + pct + "% периметра)");
+                return pts;
+            }
+        }
+
+        System.out.println("approxPolyDP не дал 4 точек для прямоугольника");
+        return null;
+    }
+
     private int longestSideIndex(Point[] v) {
         double best = -1;
         int idx = 0;
@@ -232,6 +325,24 @@ public class ImagePreprocessor {
             if (len > best) { best = len; idx = i; }
         }
         return idx;
+    }
+
+    private int longestSideIndex4(Point[] v) {
+        double best = -1;
+        int idx = 0;
+        for (int i = 0; i < 4; i++) {
+            Point a = v[i], b = v[(i + 1) % 4];
+            double dx = b.x - a.x, dy = b.y - a.y;
+            double len = dx * dx + dy * dy;
+            if (len > best) { best = len; idx = i; }
+        }
+        return idx;
+    }
+
+    private double[] applyAffine(Mat m, Point p) {
+        double x = m.get(0, 0)[0] * p.x + m.get(0, 1)[0] * p.y + m.get(0, 2)[0];
+        double y = m.get(1, 0)[0] * p.x + m.get(1, 1)[0] * p.y + m.get(1, 2)[0];
+        return new double[]{x, y};
     }
 
     // =========================================================================

@@ -127,9 +127,25 @@ public class TemplatesFrame extends javax.swing.JFrame {
 
         File file = chooser.getSelectedFile();
         try {
-            ImagePreprocessor.PreprocessResult result = preprocessor.preprocess(file);
+            ImagePreprocessor.PreprocessResult result = preprocessor.preprocess(file, shapeClass);
+
+            if (result.isLowQuality()) {
+                String shapeRu = shapeClassToRussian(shapeClass);
+                String msg = "Не удалось качественно распознать шаблон (" + shapeRu + "):\n"
+                           + result.getQualityReason() + "\n\n"
+                           + "Добавить шаблон всё равно?";
+                int choice = JOptionPane.showConfirmDialog(
+                    this, msg, "Низкое качество изображения",
+                    JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
+                if (choice != JOptionPane.YES_OPTION) {
+                    return;
+                }
+            }
+
             double[] signature = svdComputer.computeFeatures(result.getMatrix());
-            Template template = new Template(signature, result.getImage(), file.getAbsolutePath());
+            Template template = new Template(
+                signature, result.getImage(), file.getAbsolutePath(),
+                result.isLowQuality(), result.getQualityReason());
             stores.get(shapeClass).addTemplate(template);
             repository.save(stores.get(shapeClass));
             refreshPanel();
@@ -150,6 +166,16 @@ public class TemplatesFrame extends javax.swing.JFrame {
 
     private void refreshPanel() {
         templatesPanel.refresh(stores);
+    }
+
+    private static String shapeClassToRussian(ShapeClass sc) {
+        if (sc == null) return "неизвестная фигура";
+        switch (sc) {
+            case CIRCLE:    return "круг";
+            case TRIANGLE:  return "треугольник";
+            case RECTANGLE: return "прямоугольник";
+            default:        return sc.name();
+        }
     }
 
     // Variables declaration - do not modify//GEN-BEGIN:variables
