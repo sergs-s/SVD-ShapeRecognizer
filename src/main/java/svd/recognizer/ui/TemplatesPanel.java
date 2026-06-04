@@ -2,6 +2,8 @@ package svd.recognizer.ui;
 
 import java.awt.Color;
 import java.awt.Dimension;
+import java.awt.Font;
+import java.awt.FontMetrics;
 import java.awt.Graphics;
 import java.awt.image.BufferedImage;
 import java.util.List;
@@ -18,8 +20,10 @@ import svd.recognizer.model.TemplateStore;
  * Панель управления эталонами.
  *
  * Для каждого класса фигур отображаются ВСЕ загруженные нормализованные
- * изображения в виде горизонтальной прокручиваемой полосы — для отладки
- * препроцессинга.
+ * изображения в виде горизонтальной прокручиваемой полосы.
+ *
+ * Шаблоны с флагом lowQuality выделяются двойной красной рамкой
+ * и подписью с причиной.
  *
  * @author ssv
  */
@@ -61,6 +65,11 @@ public class TemplatesPanel extends javax.swing.JPanel {
     public static class SampleStripPanel extends JPanel {
         private static final int THUMB = 128;
         private static final int GAP   = 4;
+
+        private static final Color COLOR_BAD_BORDER = new Color(220, 0, 0);
+        private static final Color COLOR_BAD_FILL   = new Color(220, 0, 0, 60);
+        private static final Font  FONT_WARN        = new Font("SansSerif", Font.BOLD, 10);
+
         private List<Template> samples = List.of();
 
         public SampleStripPanel() {
@@ -94,6 +103,30 @@ public class TemplatesPanel extends javax.swing.JPanel {
                     g.setColor(Color.LIGHT_GRAY);
                     g.fillRect(x, GAP, THUMB, THUMB);
                 }
+
+                // Красная рамка и подпись для low-quality шаблонов
+                if (t.isLowQuality()) {
+                    // Полупрозрачная красная заливка
+                    g.setColor(COLOR_BAD_FILL);
+                    g.fillRect(x, GAP, THUMB, THUMB);
+
+                    // Двойная красная рамка
+                    g.setColor(COLOR_BAD_BORDER);
+                    g.drawRect(x,     GAP,     THUMB - 1, THUMB - 1);
+                    g.drawRect(x + 1, GAP + 1, THUMB - 3, THUMB - 3);
+
+                    // Подпись "Низкое качество" снизу миниатюры
+                    g.setFont(FONT_WARN);
+                    FontMetrics fm = g.getFontMetrics();
+                    String label = "Низкое качество";
+                    int lx = x + (THUMB - fm.stringWidth(label)) / 2;
+                    int ly = GAP + THUMB - fm.getDescent() - 2;
+                    g.setColor(new Color(180, 0, 0, 200));
+                    g.fillRect(x, ly - fm.getAscent(), THUMB, fm.getHeight());
+                    g.setColor(Color.WHITE);
+                    g.drawString(label, lx, ly);
+                }
+
                 x += THUMB + GAP;
             }
         }
