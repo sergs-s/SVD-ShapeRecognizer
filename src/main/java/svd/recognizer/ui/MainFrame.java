@@ -18,9 +18,9 @@ import svd.recognizer.storage.TemplateRepository;
  * Главное окно приложения.
  *
  * Назначение формы: 1. Загружать тестовое изображение фигуры 2. Запускать
- * preprocessing и распознавание 3. Отображать исходную фигуру, эталон и
- * результат preprocessing 4. Управлять порогом распознавания через JSpinner 5.
- * Открывать отдельную форму TemplatesFrame
+ * preprocessing и распознавание 3. Отображать исходную фигуру и результат preprocessing 4.
+ * Управлять порогом распознавания через JSpinner 5. Открывать отдельную форму
+ * TemplatesFrame
  *
  * Вся работа с эталонами вынесена в TemplatesFrame, а MainFrame только
  * использует уже сохранённые эталоны для распознавания.
@@ -28,6 +28,8 @@ import svd.recognizer.storage.TemplateRepository;
  * @author ssv
  */
 public class MainFrame extends javax.swing.JFrame {
+
+    private static final String LEARNING_DATA_DIR = "learningData";
 
     private final SVDComputer svdComputer;
     private final TemplateRepository repository;
@@ -128,7 +130,9 @@ public class MainFrame extends javax.swing.JFrame {
 
     private JFileChooser createJpegChooser() {
         JFileChooser chooser = new JFileChooser();
-        chooser.setCurrentDirectory(new File(System.getProperty("user.dir")));
+        File dir = new File(System.getProperty("user.dir"), LEARNING_DATA_DIR);
+        if (!dir.exists()) dir = new File(System.getProperty("user.dir"));
+        chooser.setCurrentDirectory(dir);
         chooser.setAcceptAllFileFilterUsed(false);
         chooser.setFileSelectionMode(JFileChooser.FILES_ONLY);
         chooser.setMultiSelectionEnabled(false);
@@ -167,8 +171,7 @@ public class MainFrame extends javax.swing.JFrame {
             RecognitionResult result = recognizer.recognize(signature, stores);
 
             if (result.isRecognized()) {
-                TemplateStore store = stores.get(result.getShapeClass());
-                recognitionPanel.getTemplateView().setImage(store.getAverageImage());
+                recognitionPanel.getTemplateView().setImage(null);
                 recognitionPanel.appendLog("Результат: " + result.getShapeClass().getDisplayName());
                 recognitionPanel.appendLog(String.format("Distance = %.6f, Threshold = %.6f", result.getDistance(), result.getThreshold()));
             } else {

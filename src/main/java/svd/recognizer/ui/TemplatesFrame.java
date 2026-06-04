@@ -16,9 +16,8 @@ import svd.recognizer.storage.TemplateRepository;
  * Отдельная форма управления эталонами.
  *
  * Назначение формы: 1. Загружать по одному файлу в выбранный класс фигур 2.
- * Сбрасывать шаблоны по каждому классу отдельно 3. Отображать усреднённые
- * эталоны и количество шаблонов 4. Обновлять интерфейс после каждого добавления
- * или сброса
+ * Сбрасывать шаблоны по каждому классу отдельно 3. Отображать все загруженные образцы
+ * фигур и количество шаблонов 4. Обновлять интерфейс после каждого изменения данных
  *
  * Кнопка Templates на MainFrame открывает именно эту форму, а вся работа с
  * эталонами сосредоточена только здесь.
@@ -26,6 +25,8 @@ import svd.recognizer.storage.TemplateRepository;
  * @author ssv
  */
 public class TemplatesFrame extends javax.swing.JFrame {
+
+    private static final String LEARNING_DATA_DIR = "learningData";
 
     private final MainFrame owner;
     private final SVDComputer svdComputer;
@@ -108,7 +109,9 @@ public class TemplatesFrame extends javax.swing.JFrame {
 
     private JFileChooser createJpegChooser() {
         JFileChooser chooser = new JFileChooser();
-        chooser.setCurrentDirectory(new File(System.getProperty("user.dir")));
+        File dir = new File(System.getProperty("user.dir"), LEARNING_DATA_DIR);
+        if (!dir.exists()) dir = new File(System.getProperty("user.dir"));
+        chooser.setCurrentDirectory(dir);
         chooser.setAcceptAllFileFilterUsed(false);
         chooser.setFileSelectionMode(JFileChooser.FILES_ONLY);
         chooser.setMultiSelectionEnabled(false);
