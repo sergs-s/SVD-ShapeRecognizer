@@ -43,6 +43,9 @@ public class ImagePreprocessor {
 
     private static final boolean DEBUG_SAVE = true;
     private static final String DEBUG_DIR = "debug-preprocess";
+    /** Маленькие debug-картинки увеличиваются в это число раз перед сохранением. */
+    private static final int DEBUG_UPSCALE_FACTOR = 4;
+    private static final int DEBUG_UPSCALE_THRESHOLD = 128;
 
     public static class PreprocessResult {
         private final BufferedImage image;
@@ -154,7 +157,6 @@ public class ImagePreprocessor {
 
     /**
      * Ищет 3 вершины треугольника на переданном canvas64.
-     * approxPolyDP с убывающим epsilon; fallback — minEnclosingTriangle.
      */
     private Point[] getTriangleVertices(MatOfPoint contour, Mat canvas64, String debugName) {
         MatOfPoint2f contour2f = new MatOfPoint2f(contour.toArray());
@@ -298,16 +300,33 @@ public class ImagePreprocessor {
     // Debug-вывод
     // =========================================================================
 
+    /**
+     * Сохраняет Mat в debug-папку.
+     * Если изображение небольшое (обе стороны ≤ DEBUG_UPSCALE_THRESHOLD),
+     * масштабирует его в DEBUG_UPSCALE_FACTOR раз через INTER_NEAREST
+     * (пиксельный апскейл без размывания).
+     */
     private void saveDebugMat(String debugName, String fileName, Mat mat) {
         if (!DEBUG_SAVE) return;
         try {
             Path dir = Paths.get(DEBUG_DIR, debugName);
             Files.createDirectories(dir);
+
             Mat out = mat;
             if (mat.type() == CvType.CV_64F) {
                 out = new Mat();
                 mat.convertTo(out, CvType.CV_8U, 255.0);
             }
+
+            // Апскейл маленьких debug-картинок для удобства просмотра
+            if (out.cols() <= DEBUG_UPSCALE_THRESHOLD && out.rows() <= DEBUG_UPSCALE_THRESHOLD) {
+                Mat upscaled = new Mat();
+                Imgproc.resize(out, upscaled,
+                    new Size(out.cols() * DEBUG_UPSCALE_FACTOR, out.rows() * DEBUG_UPSCALE_FACTOR),
+                    0, 0, Imgproc.INTER_NEAREST);
+                out = upscaled;
+            }
+
             Imgcodecs.imwrite(dir.resolve(fileName).toString(), out);
         } catch (IOException e) {
             System.err.println("saveDebugMat: " + e.getMessage());
