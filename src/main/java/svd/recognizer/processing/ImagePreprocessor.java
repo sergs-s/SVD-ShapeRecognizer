@@ -22,7 +22,6 @@ import org.opencv.core.Scalar;
 import org.opencv.core.Size;
 import org.opencv.imgcodecs.Imgcodecs;
 import org.opencv.imgproc.Imgproc;
-import org.opencv.imgproc.Moments;
 
 public class ImagePreprocessor {
 
