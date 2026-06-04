@@ -59,7 +59,7 @@ public class TemplatesPanel extends javax.swing.JPanel {
     // SampleStripPanel — горизонтальная полоса из миниатюр всех образцов
     // -------------------------------------------------------------------------
     public static class SampleStripPanel extends JPanel {
-        private static final int THUMB = 64;
+        private static final int THUMB = 128;
         private static final int GAP   = 4;
         private List<Template> samples = List.of();
 
@@ -121,9 +121,9 @@ public class TemplatesPanel extends javax.swing.JPanel {
         scrollRectangle = new JScrollPane(stripRectangle,
             JScrollPane.VERTICAL_SCROLLBAR_NEVER, JScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED);
 
-        scrollCircle.setPreferredSize(new Dimension(180, 80));
-        scrollTriangle.setPreferredSize(new Dimension(180, 80));
-        scrollRectangle.setPreferredSize(new Dimension(180, 80));
+        scrollCircle.setPreferredSize(new Dimension(180, 144));
+        scrollTriangle.setPreferredSize(new Dimension(180, 144));
+        scrollRectangle.setPreferredSize(new Dimension(180, 144));
 
         lblCircleCount    = new javax.swing.JLabel();
         lblTriangleCount  = new javax.swing.JLabel();
@@ -205,7 +205,7 @@ public class TemplatesPanel extends javax.swing.JPanel {
             .addGroup(layout.createSequentialGroup()
                 .addComponent(title)
                 .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
-                .addComponent(scroll, javax.swing.GroupLayout.PREFERRED_SIZE, 80, javax.swing.GroupLayout.PREFERRED_SIZE)
+                .addComponent(scroll, javax.swing.GroupLayout.PREFERRED_SIZE, 144, javax.swing.GroupLayout.PREFERRED_SIZE)
                 .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
                 .addComponent(count)
                 .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
