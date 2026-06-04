@@ -43,9 +43,6 @@ public class ImagePreprocessor {
 
     private static final boolean DEBUG_SAVE = true;
     private static final String DEBUG_DIR = "debug-preprocess";
-    /** Маленькие debug-картинки увеличиваются в это число раз перед сохранением. */
-    private static final int DEBUG_UPSCALE_FACTOR = 4;
-    private static final int DEBUG_UPSCALE_THRESHOLD = 128;
 
     public static class PreprocessResult {
         private final BufferedImage image;
@@ -81,11 +78,9 @@ public class ImagePreprocessor {
         Mat cropped = extractROI(cleaned);
         saveDebugMat(debugName, "04_cropped.png", cropped);
 
-        // 1. Сначала масштабируем до 64×64 — линия становится нормальной толщины
         Mat canvas = renderOnCanvas(cropped);
         saveDebugMat(debugName, "05_canvas.png", canvas);
 
-        // 2. Только потом ищем вершины и вращаем на маленьком холсте
         Mat aligned = alignTriangle(canvas, debugName);
         saveDebugMat(debugName, "05_aligned.png", aligned);
 
@@ -118,16 +113,13 @@ public class ImagePreprocessor {
             return canvas64;
         }
 
-        // Основание — самая длинная сторона
         int baseIdx = longestSideIndex(vertices);
         Point baseA = vertices[baseIdx];
         Point baseB = vertices[(baseIdx + 1) % 3];
         Point apex  = vertices[(baseIdx + 2) % 3];
 
-        // Угол наклона основания → вращаем на этот угол, чтобы основание стало горизонтальным
         double angle = Math.toDegrees(Math.atan2(baseB.y - baseA.y, baseB.x - baseA.x));
 
-        // Поворот прямо на 64×64; INTER_NEAREST — бинарное изображение, никаких полутонов
         Point center = new Point(CANVAS_SIZE / 2.0, CANVAS_SIZE / 2.0);
         Mat rot = Imgproc.getRotationMatrix2D(center, angle, 1.0);
         Mat rotated = new Mat();
@@ -136,10 +128,8 @@ public class ImagePreprocessor {
         Imgproc.threshold(rotated, rotated, 64, 255, Imgproc.THRESH_BINARY);
         saveDebugMat(debugName, "05a_rotated.png", rotated);
 
-        // Проецируем apex через ту же матрицу поворота
         double[] apexRot = applyAffine(rot, apex);
         if (apexRot[1] > CANVAS_SIZE / 2.0) {
-            // Вершина оказалась ниже центра — отражаем по Y
             Mat flipped = new Mat();
             Core.flip(rotated, flipped, 0);
             rotated = flipped;
@@ -155,9 +145,6 @@ public class ImagePreprocessor {
         return new double[]{x, y};
     }
 
-    /**
-     * Ищет 3 вершины треугольника на переданном canvas64.
-     */
     private Point[] getTriangleVertices(MatOfPoint contour, Mat canvas64, String debugName) {
         MatOfPoint2f contour2f = new MatOfPoint2f(contour.toArray());
         double perimeter = Imgproc.arcLength(contour2f, true);
@@ -231,7 +218,6 @@ public class ImagePreprocessor {
         int newH = Math.max(1, (int) Math.round(h * scale));
 
         Mat resized = new Mat();
-        // INTER_NEAREST для бинарных контуров — не создаёт серые полутона
         Imgproc.resize(cropped, resized, new Size(newW, newH), 0, 0, Imgproc.INTER_NEAREST);
         Imgproc.threshold(resized, resized, 64, 255, Imgproc.THRESH_BINARY);
 
@@ -300,42 +286,22 @@ public class ImagePreprocessor {
     // Debug-вывод
     // =========================================================================
 
-    /**
-     * Сохраняет Mat в debug-папку.
-     * Если изображение небольшое (обе стороны ≤ DEBUG_UPSCALE_THRESHOLD),
-     * масштабирует его в DEBUG_UPSCALE_FACTOR раз через INTER_NEAREST
-     * (пиксельный апскейл без размывания).
-     */
     private void saveDebugMat(String debugName, String fileName, Mat mat) {
         if (!DEBUG_SAVE) return;
         try {
             Path dir = Paths.get(DEBUG_DIR, debugName);
             Files.createDirectories(dir);
-
             Mat out = mat;
             if (mat.type() == CvType.CV_64F) {
                 out = new Mat();
                 mat.convertTo(out, CvType.CV_8U, 255.0);
             }
-
-            // Апскейл маленьких debug-картинок для удобства просмотра
-            if (out.cols() <= DEBUG_UPSCALE_THRESHOLD && out.rows() <= DEBUG_UPSCALE_THRESHOLD) {
-                Mat upscaled = new Mat();
-                Imgproc.resize(out, upscaled,
-                    new Size(out.cols() * DEBUG_UPSCALE_FACTOR, out.rows() * DEBUG_UPSCALE_FACTOR),
-                    0, 0, Imgproc.INTER_NEAREST);
-                out = upscaled;
-            }
-
             Imgcodecs.imwrite(dir.resolve(fileName).toString(), out);
         } catch (IOException e) {
             System.err.println("saveDebugMat: " + e.getMessage());
         }
     }
 
-    /**
-     * Превью approxPolyDP поверх уже готового canvas64.
-     */
     private void saveApproxPreview(Mat canvas64, Point[] approx,
                                     String debugName, String filename) {
         Mat vis = new Mat();
@@ -357,9 +323,6 @@ public class ImagePreprocessor {
         saveDebugMat(debugName, filename, vis);
     }
 
-    /**
-     * Превью minEnclosingTriangle поверх уже готового canvas64.
-     */
     private void saveTrianglePreview(Mat canvas64, Mat triangleMat,
                                       String debugName, String filename) {
         Mat vis = new Mat();
