@@ -126,7 +126,7 @@ public class ImagePreprocessor {
         Mat rotated = new Mat();
         Imgproc.warpAffine(binary, rotated, rot, rotSize,
             Imgproc.INTER_NEAREST, Core.BORDER_CONSTANT, new Scalar(0));
-        Imgproc.threshold(rotated, rotated, 64, 255, Imgproc.THRESH_BINARY);
+        Imgproc.threshold(rotated, rotated, 40, 255, Imgproc.THRESH_BINARY);
         saveDebugMat(debugName, "05a_rotated.png", rotated);
 
         // Повернуть apex тоже, чтобы понять — он сверху или снизу
@@ -216,8 +216,24 @@ public class ImagePreprocessor {
         int newW = Math.max(1, (int) Math.round(w * scale));
         int newH = Math.max(1, (int) Math.round(h * scale));
 
+        // --- MAX-POOLING вместо INTER_AREA ---
+        // Коэффициент уменьшения: во сколько раз сжимаем
+        int reduction = (int) Math.ceil(1.0 / scale);
+        if (reduction < 1) reduction = 1;
+
+        Mat thick = cropped;
+        if (reduction > 1) {
+            // ядро ~ размера блока сжатия — гарантирует, что линия выживет
+            int k = reduction;
+            if (k % 2 == 0) k++;  // нечётное ядро
+            Mat kernel = Imgproc.getStructuringElement(
+                Imgproc.MORPH_ELLIPSE, new Size(k, k));
+            thick = new Mat();
+            Imgproc.dilate(cropped, thick, kernel);  // = локальный максимум
+        }
+
         Mat resized = new Mat();
-        Imgproc.resize(cropped, resized, new Size(newW, newH), 0, 0, Imgproc.INTER_AREA);
+        Imgproc.resize(thick, resized, new Size(newW, newH), 0, 0, Imgproc.INTER_NEAREST);
         Imgproc.threshold(resized, resized, 64, 255, Imgproc.THRESH_BINARY);
 
         Mat canvas = Mat.zeros(new Size(CANVAS_SIZE, CANVAS_SIZE), CvType.CV_8UC1);
