@@ -111,7 +111,10 @@ public class ImagePreprocessor {
         Mat cleaned = morphClean(binary);
         saveDebugMat(debugName, "03_cleaned.png", cleaned);
 
-        Mat cropped = extractROI(cleaned);
+        Mat filled = fillLargestContour(cleaned);
+        saveDebugMat(debugName, "03b_filled.png", filled);
+
+        Mat cropped = extractROI(filled);
         saveDebugMat(debugName, "04_cropped.png", cropped);
 
         Mat normalized = normalizeScale(cropped);
@@ -127,6 +130,33 @@ public class ImagePreprocessor {
         double[][] matrix = imageToMatrix(image);
 
         return new PreprocessResult(image, matrix);
+    }
+
+    // =========================================================================
+    // Заливка наибольшего контура (устраняет дырки внутри фигуры)
+    // =========================================================================
+
+    /**
+     * Находит наибольший внешний контур и заливает его целиком (drawContours thickness=-1).
+     * Устраняет проблему «дырявого» контура у triangle2 и аналогичных фигур,
+     * где после морфологической очистки остаётся полый силуэт.
+     * Для выпуклых фигур (треугольник, квадрат, круг) результат идентичен оригиналу.
+     */
+    private Mat fillLargestContour(Mat binary) {
+        List<MatOfPoint> contours = new ArrayList<>();
+        Imgproc.findContours(binary.clone(), contours, new Mat(),
+                Imgproc.RETR_EXTERNAL, Imgproc.CHAIN_APPROX_SIMPLE);
+        if (contours.isEmpty()) {
+            return binary;
+        }
+
+        MatOfPoint largest = contours.stream()
+                .max(Comparator.comparingDouble(Imgproc::contourArea))
+                .orElse(contours.get(0));
+
+        Mat filled = Mat.zeros(binary.size(), CvType.CV_8UC1);
+        Imgproc.drawContours(filled, List.of(largest), 0, new Scalar(255), -1);
+        return filled;
     }
 
     // =========================================================================
