@@ -27,24 +27,41 @@ public class ImagePreprocessor {
 
     public static final int OUTPUT_SIZE = 64;
     private static final int BBOX_PADDING = 24;
-    private static final int NORMALIZED_SHAPE_SIZE = 52; // фигура занимает ~52px из 64
-    private static final int CANVAS_SIZE = OUTPUT_SIZE;  // итоговый холст 64×64
+    private static final int NORMALIZED_SHAPE_SIZE = 52;
+    private static final int CANVAS_SIZE = OUTPUT_SIZE;
+
+    private static final double NOISE_THRESHOLD = 0.10;
 
     private static final boolean DEBUG_SAVE = true;
     private static final String DEBUG_DIR = "debug-preprocess";
 
+    // =========================================================================
+    // PreprocessResult
+    // =========================================================================
+
     public static class PreprocessResult {
         private final BufferedImage image;
         private final double[][] matrix;
+        private final boolean lowQuality;
+        private final String qualityReason;
 
-        public PreprocessResult(BufferedImage image, double[][] matrix) {
+        public PreprocessResult(BufferedImage image, double[][] matrix,
+                                boolean lowQuality, String qualityReason) {
             this.image = image;
             this.matrix = matrix;
+            this.lowQuality = lowQuality;
+            this.qualityReason = qualityReason;
         }
 
-        public BufferedImage getImage() { return image; }
-        public double[][] getMatrix()   { return matrix; }
+        public BufferedImage getImage()      { return image; }
+        public double[][] getMatrix()        { return matrix; }
+        public boolean isLowQuality()        { return lowQuality; }
+        public String getQualityReason()     { return qualityReason; }
     }
+
+    // =========================================================================
+    // preprocess
+    // =========================================================================
 
     public PreprocessResult preprocess(File imageFile) throws Exception {
         Mat source = Imgcodecs.imread(imageFile.getAbsolutePath());
@@ -58,7 +75,10 @@ public class ImagePreprocessor {
         Mat gray = toGrayscale(source);
         saveDebugMat(debugName, "01_source_gray.png", gray);
 
-        Mat binary = binarize(gray);
+        boolean[] lowQualityFlag = {false};
+        String[]  qualityReason  = {""};
+
+        Mat binary = binarize(gray, lowQualityFlag, qualityReason);
         saveDebugMat(debugName, "02_binary.png", binary);
 
         Mat cleaned = morphClean(binary);
@@ -67,20 +87,56 @@ public class ImagePreprocessor {
         Mat cropped = extractROI(cleaned);
         saveDebugMat(debugName, "04_cropped.png", cropped);
 
-        Mat aligned = alignTriangle(cropped, debugName);
+        Mat aligned = alignTriangle(cropped, debugName, lowQualityFlag, qualityReason);
         saveDebugMat(debugName, "05_aligned.png", aligned);
 
         BufferedImage image = matToBufferedImage(aligned);
         double[][] matrix = imageToMatrix(image);
 
-        return new PreprocessResult(image, matrix);
+        return new PreprocessResult(image, matrix, lowQualityFlag[0], qualityReason[0]);
     }
 
     // =========================================================================
-    // Выравнивание треугольника: поворот основания вниз, вершина вверх
+    // Бинаризация с fallback на Adaptive Gaussian
     // =========================================================================
 
-    private Mat alignTriangle(Mat binary, String debugName) {
+    private Mat binarize(Mat gray, boolean[] lowQualityFlag, String[] qualityReason) {
+        Mat binary = new Mat();
+        Imgproc.threshold(gray, binary, 0, 255,
+            Imgproc.THRESH_BINARY_INV + Imgproc.THRESH_OTSU);
+
+        // Если Otsu даёт слишком много шума — fallback на Adaptive Gaussian
+        double whitePct = (double) Core.countNonZero(binary) / (binary.rows() * binary.cols());
+        if (whitePct > NOISE_THRESHOLD) {
+            System.out.println("binarize: Otsu whitePct=" +
+                String.format("%.1f%%", whitePct * 100) + " > 10% → fallback adaptive gaussian");
+            Mat blurred = new Mat();
+            Imgproc.GaussianBlur(gray, blurred, new Size(3, 3), 0);
+            Imgproc.adaptiveThreshold(blurred, binary, 255,
+                Imgproc.ADAPTIVE_THRESH_GAUSSIAN_C,
+                Imgproc.THRESH_BINARY_INV, 51, 10);
+
+            // Проверяем адаптивный результат — если всё ещё шум, ставим флаг
+            double whitePctAfter = (double) Core.countNonZero(binary) / (binary.rows() * binary.cols());
+            if (whitePctAfter > NOISE_THRESHOLD) {
+                lowQualityFlag[0] = true;
+                qualityReason[0]  = String.format(
+                    "высокий уровень шума после бинаризации (%.0f%% белых пикселей)",
+                    whitePctAfter * 100);
+                System.out.println("binarize: adaptive gaussian whitePct=" +
+                    String.format("%.1f%%", whitePctAfter * 100) + " — low quality flag set");
+            }
+        }
+
+        return binary;
+    }
+
+    // =========================================================================
+    // Выравнивание треугольника
+    // =========================================================================
+
+    private Mat alignTriangle(Mat binary, String debugName,
+                               boolean[] lowQualityFlag, String[] qualityReason) {
         List<MatOfPoint> contours = new ArrayList<>();
         Imgproc.findContours(binary.clone(), contours, new Mat(),
             Imgproc.RETR_EXTERNAL, Imgproc.CHAIN_APPROX_SIMPLE);
@@ -93,33 +149,28 @@ public class ImagePreprocessor {
             .max(Comparator.comparingDouble(Imgproc::contourArea))
             .orElse(contours.get(0));
 
-        // Получаем 3 вершины
         Point[] vertices = getTriangleVertices(largest, debugName);
         if (vertices == null) {
-            System.out.println("Не удалось получить 3 вершины, fallback to renderOnCanvas");
+            if (!lowQualityFlag[0]) {
+                lowQualityFlag[0] = true;
+                qualityReason[0]  = "не удалось распознать треугольник: не найдены 3 вершины";
+            }
+            System.out.println("alignTriangle: не удалось получить 3 вершины → low quality");
             return renderOnCanvas(binary);
         }
 
-        // Находим основание — самую длинную сторону
         int baseIdx = longestSideIndex(vertices);
         Point baseA = vertices[baseIdx];
         Point baseB = vertices[(baseIdx + 1) % 3];
         Point apex  = vertices[(baseIdx + 2) % 3];
 
-        // Угол наклона основания
         double angle = Math.toDegrees(Math.atan2(baseB.y - baseA.y, baseB.x - baseA.x));
 
-        // Поворачиваем изображение так, чтобы основание было горизонтально
-        Point center = new Point(binary.cols() / 2.0, binary.rows() / 2.0);
-        Mat rot = Imgproc.getRotationMatrix2D(center, angle, 1.0);
-
-        // Вычисляем новый размер холста после поворота, чтобы ничего не обрезалось
         int diagonal = (int) Math.ceil(
             Math.sqrt(binary.cols() * binary.cols() + binary.rows() * binary.rows()));
         Size rotSize = new Size(diagonal, diagonal);
-        rot = Imgproc.getRotationMatrix2D(
+        Mat rot = Imgproc.getRotationMatrix2D(
             new Point(binary.cols() / 2.0, binary.rows() / 2.0), angle, 1.0);
-        // Поправка смещения для нового центра
         rot.put(0, 2, rot.get(0, 2)[0] + (diagonal - binary.cols()) / 2.0);
         rot.put(1, 2, rot.get(1, 2)[0] + (diagonal - binary.rows()) / 2.0);
 
@@ -129,7 +180,6 @@ public class ImagePreprocessor {
         Imgproc.threshold(rotated, rotated, 40, 255, Imgproc.THRESH_BINARY);
         saveDebugMat(debugName, "05a_rotated.png", rotated);
 
-        // Повернуть apex тоже, чтобы понять — он сверху или снизу
         double[] apexRot = applyAffine(rot, apex);
         double midY = diagonal / 2.0;
         if (apexRot[1] > midY) {
@@ -184,6 +234,10 @@ public class ImagePreprocessor {
         return idx;
     }
 
+    // =========================================================================
+    // renderOnCanvas
+    // =========================================================================
+
     private Mat renderOnCanvas(Mat binary) {
         List<MatOfPoint> contours = new ArrayList<>();
         Imgproc.findContours(binary.clone(), contours, new Mat(),
@@ -216,20 +270,17 @@ public class ImagePreprocessor {
         int newW = Math.max(1, (int) Math.round(w * scale));
         int newH = Math.max(1, (int) Math.round(h * scale));
 
-        // --- MAX-POOLING вместо INTER_AREA ---
-        // Коэффициент уменьшения: во сколько раз сжимаем
         int reduction = (int) Math.ceil(1.0 / scale);
         if (reduction < 1) reduction = 1;
 
         Mat thick = cropped;
         if (reduction > 1) {
-            // ядро ~ размера блока сжатия — гарантирует, что линия выживет
             int k = reduction;
-            if (k % 2 == 0) k++;  // нечётное ядро
+            if (k % 2 == 0) k++;
             Mat kernel = Imgproc.getStructuringElement(
                 Imgproc.MORPH_ELLIPSE, new Size(k, k));
             thick = new Mat();
-            Imgproc.dilate(cropped, thick, kernel);  // = локальный максимум
+            Imgproc.dilate(cropped, thick, kernel);
         }
 
         Mat resized = new Mat();
@@ -255,13 +306,6 @@ public class ImagePreprocessor {
             Imgproc.cvtColor(source, gray, Imgproc.COLOR_BGR2GRAY);
         }
         return gray;
-    }
-
-    private Mat binarize(Mat gray) {
-        Mat binary = new Mat();
-        Imgproc.threshold(gray, binary, 0, 255,
-            Imgproc.THRESH_BINARY_INV + Imgproc.THRESH_OTSU);
-        return binary;
     }
 
     private Mat morphClean(Mat binary) {
