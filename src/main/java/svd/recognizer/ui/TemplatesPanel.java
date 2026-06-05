@@ -6,6 +6,7 @@ import java.awt.Font;
 import java.awt.FontMetrics;
 import java.awt.Graphics;
 import java.awt.image.BufferedImage;
+import java.nio.file.Paths;
 import java.util.List;
 import java.util.Map;
 import javax.swing.JButton;
@@ -61,25 +62,28 @@ public class TemplatesPanel extends javax.swing.JPanel {
     // SampleStripPanel — горизонтальная полоса из миниатюр всех образцов
     // -------------------------------------------------------------------------
     public static class SampleStripPanel extends JPanel {
-        private static final int THUMB = 128;
-        private static final int GAP   = 4;
+        private static final int THUMB   = 128;
+        private static final int GAP     = 4;
+        private static final int LABEL_H = 16;   // высота строки с именем файла
 
-        private static final Color BAD_BORDER = new Color(210, 0, 0);
-        private static final Color BAD_LABEL_BG = new Color(210, 0, 0, 200);
-        private static final Color BAD_LABEL_FG = Color.WHITE;
+        private static final Color BAD_BORDER    = new Color(210, 0, 0);
+        private static final Color BAD_LABEL_BG  = new Color(210, 0, 0, 200);
+        private static final Color BAD_LABEL_FG  = Color.WHITE;
+        private static final Color FILE_LABEL_FG  = new Color(80, 80, 80);
+        private static final Color FILE_LABEL_BAD = new Color(180, 0, 0);
 
         private List<Template> samples = List.of();
 
         public SampleStripPanel() {
             setBackground(Color.WHITE);
             setBorder(javax.swing.BorderFactory.createLineBorder(Color.LIGHT_GRAY));
-            setPreferredSize(new Dimension(THUMB, THUMB));
+            setPreferredSize(new Dimension(THUMB, THUMB + LABEL_H));
         }
 
         public void setSamples(List<Template> templates) {
             this.samples = templates;
             int w = samples.isEmpty() ? THUMB : samples.size() * (THUMB + GAP) + GAP;
-            setPreferredSize(new Dimension(w, THUMB + 2 * GAP));
+            setPreferredSize(new Dimension(w, THUMB + LABEL_H + 2 * GAP));
             revalidate();
             repaint();
         }
@@ -89,24 +93,38 @@ public class TemplatesPanel extends javax.swing.JPanel {
             super.paintComponent(g);
             if (samples.isEmpty()) {
                 g.setColor(Color.GRAY);
-                g.drawString("нет данных", GAP, getHeight() / 2 + 5);
+                g.drawString("нет данных", GAP, (getHeight() + LABEL_H) / 2 + 5);
                 return;
             }
+
+            Font fileFont = new Font("SansSerif", Font.PLAIN, 10);
+            g.setFont(fileFont);
+            FontMetrics fileFm = g.getFontMetrics();
+
             int x = GAP;
             for (Template t : samples) {
+                // --- подпись с именем файла над миниатюрой ---
+                String path = t.getSourceFilePath();
+                if (path != null && !path.isEmpty()) {
+                    String name = Paths.get(path).getFileName().toString();
+                    name = ellipsize(name, THUMB, fileFm);
+                    g.setColor(t.isLowQuality() ? FILE_LABEL_BAD : FILE_LABEL_FG);
+                    g.drawString(name, x, GAP + fileFm.getAscent());
+                }
+
                 BufferedImage img = t.getNormalizedImage();
                 if (img != null) {
-                    g.drawImage(img, x, GAP, THUMB, THUMB, this);
+                    g.drawImage(img, x, GAP + LABEL_H, THUMB, THUMB, this);
                 } else {
                     g.setColor(Color.LIGHT_GRAY);
-                    g.fillRect(x, GAP, THUMB, THUMB);
+                    g.fillRect(x, GAP + LABEL_H, THUMB, THUMB);
                 }
 
                 if (t.isLowQuality()) {
                     // Двойная красная рамка
                     g.setColor(BAD_BORDER);
-                    g.drawRect(x,     GAP,     THUMB - 1, THUMB - 1);
-                    g.drawRect(x + 1, GAP + 1, THUMB - 3, THUMB - 3);
+                    g.drawRect(x,     GAP + LABEL_H,     THUMB - 1, THUMB - 1);
+                    g.drawRect(x + 1, GAP + LABEL_H + 1, THUMB - 3, THUMB - 3);
 
                     // Подпись «BAD» внизу миниатюры
                     Font badFont = new Font("SansSerif", Font.BOLD, 11);
@@ -116,17 +134,32 @@ public class TemplatesPanel extends javax.swing.JPanel {
                     int lw = fm.stringWidth(label);
                     int lh = fm.getHeight();
                     int lx = x + (THUMB - lw) / 2;
-                    int ly = GAP + THUMB - 2;
+                    int ly = GAP + LABEL_H + THUMB - 2;
                     // фон подписи
                     g.setColor(BAD_LABEL_BG);
                     g.fillRect(lx - 2, ly - lh + 2, lw + 4, lh);
                     // текст
                     g.setColor(BAD_LABEL_FG);
                     g.drawString(label, lx, ly);
+
+                    // Восстановить шрифт для следующей итерации
+                    g.setFont(fileFont);
                 }
 
                 x += THUMB + GAP;
             }
+        }
+
+        /** Обрезает строку до maxWidth пикселей, добавляя «…» если не влезает. */
+        private String ellipsize(String text, int maxWidth, FontMetrics fm) {
+            if (fm.stringWidth(text) <= maxWidth) return text;
+            String ellipsis = "…";
+            int ellipsisW = fm.stringWidth(ellipsis);
+            StringBuilder sb = new StringBuilder(text);
+            while (sb.length() > 0 && fm.stringWidth(sb.toString()) + ellipsisW > maxWidth) {
+                sb.deleteCharAt(sb.length() - 1);
+            }
+            return sb + ellipsis;
         }
     }
 
@@ -151,10 +184,6 @@ public class TemplatesPanel extends javax.swing.JPanel {
             JScrollPane.VERTICAL_SCROLLBAR_NEVER, JScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED);
         scrollRectangle = new JScrollPane(stripRectangle,
             JScrollPane.VERTICAL_SCROLLBAR_NEVER, JScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED);
-
-        scrollCircle.setPreferredSize(new Dimension(180, 144));
-        scrollTriangle.setPreferredSize(new Dimension(180, 144));
-        scrollRectangle.setPreferredSize(new Dimension(180, 144));
 
         lblCircleCount    = new javax.swing.JLabel();
         lblTriangleCount  = new javax.swing.JLabel();
