@@ -18,6 +18,7 @@ import org.opencv.core.MatOfPoint;
 import org.opencv.core.MatOfPoint2f;
 import org.opencv.core.Point;
 import org.opencv.core.Rect;
+import org.opencv.core.RotatedRect;
 import org.opencv.core.Scalar;
 import org.opencv.core.Size;
 import org.opencv.imgcodecs.Imgcodecs;
@@ -32,6 +33,9 @@ public class ImagePreprocessor {
     private static final int CANVAS_SIZE = OUTPUT_SIZE;
 
     private static final double NOISE_THRESHOLD = 0.10;
+    // Порог вырожденности контура: если max(w,h)/min(w,h) > этого значения —
+    // контур не похож на прямоугольник (линия/полоска), нужна перебинаризация
+    private static final double DEGENERATE_ASPECT_RATIO = 3.0;
 
     private static final boolean DEBUG_SAVE = true;
     private static final String DEBUG_DIR = "debug-preprocess";
@@ -98,7 +102,7 @@ public class ImagePreprocessor {
 
         Mat aligned;
         if (shapeClass == ShapeClass.RECTANGLE) {
-            aligned = alignRectangle(cropped, debugName, lowQualityFlag, qualityReason);
+            aligned = alignRectangle(cropped, gray, debugName, lowQualityFlag, qualityReason);
         } else {
             // TRIANGLE и null (неизвестный класс) — стандартный путь с поиском треугольника
             aligned = alignTriangle(cropped, debugName, lowQualityFlag, qualityReason,
@@ -144,6 +148,22 @@ public class ImagePreprocessor {
             }
         }
 
+        return binary;
+    }
+
+    /**
+     * Перебинаризация через адаптивный Гауссиан (51/10) по оригинальному серому изображению.
+     * Используется как fallback когда контур после Otsu вырождается в линию/полоску.
+     */
+    private Mat rebinarizeAdaptive(Mat gray, String debugName) {
+        Mat blurred = new Mat();
+        Imgproc.GaussianBlur(gray, blurred, new Size(3, 3), 0);
+        Mat binary = new Mat();
+        Imgproc.adaptiveThreshold(blurred, binary, 255,
+            Imgproc.ADAPTIVE_THRESH_GAUSSIAN_C,
+            Imgproc.THRESH_BINARY_INV, 51, 10);
+        System.out.println("rebinarizeAdaptive: применён адаптивный гауссиан 51/10");
+        saveDebugMat(debugName, "04b_rebinarized.png", binary);
         return binary;
     }
 
@@ -219,7 +239,18 @@ public class ImagePreprocessor {
     // Выравнивание прямоугольника
     // =========================================================================
 
-    private Mat alignRectangle(Mat binary, String debugName,
+    /**
+     * Принимает оригинальный gray для возможного fallback-перебинаризации.
+     *
+     * Проблема 1 (square1): approxPolyDP давал 5+ вершин для нарисованного от руки
+     * прямоугольника → заменено на minAreaRect, который всегда даёт ровно 4 угла.
+     *
+     * Проблема 2 (square2): Otsu терял тонкую грань → контур вырождался в полоску.
+     * Решение: после findLargestContour проверяем aspect ratio bbox;
+     * если > DEGENERATE_ASPECT_RATIO — перебинаризуем через адаптивный Гауссиан 51/10
+     * и повторяем поиск контура.
+     */
+    private Mat alignRectangle(Mat binary, Mat originalGray, String debugName,
                                 boolean[] lowQualityFlag, String[] qualityReason) {
         List<MatOfPoint> contours = new ArrayList<>();
         Imgproc.findContours(binary.clone(), contours, new Mat(),
@@ -233,22 +264,49 @@ public class ImagePreprocessor {
             .max(Comparator.comparingDouble(Imgproc::contourArea))
             .orElse(contours.get(0));
 
-        Point[] vertices = getRectangleVertices(largest, debugName);
-        if (vertices == null) {
-            if (!lowQualityFlag[0]) {
-                lowQualityFlag[0] = true;
-                qualityReason[0]  = "не удалось распознать прямоугольник: не найдены 4 вершины";
+        // --- Проблема 2: проверяем вырожденность контура ---
+        if (isDegenerate(largest)) {
+            System.out.println("alignRectangle: контур вырожден (aspect ratio > "
+                + DEGENERATE_ASPECT_RATIO + ") → fallback adaptive gaussian");
+            Mat rebinarized = rebinarizeAdaptive(originalGray, debugName);
+            Mat rebinarizedCleaned = morphClean(rebinarized);
+            Mat rebinarizedCropped = extractROI(rebinarizedCleaned);
+            saveDebugMat(debugName, "04c_rebinarized_cropped.png", rebinarizedCropped);
+
+            List<MatOfPoint> contours2 = new ArrayList<>();
+            Imgproc.findContours(rebinarizedCropped.clone(), contours2, new Mat(),
+                Imgproc.RETR_EXTERNAL, Imgproc.CHAIN_APPROX_SIMPLE);
+
+            if (!contours2.isEmpty()) {
+                MatOfPoint largest2 = contours2.stream()
+                    .max(Comparator.comparingDouble(Imgproc::contourArea))
+                    .orElse(contours2.get(0));
+                if (!isDegenerate(largest2)) {
+                    // Перебинаризация помогла — используем новый контур и binary
+                    largest = largest2;
+                    binary  = rebinarizedCropped;
+                    System.out.println("alignRectangle: после перебинаризации контур восстановлен");
+                } else {
+                    // Всё равно плохо
+                    if (!lowQualityFlag[0]) {
+                        lowQualityFlag[0] = true;
+                        qualityReason[0]  = "контур прямоугольника вырожден даже после адаптивной бинаризации";
+                    }
+                    System.out.println("alignRectangle: контур вырожден и после перебинаризации → low quality");
+                    return renderOnCanvas(rebinarizedCropped);
+                }
             }
-            System.out.println("alignRectangle: не удалось получить 4 вершины → low quality");
-            return renderOnCanvas(binary);
         }
 
-        // Выравниваем по длинной стороне (как у треугольника — по основанию)
-        int baseIdx = longestSideIndex4(vertices);
-        Point baseA = vertices[baseIdx];
-        Point baseB = vertices[(baseIdx + 1) % 4];
+        // --- Проблема 1: minAreaRect вместо approxPolyDP ---
+        RotatedRect rotatedRect = getRectangleRotatedRect(largest, debugName);
 
-        double angle = Math.toDegrees(Math.atan2(baseB.y - baseA.y, baseB.x - baseA.x));
+        // Угол из RotatedRect: OpenCV возвращает угол в диапазоне [-90, 0).
+        // Нормализуем так, чтобы длинная сторона была горизонтальной.
+        double angle = rotatedRect.angle;
+        if (rotatedRect.size.width < rotatedRect.size.height) {
+            angle += 90.0;
+        }
 
         int diagonal = (int) Math.ceil(
             Math.sqrt(binary.cols() * binary.cols() + binary.rows() * binary.rows()));
@@ -295,24 +353,36 @@ public class ImagePreprocessor {
         return readTrianglePoints(triMat);
     }
 
-    private Point[] getRectangleVertices(MatOfPoint contour, String debugName) {
+    /**
+     * Проблема 1 — замена approxPolyDP на minAreaRect.
+     * minAreaRect всегда возвращает ровно 4 угловые точки минимального описывающего
+     * прямоугольника, игнорируя шум, петли и незамкнутые грани нарисованного от руки контура.
+     */
+    private RotatedRect getRectangleRotatedRect(MatOfPoint contour, String debugName) {
         MatOfPoint2f contour2f = new MatOfPoint2f(contour.toArray());
-        double perimeter = Imgproc.arcLength(contour2f, true);
+        RotatedRect rect = Imgproc.minAreaRect(contour2f);
 
-        for (int pct = 10; pct >= 1; pct--) {
-            double epsilon = (pct / 100.0) * perimeter;
-            MatOfPoint2f approx = new MatOfPoint2f();
-            Imgproc.approxPolyDP(contour2f, approx, epsilon, true);
-            if (approx.rows() == 4) {
-                Point[] pts = approx.toArray();
-                System.out.println("approxPolyDP: 4 вершины при epsilon=" +
-                    String.format("%.1f", epsilon) + " (" + pct + "% периметра)");
-                return pts;
-            }
-        }
+        // Сохраняем превью для отладки
+        Point[] boxPts = new Point[4];
+        rect.points(boxPts);
+        saveApproxPreview(contour, boxPts, debugName, "05b_min_area_rect.png");
+        System.out.println("minAreaRect: angle=" + String.format("%.1f", rect.angle)
+            + " size=" + String.format("%.0fx%.0f", rect.size.width, rect.size.height));
+        return rect;
+    }
 
-        System.out.println("approxPolyDP не дал 4 точек для прямоугольника");
-        return null;
+    /**
+     * Возвращает true если bbox контура вырожден (линия/полоска).
+     */
+    private boolean isDegenerate(MatOfPoint contour) {
+        Rect bbox = Imgproc.boundingRect(contour);
+        double maxSide = Math.max(bbox.width, bbox.height);
+        double minSide = Math.min(bbox.width, bbox.height);
+        if (minSide == 0) return true;
+        double ratio = maxSide / minSide;
+        System.out.println("isDegenerate: bbox=" + bbox.width + "x" + bbox.height
+            + " ratio=" + String.format("%.2f", ratio));
+        return ratio > DEGENERATE_ASPECT_RATIO;
     }
 
     private int longestSideIndex(Point[] v) {
@@ -320,18 +390,6 @@ public class ImagePreprocessor {
         int idx = 0;
         for (int i = 0; i < 3; i++) {
             Point a = v[i], b = v[(i + 1) % 3];
-            double dx = b.x - a.x, dy = b.y - a.y;
-            double len = dx * dx + dy * dy;
-            if (len > best) { best = len; idx = i; }
-        }
-        return idx;
-    }
-
-    private int longestSideIndex4(Point[] v) {
-        double best = -1;
-        int idx = 0;
-        for (int i = 0; i < 4; i++) {
-            Point a = v[i], b = v[(i + 1) % 4];
             double dx = b.x - a.x, dy = b.y - a.y;
             double len = dx * dx + dy * dy;
             if (len > best) { best = len; idx = i; }
@@ -505,13 +563,14 @@ public class ImagePreprocessor {
         polyList.add(poly);
         Imgproc.drawContours(canvas, polyList, 0, new Scalar(0, 255, 255), 1);
 
-        String[] labels = {"P1", "P2", "P3"};
-        Scalar[] colors = {new Scalar(0,255,0), new Scalar(0,0,255), new Scalar(255,0,0)};
+        String[] labels = {"P1", "P2", "P3", "P4"};
+        Scalar[] colors = {new Scalar(0,255,0), new Scalar(0,0,255),
+                           new Scalar(255,0,0), new Scalar(255,255,0)};
         for (int i = 0; i < approx.length; i++) {
-            Imgproc.circle(canvas, approx[i], 4, colors[i], -1);
-            Imgproc.putText(canvas, labels[i],
+            Imgproc.circle(canvas, approx[i], 4, colors[i % colors.length], -1);
+            Imgproc.putText(canvas, labels[i % labels.length],
                 new Point(approx[i].x + 5, approx[i].y - 5),
-                Imgproc.FONT_HERSHEY_SIMPLEX, 0.4, colors[i], 1);
+                Imgproc.FONT_HERSHEY_SIMPLEX, 0.4, colors[i % colors.length], 1);
         }
         saveDebugMat(debugName, filename, canvas);
     }
@@ -567,7 +626,7 @@ public class ImagePreprocessor {
     }
 
     private String sanitizeFileName(String name) {
-        return name.replaceAll("[^a-zA-Z0-9._\\\\-]", "_");
+        return name.replaceAll("[^a-zA-Z0-9.\\\\-]", "_");
     }
 
     private double[][] imageToMatrix(BufferedImage image) {
