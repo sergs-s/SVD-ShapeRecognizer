@@ -34,6 +34,23 @@ public class ImagePreprocessor {
     private static final double NOISE_THRESHOLD = 0.10;
     private static final double DEGENERATE_ASPECT_RATIO = 3.0;
     private static final int RECT_CLOSE_KERNEL = 7;
+    // Прямоугольник вращаем по длинной грани только если он заметно вытянут.
+    // Для почти-квадрата (ниже порога) длинной грани фактически нет — не вращаем.
+    private static final double RECT_MIN_ASPECT_FOR_ROTATION = 1.25;
+
+    // Доли диагонали bbox фигуры для эскалации ядра MORPH_CLOSE (смыкание разрывов).
+    // Перебираются по возрастанию: берётся первое ядро, собравшее фигуру.
+    private static final double[] SHAPE_CLOSE_FRACTIONS = {0.03, 0.05, 0.08, 0.12};
+    // Порог покрытия: доля белых пикселей внутри маски главного контура, при
+    // которой фигура считается собранной. Ниже — развал на несвязные куски (брак).
+    private static final double COVERAGE_OK_PERCENT = 85.0;
+    // Удаление мелкого шума: компоненты меньше этой доли площади bbox фигуры
+    // считаются шумом и удаляются (но не меньше MIN_SPECKLE_AREA пикселей).
+    private static final double SPECKLE_AREA_FRACTION = 0.0008;
+    private static final int MIN_SPECKLE_AREA = 20;
+    // Множитель ядра max-pooling при уменьшении: тонкая линия должна пережить
+    // даунскейл и не порвать фигуру. Подобрано по реальным данным (1.0 рвало).
+    private static final double MAXPOOL_DILATE_MULT = 1.5;
 
     private static final boolean DEBUG_SAVE = true;
     private static final String DEBUG_DIR = "debug-preprocess";
@@ -80,7 +97,7 @@ public class ImagePreprocessor {
         Mat binary = binarize(gray, lowQualityFlag, qualityReason);
         saveDebugMat(debugName, "02_binary.png", binary);
 
-        Mat cleaned = morphClean(binary);
+        Mat cleaned = isolateMainShape(binary, debugName, lowQualityFlag, qualityReason);
         saveDebugMat(debugName, "03_cleaned.png", cleaned);
 
         Mat cropped = extractROI(cleaned);
@@ -250,14 +267,127 @@ public class ImagePreprocessor {
             }
         }
 
-        // Поворот для прямоугольника намеренно не выполняется.
-        // minAreaRect для почти-квадратных рукописных фигур выбирает ось поворота
-        // нестабильно (длины сторон близки, исход решает шум контура), из-за чего
-        // образцы одного класса разлетаются по разным ориентациям и SVD-подпространство
-        // получается грязным. Нормализация = вписывание по bounding box в renderOnCanvas.
-        // largest/binary здесь — это либо исходный кроп, либо восстановленный после
-        // adaptive + morphClose, так что разрывы граней уже залечены fallback-веткой выше.
-        return renderOnCanvas(binary);
+        // ---- Выравнивание прямоугольника по самой длинной грани ----
+        // minAreaRect выбирает ось нестабильно для почти-квадратов, поэтому угол
+        // поворота берём от самой длинной прямой грани (HoughLinesP) — устойчивый
+        // ориентир для вытянутого прямоугольника. Для почти-квадрата (aspect < 1.25)
+        // и при отсутствии надёжных линий поворот не выполняется (фигура симметрична,
+        // наклон мал и некритичен), чтобы не вносить случайных ориентаций в SVD-базис.
+        Rect bbox = Imgproc.boundingRect(largest);
+        double maxSide = Math.max(bbox.width, bbox.height);
+        double minSide = Math.max(1, Math.min(bbox.width, bbox.height));
+        double aspect = maxSide / minSide;
+
+        if (aspect < RECT_MIN_ASPECT_FOR_ROTATION) {
+            System.out.println("alignRectangle: почти квадрат (aspect="
+                + String.format("%.2f", aspect) + ") \u2192 поворот не выполняется");
+            return renderOnCanvas(binary);
+        }
+
+        Double edgeAngle = longestEdgeAngle(binary, minSide);
+        if (edgeAngle == null) {
+            System.out.println("alignRectangle: длинная грань не найдена \u2192 поворот не выполняется");
+            return renderOnCanvas(binary);
+        }
+
+        double angle = normalizeEdgeAngle(edgeAngle);
+        System.out.println("alignRectangle: угол длинной грани="
+            + String.format("%.1f", edgeAngle) + " \u2192 нормализованный="
+            + String.format("%.1f", angle));
+
+        int diagonal = (int) Math.ceil(
+            Math.sqrt(binary.cols() * binary.cols() + binary.rows() * binary.rows()));
+        Size rotSize = new Size(diagonal, diagonal);
+        Mat rot = Imgproc.getRotationMatrix2D(
+            new Point(binary.cols() / 2.0, binary.rows() / 2.0), angle, 1.0);
+        rot.put(0, 2, rot.get(0, 2)[0] + (diagonal - binary.cols()) / 2.0);
+        rot.put(1, 2, rot.get(1, 2)[0] + (diagonal - binary.rows()) / 2.0);
+
+        Mat rotated = new Mat();
+        Imgproc.warpAffine(binary, rotated, rot, rotSize,
+            Imgproc.INTER_NEAREST, Core.BORDER_CONSTANT, new Scalar(0));
+        Imgproc.threshold(rotated, rotated, 40, 255, Imgproc.THRESH_BINARY);
+        saveDebugMat(debugName, "05a_rotated_rect.png", rotated);
+
+        // Привести к единой (ландшафтной) ориентации: если после выравнивания
+        // фигура осталась портретной (высота > ширины), довернуть на 90°.
+        // Иначе вытянутые прямоугольники одного класса разъезжаются на две
+        // ориентации (горизонтальную и вертикальную) и SVD-подпространство
+        // получается грязным. Длинная сторона всегда кладётся горизонтально.
+        rotated = forceLandscape(rotated);
+        saveDebugMat(debugName, "05c_landscape.png", rotated);
+
+        return renderOnCanvas(rotated);
+    }
+
+    /**
+     * Если фигура портретная (высота её bbox больше ширины), доворачивает её
+     * на 90°, чтобы длинная сторона легла горизонтально. Для уже ландшафтной
+     * фигуры возвращает без изменений.
+     */
+    private Mat forceLandscape(Mat bin) {
+        Mat nz = new Mat();
+        Core.findNonZero(bin, nz);
+        if (nz.empty()) return bin;
+        Rect bb = Imgproc.boundingRect(nz);
+        if (bb.height <= bb.width) return bin;
+
+        int diagonal = (int) Math.ceil(
+            Math.sqrt(bin.cols() * (double) bin.cols() + bin.rows() * (double) bin.rows()));
+        Mat rot = Imgproc.getRotationMatrix2D(
+            new Point(bin.cols() / 2.0, bin.rows() / 2.0), 90, 1.0);
+        rot.put(0, 2, rot.get(0, 2)[0] + (diagonal - bin.cols()) / 2.0);
+        rot.put(1, 2, rot.get(1, 2)[0] + (diagonal - bin.rows()) / 2.0);
+        Mat out = new Mat();
+        Imgproc.warpAffine(bin, out, rot, new Size(diagonal, diagonal),
+            Imgproc.INTER_NEAREST, Core.BORDER_CONSTANT, new Scalar(0));
+        Imgproc.threshold(out, out, 40, 255, Imgproc.THRESH_BINARY);
+        return out;
+    }
+
+    /**
+     * Угол (в градусах) самой длинной прямой грани фигуры, найденной HoughLinesP.
+     * Возвращает null, если надёжных линий не найдено.
+     *
+     * minLineLength привязан к меньшей стороне bbox, чтобы ловить настоящие грани,
+     * а не короткие шумовые отрезки.
+     */
+    private Double longestEdgeAngle(Mat binary, double minSide) {
+        Mat lines = new Mat();
+        int minLineLength = (int) Math.max(10, minSide * 0.5);
+        int maxLineGap    = (int) Math.max(5, minSide * 0.25);
+        Imgproc.HoughLinesP(binary, lines, 1, Math.PI / 180.0,
+            50, minLineLength, maxLineGap);
+
+        if (lines.empty()) {
+            return null;
+        }
+
+        double bestLen = -1;
+        double bestAngle = 0;
+        for (int i = 0; i < lines.rows(); i++) {
+            double[] l = lines.get(i, 0);
+            if (l == null || l.length < 4) continue;
+            double dx = l[2] - l[0];
+            double dy = l[3] - l[1];
+            double len = Math.sqrt(dx * dx + dy * dy);
+            if (len > bestLen) {
+                bestLen = len;
+                bestAngle = Math.toDegrees(Math.atan2(dy, dx));
+            }
+        }
+        return bestLen > 0 ? bestAngle : null;
+    }
+
+    /**
+     * Приводит угол грани к минимальному повороту в диапазоне [-45, 45].
+     * Грань горизонтальна с точностью до 90°, поэтому достаточно привести
+     * угол по модулю 90 к ближайшему к нулю значению.
+     */
+    private double normalizeEdgeAngle(double angle) {
+        while (angle >  45.0) angle -= 90.0;
+        while (angle < -45.0) angle += 90.0;
+        return angle;
     }
 
     private Point[] getTriangleVertices(MatOfPoint contour, String debugName) {
@@ -350,7 +480,13 @@ public class ImagePreprocessor {
 
         Mat thick = cropped;
         if (reduction > 1) {
-            int k = reduction;
+            // Ядро max-pooling = 1.5 * коэффициент сжатия. Ровно reduction
+            // оказалось мало: самые тонкие участки рукописной линии всё же
+            // выпадали при уменьшении и фигура рвалась на 64x64 (triangle2,
+            // square5, circle2/4). 1.5x гарантирует выживание тонкой линии,
+            // утолщая её всего на ~1px на финальном холсте.
+            int k = (int) Math.round(reduction * MAXPOOL_DILATE_MULT);
+            if (k < 3) k = 3;
             if (k % 2 == 0) k++;
             Mat kernel = Imgproc.getStructuringElement(
                 Imgproc.MORPH_ELLIPSE, new Size(k, k));
@@ -379,6 +515,143 @@ public class ImagePreprocessor {
         return gray;
     }
 
+    /**
+     * Удаляет мелкие изолированные связные компоненты (внутренний и точечный
+     * шум), сохраняя крупные структуры. Порог площади привязан к размеру bbox
+     * фигуры, поэтому масштабируется под любой размер изображения.
+     *
+     * Подобрано по реальным данным: убирает крап внутри рукописных фигур
+     * (тени, грязь), не трогая контур. Переносится на лица — удалит шум сенсора,
+     * сохранив черты лица как крупные компоненты.
+     */
+    private Mat despeckle(Mat binary, Rect whiteBox) {
+        double bboxArea = (double) whiteBox.width * whiteBox.height;
+        int minArea = (int) Math.max(MIN_SPECKLE_AREA, bboxArea * SPECKLE_AREA_FRACTION);
+
+        Mat labels = new Mat();
+        Mat stats = new Mat();
+        Mat centroids = new Mat();
+        int n = Imgproc.connectedComponentsWithStats(binary, labels, stats, centroids, 8, CvType.CV_32S);
+
+        Mat keepMask = Mat.zeros(binary.size(), CvType.CV_8UC1);
+        int removed = 0;
+        for (int i = 1; i < n; i++) {
+            int area = (int) stats.get(i, Imgproc.CC_STAT_AREA)[0];
+            if (area >= minArea) {
+                // оставить компоненту: добавить её пиксели в маску
+                Mat comp = new Mat();
+                Core.compare(labels, new Scalar(i), comp, Core.CMP_EQ);
+                Core.bitwise_or(keepMask, comp, keepMask);
+            } else {
+                removed++;
+            }
+        }
+
+        Mat result = new Mat();
+        Core.bitwise_and(binary, keepMask, result);
+        System.out.println("despeckle: minArea=" + minArea
+            + " removed " + removed + " small components, white "
+            + Core.countNonZero(binary) + " \u2192 " + Core.countNonZero(result));
+        return result;
+    }
+
+    /**
+     * Изолирует основную фигуру и убирает посторонний шум, СОХРАНЯЯ контур
+     * (без заливки в результат).
+     *
+     * Заменяет прежний morphClean(MORPH_OPEN): open делал эрозию, рвавшую тонкие
+     * рукописные линии. Здесь наоборот — смыкаем разрывы и отсекаем внешний шум.
+     *
+     * Алгоритм с эскалацией ядра смыкания:
+     *   Для долей диагонали f="3,5,8,12%":
+     *     1. MORPH_CLOSE ядром k=f*диагональ — смыкает разрывы (углы, грани).
+     *     2. Берём самый большой контур, строим его ЗАЛИТУЮ маску (в памяти).
+     *     3. coverage = доля исходных белых пикселей, попавших в маску.
+     *        Если coverage >= COVERAGE_OK_PERCENT — фигура собрана: возвращаем
+     *        binary AND mask (контур сохранён, внешний шум убран).
+     *   Если ни одно ядро не собрало фигуру (coverage остаётся низким — значит
+     *   фигура развалилась на несвязные куски), помечаем lowQuality и возвращаем
+     *   binary как есть, без отсечения.
+     *
+     * coverage честно различает смыкаемую фигуру (~100%) и реальный развал на
+     * куски (главный контур охватывает лишь часть → coverage заметно < 100%).
+     * Дырку в грани coverage не штрафует — её и не нужно: MORPH_CLOSE её закроет.
+     */
+    private Mat isolateMainShape(Mat binary, String debugName,
+                                  boolean[] lowQualityFlag, String[] qualityReason) {
+        Mat nz = new Mat();
+        Core.findNonZero(binary, nz);
+        if (nz.empty()) {
+            return binary.clone();
+        }
+        Rect whiteBox = Imgproc.boundingRect(nz);
+
+        // (despeckle перенесён ПОСЛЕ смыкания: иначе он выкидывает оторванные
+        //  куски фигуры — например часть основания square5 — как "шум" до того,
+        //  как MORPH_CLOSE успеет присоединить их к контуру.)
+        double diag = Math.sqrt(
+            whiteBox.width * (double) whiteBox.width
+            + whiteBox.height * (double) whiteBox.height);
+
+        double total = Core.countNonZero(binary);
+        double bestCoverage = 0;
+        Mat bestResult = null;
+
+        for (double frac : SHAPE_CLOSE_FRACTIONS) {
+            int k = (int) Math.max(3, Math.round(diag * frac));
+            if (k % 2 == 0) k++;
+
+            Mat kernel = Imgproc.getStructuringElement(Imgproc.MORPH_RECT, new Size(k, k));
+            Mat closed = new Mat();
+            Imgproc.morphologyEx(binary, closed, Imgproc.MORPH_CLOSE, kernel);
+
+            List<MatOfPoint> contours = new ArrayList<>();
+            Imgproc.findContours(closed.clone(), contours, new Mat(),
+                Imgproc.RETR_EXTERNAL, Imgproc.CHAIN_APPROX_SIMPLE);
+            if (contours.isEmpty()) continue;
+
+            MatOfPoint main = contours.stream()
+                .max(Comparator.comparingDouble(Imgproc::contourArea))
+                .orElse(contours.get(0));
+
+            Mat mask = Mat.zeros(binary.size(), CvType.CV_8UC1);
+            List<MatOfPoint> one = new ArrayList<>();
+            one.add(main);
+            Imgproc.drawContours(mask, one, 0, new Scalar(255), -1);
+
+            Mat result = new Mat();
+            Core.bitwise_and(binary, mask, result);
+
+            // despeckle ПОСЛЕ смыкания: фрагменты фигуры уже присоединены к
+            // главному контуру и не будут отброшены; убираем только настоящий
+            // мелкий шум (точки внутри/снаружи).
+            Mat cleanedResult = despeckle(result, whiteBox);
+
+            double coverage = total > 0 ? 100.0 * Core.countNonZero(cleanedResult) / total : 0;
+            System.out.println("isolateMainShape: k=" + k
+                + " coverage=" + String.format("%.0f%%", coverage));
+
+            if (coverage > bestCoverage) {
+                bestCoverage = coverage;
+                bestResult = cleanedResult;
+            }
+            if (coverage >= COVERAGE_OK_PERCENT) {
+                saveDebugMat(debugName, "02b_despeckled.png", cleanedResult);
+                return cleanedResult;
+            }
+        }
+
+        // Ни одно ядро не собрало фигуру целиком — вероятно, развал на куски.
+        if (!lowQualityFlag[0]) {
+            lowQualityFlag[0] = true;
+            qualityReason[0]  = String.format(
+                "не удалось собрать фигуру: контур разорван (покрытие %.0f%%)", bestCoverage);
+        }
+        System.out.println("isolateMainShape: фигуру не удалось собрать, max coverage="
+            + String.format("%.0f%%", bestCoverage) + " \u2192 low quality");
+        return bestResult != null ? bestResult : binary.clone();
+    }
+
     private Mat morphClean(Mat binary) {
         Mat kernel = Imgproc.getStructuringElement(Imgproc.MORPH_ELLIPSE, new Size(3, 3));
         Mat cleaned = new Mat();
@@ -400,11 +673,21 @@ public class ImagePreprocessor {
 
         if (contours.isEmpty()) return binary;
 
-        MatOfPoint largest = contours.stream()
-            .max(Comparator.comparingDouble(Imgproc::contourArea))
-            .orElse(contours.get(0));
+        // Bounding box по ВСЕМ контурам, а не по одному крупнейшему.
+        // Рукописная фигура с разрывами распадается на несколько контуров
+        // (например, оторванная нижняя грань прямоугольника). Если брать bbox
+        // только самого большого контура, остальные куски обрезаются (баг square4).
+        Rect rect = contours.stream()
+            .map(Imgproc::boundingRect)
+            .reduce((a, b) -> {
+                int x1 = Math.min(a.x, b.x);
+                int y1 = Math.min(a.y, b.y);
+                int x2 = Math.max(a.x + a.width,  b.x + b.width);
+                int y2 = Math.max(a.y + a.height, b.y + b.height);
+                return new Rect(x1, y1, x2 - x1, y2 - y1);
+            })
+            .orElseGet(() -> Imgproc.boundingRect(contours.get(0)));
 
-        Rect rect = Imgproc.boundingRect(largest);
         int x = Math.max(0, rect.x - BBOX_PADDING);
         int y = Math.max(0, rect.y - BBOX_PADDING);
         int ww = Math.min(binary.cols() - x, rect.width  + 2 * BBOX_PADDING);
