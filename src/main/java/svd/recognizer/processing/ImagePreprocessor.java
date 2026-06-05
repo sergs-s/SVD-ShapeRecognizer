@@ -252,17 +252,7 @@ public class ImagePreprocessor {
         }
 
         RotatedRect rotatedRect = getRectangleRotatedRect(largest, debugName);
-
-        // minAreaRect возвращает угол в [-90, 0).
-        // Нормализуем к [-45, 45]: если угол < -45 — добавляем 90°,
-        // затем при необходимости компенсируем перепутанные стороны.
-        double angle = rotatedRect.angle;
-        if (angle < -45.0) {
-            angle += 90.0;
-        }
-        if (rotatedRect.size.width < rotatedRect.size.height) {
-            angle += 90.0;
-        }
+        double angle = normalizeRotatedRectAngle(rotatedRect);
 
         System.out.println("alignRectangle: нормализованный angle=" + String.format("%.1f", angle));
 
@@ -281,6 +271,37 @@ public class ImagePreprocessor {
         saveDebugMat(debugName, "05a_rotated_rect.png", rotated);
 
         return renderOnCanvas(rotated);
+    }
+
+    /**
+     * Универсальная нормализация угла minAreaRect в диапазон [-45, 45].
+     *
+     * OpenCV < 4.5.1 возвращал угол в [-90, 0).
+     * OpenCV >= 4.5.1 может вернуть положительные углы (0, 90)
+     * когда width > height (например, +47.88° для квадрата ~45°).
+     *
+     * Алгоритм:
+     *   1. Привести угол к [-90, 90]
+     *   2. Если width < height — добавить 90° (стороны перепутаны)
+     *   3. Циклически привести к [-45, 45]  (шаг 90°)
+     */
+    private double normalizeRotatedRectAngle(RotatedRect r) {
+        double angle = r.angle;
+        double w = r.size.width;
+        double h = r.size.height;
+
+        // Шаг 1: привести к [-90, 90]
+        if (angle > 90.0)  angle -= 180.0;
+        if (angle < -90.0) angle += 180.0;
+
+        // Шаг 2: если стороны перепутаны (ширина < высоты), добавить 90°
+        if (w < h) angle += 90.0;
+
+        // Шаг 3: привести к [-45, 45]
+        while (angle >  45.0) angle -= 90.0;
+        while (angle < -45.0) angle += 90.0;
+
+        return angle;
     }
 
     private Point[] getTriangleVertices(MatOfPoint contour, String debugName) {
@@ -409,7 +430,7 @@ public class ImagePreprocessor {
         if (source.channels() == 1) {
             gray = source.clone();
         } else {
-            Imgproc.cvtColor(source, gray, Imgproc.COLOR_BGR2GRAY);
+            Imgproc.cvtColor(source, gray, Imgproc.COLOR_GRAY2BGR);
         }
         return gray;
     }
