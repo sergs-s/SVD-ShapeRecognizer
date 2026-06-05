@@ -260,7 +260,7 @@ public class ImagePreprocessor {
             Math.sqrt(binary.cols() * binary.cols() + binary.rows() * binary.rows()));
         Size rotSize = new Size(diagonal, diagonal);
         Mat rot = Imgproc.getRotationMatrix2D(
-            new Point(binary.cols() / 2.0, binary.rows() / 2.0), angle, 1.0);
+            new Point(binary.cols() / 2.0, binary.rows() / 2.0), -angle, 1.0);
         rot.put(0, 2, rot.get(0, 2)[0] + (diagonal - binary.cols()) / 2.0);
         rot.put(1, 2, rot.get(1, 2)[0] + (diagonal - binary.rows()) / 2.0);
 
