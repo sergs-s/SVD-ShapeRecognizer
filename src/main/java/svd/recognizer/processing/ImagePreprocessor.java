@@ -18,7 +18,6 @@ import org.opencv.core.MatOfPoint;
 import org.opencv.core.MatOfPoint2f;
 import org.opencv.core.Point;
 import org.opencv.core.Rect;
-import org.opencv.core.RotatedRect;
 import org.opencv.core.Scalar;
 import org.opencv.core.Size;
 import org.opencv.imgcodecs.Imgcodecs;
@@ -251,57 +250,14 @@ public class ImagePreprocessor {
             }
         }
 
-        RotatedRect rotatedRect = getRectangleRotatedRect(largest, debugName);
-        double angle = normalizeRotatedRectAngle(rotatedRect);
-
-        System.out.println("alignRectangle: нормализованный angle=" + String.format("%.1f", angle));
-
-        int diagonal = (int) Math.ceil(
-            Math.sqrt(binary.cols() * binary.cols() + binary.rows() * binary.rows()));
-        Size rotSize = new Size(diagonal, diagonal);
-        Mat rot = Imgproc.getRotationMatrix2D(
-            new Point(binary.cols() / 2.0, binary.rows() / 2.0), -angle, 1.0);
-        rot.put(0, 2, rot.get(0, 2)[0] + (diagonal - binary.cols()) / 2.0);
-        rot.put(1, 2, rot.get(1, 2)[0] + (diagonal - binary.rows()) / 2.0);
-
-        Mat rotated = new Mat();
-        Imgproc.warpAffine(binary, rotated, rot, rotSize,
-            Imgproc.INTER_NEAREST, Core.BORDER_CONSTANT, new Scalar(0));
-        Imgproc.threshold(rotated, rotated, 40, 255, Imgproc.THRESH_BINARY);
-        saveDebugMat(debugName, "05a_rotated_rect.png", rotated);
-
-        return renderOnCanvas(rotated);
-    }
-
-    /**
-     * Универсальная нормализация угла minAreaRect в диапазон [-45, 45].
-     *
-     * OpenCV < 4.5.1 возвращал угол в [-90, 0).
-     * OpenCV >= 4.5.1 может вернуть положительные углы (0, 90)
-     * когда width > height (например, +47.88° для квадрата ~45°).
-     *
-     * Алгоритм:
-     *   1. Привести угол к [-90, 90]
-     *   2. Если width < height — добавить 90° (стороны перепутаны)
-     *   3. Циклически привести к [-45, 45]  (шаг 90°)
-     */
-    private double normalizeRotatedRectAngle(RotatedRect r) {
-        double angle = r.angle;
-        double w = r.size.width;
-        double h = r.size.height;
-
-        // Шаг 1: привести к [-90, 90]
-        if (angle > 90.0)  angle -= 180.0;
-        if (angle < -90.0) angle += 180.0;
-
-        // Шаг 2: если стороны перепутаны (ширина < высоты), добавить 90°
-        if (w < h) angle += 90.0;
-
-        // Шаг 3: привести к [-45, 45]
-        while (angle >  45.0) angle -= 90.0;
-        while (angle < -45.0) angle += 90.0;
-
-        return angle;
+        // Поворот для прямоугольника намеренно не выполняется.
+        // minAreaRect для почти-квадратных рукописных фигур выбирает ось поворота
+        // нестабильно (длины сторон близки, исход решает шум контура), из-за чего
+        // образцы одного класса разлетаются по разным ориентациям и SVD-подпространство
+        // получается грязным. Нормализация = вписывание по bounding box в renderOnCanvas.
+        // largest/binary здесь — это либо исходный кроп, либо восстановленный после
+        // adaptive + morphClose, так что разрывы граней уже залечены fallback-веткой выше.
+        return renderOnCanvas(binary);
     }
 
     private Point[] getTriangleVertices(MatOfPoint contour, String debugName) {
@@ -326,18 +282,6 @@ public class ImagePreprocessor {
         Imgproc.minEnclosingTriangle(new MatOfPoint2f(contour.toArray()), triMat);
         saveTrianglePreview(contour, triMat, debugName, "05b_min_enclosing_triangle.png");
         return readTrianglePoints(triMat);
-    }
-
-    private RotatedRect getRectangleRotatedRect(MatOfPoint contour, String debugName) {
-        MatOfPoint2f contour2f = new MatOfPoint2f(contour.toArray());
-        RotatedRect rect = Imgproc.minAreaRect(contour2f);
-
-        Point[] boxPts = new Point[4];
-        rect.points(boxPts);
-        saveApproxPreview(contour, boxPts, debugName, "05b_min_area_rect.png");
-        System.out.println("minAreaRect: angle=" + String.format("%.1f", rect.angle)
-            + " size=" + String.format("%.0fx%.0f", rect.size.width, rect.size.height));
-        return rect;
     }
 
     private boolean isDegenerate(MatOfPoint contour) {
