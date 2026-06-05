@@ -150,8 +150,11 @@ public class MainFrame extends javax.swing.JFrame {
                 recognitionPanel.getProcessedView().setImage(result.getImage());
                 recognitionPanel.appendLog("Загружен файл: " + selectedImageFile.getName());
             } catch (Exception ex) {
-                JOptionPane.showMessageDialog(this, ex.getMessage(), "Ошибка", JOptionPane.ERROR_MESSAGE);
-                recognitionPanel.appendLog("Ошибка загрузки: " + ex.getMessage());
+                ex.printStackTrace();
+                String shortMsg = ex.getMessage() != null
+                    ? ex.getMessage().split("\n")[0] : ex.getClass().getSimpleName();
+                JOptionPane.showMessageDialog(this, shortMsg, "Ошибка", JOptionPane.ERROR_MESSAGE);
+                recognitionPanel.appendLog("Ошибка загрузки: " + shortMsg);
             }
         }
     }
@@ -180,8 +183,11 @@ public class MainFrame extends javax.swing.JFrame {
                 recognitionPanel.appendLog(String.format("Distance = %.6f, Threshold = %.6f", result.getDistance(), result.getThreshold()));
             }
         } catch (Exception ex) {
-            JOptionPane.showMessageDialog(this, ex.getMessage(), "Ошибка", JOptionPane.ERROR_MESSAGE);
-            recognitionPanel.appendLog("Ошибка распознавания: " + ex.getMessage());
+            ex.printStackTrace();
+            String shortMsg = ex.getMessage() != null
+                ? ex.getMessage().split("\n")[0] : ex.getClass().getSimpleName();
+            JOptionPane.showMessageDialog(this, shortMsg, "Ошибка", JOptionPane.ERROR_MESSAGE);
+            recognitionPanel.appendLog("Ошибка распознавания: " + shortMsg);
         } finally {
             recognitionPanel.getProgressBar().setIndeterminate(false);
         }

@@ -110,7 +110,7 @@ public class ImagePreprocessor {
         double whitePct = (double) Core.countNonZero(binary) / (binary.rows() * binary.cols());
         if (whitePct > NOISE_THRESHOLD) {
             System.out.println("binarize: Otsu whitePct=" +
-                String.format("%.1f%%", whitePct * 100) + " > 10% → fallback adaptive gaussian");
+                String.format("%.1f%%", whitePct * 100) + " > 10% \u2192 fallback adaptive gaussian");
             Mat blurred = new Mat();
             Imgproc.GaussianBlur(gray, blurred, new Size(3, 3), 0);
             Imgproc.adaptiveThreshold(blurred, binary, 255,
@@ -165,7 +165,7 @@ public class ImagePreprocessor {
                 qualityReason[0]  = "не удалось распознать треугольник: не найдены 3 вершины";
             }
             System.out.println("alignTriangle: не удалось получить 3 вершины"
-                + (validateVertices ? " → low quality" : ""));
+                + (validateVertices ? " \u2192 low quality" : ""));
             return renderOnCanvas(binary);
         }
 
@@ -218,7 +218,7 @@ public class ImagePreprocessor {
 
         if (isDegenerate(largest)) {
             System.out.println("alignRectangle: контур вырожден (aspect ratio > "
-                + DEGENERATE_ASPECT_RATIO + ") → fallback adaptive gaussian + morphClose");
+                + DEGENERATE_ASPECT_RATIO + ") \u2192 fallback adaptive gaussian + morphClose");
 
             Mat rebinarized = rebinarizeAdaptive(originalGray, debugName);
             Mat rebinarizedCleaned = morphClean(rebinarized);
@@ -245,7 +245,7 @@ public class ImagePreprocessor {
                         lowQualityFlag[0] = true;
                         qualityReason[0]  = "контур прямоугольника вырожден даже после adaptive + morphClose";
                     }
-                    System.out.println("alignRectangle: contour still degenerate after adaptive + morphClose → low quality");
+                    System.out.println("alignRectangle: contour still degenerate after adaptive + morphClose \u2192 low quality");
                     return renderOnCanvas(rebinarizedCropped);
                 }
             }
@@ -321,7 +321,7 @@ public class ImagePreprocessor {
             }
         }
 
-        System.out.println("approxPolyDP не дал 3 точек → minEnclosingTriangle");
+        System.out.println("approxPolyDP не дал 3 точек \u2192 minEnclosingTriangle");
         Mat triMat = new Mat();
         Imgproc.minEnclosingTriangle(new MatOfPoint2f(contour.toArray()), triMat);
         saveTrianglePreview(contour, triMat, debugName, "05b_min_enclosing_triangle.png");
@@ -430,7 +430,7 @@ public class ImagePreprocessor {
         if (source.channels() == 1) {
             gray = source.clone();
         } else {
-            Imgproc.cvtColor(source, gray, Imgproc.COLOR_GRAY2BGR);
+            Imgproc.cvtColor(source, gray, Imgproc.COLOR_BGR2GRAY);
         }
         return gray;
     }

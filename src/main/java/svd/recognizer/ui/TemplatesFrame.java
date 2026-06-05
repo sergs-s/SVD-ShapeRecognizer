@@ -150,7 +150,10 @@ public class TemplatesFrame extends javax.swing.JFrame {
             repository.save(stores.get(shapeClass));
             refreshPanel();
         } catch (Exception ex) {
-            JOptionPane.showMessageDialog(this, ex.getMessage(), "Ошибка", JOptionPane.ERROR_MESSAGE);
+            ex.printStackTrace();
+            String shortMsg = ex.getMessage() != null
+                ? ex.getMessage().split("\n")[0] : ex.getClass().getSimpleName();
+            JOptionPane.showMessageDialog(this, shortMsg, "Ошибка", JOptionPane.ERROR_MESSAGE);
         }
     }
 
@@ -160,7 +163,10 @@ public class TemplatesFrame extends javax.swing.JFrame {
             repository.save(stores.get(shapeClass));
             refreshPanel();
         } catch (Exception ex) {
-            JOptionPane.showMessageDialog(this, ex.getMessage(), "Ошибка", JOptionPane.ERROR_MESSAGE);
+            ex.printStackTrace();
+            String shortMsg = ex.getMessage() != null
+                ? ex.getMessage().split("\n")[0] : ex.getClass().getSimpleName();
+            JOptionPane.showMessageDialog(this, shortMsg, "Ошибка", JOptionPane.ERROR_MESSAGE);
         }
     }
 
