@@ -253,10 +253,18 @@ public class ImagePreprocessor {
 
         RotatedRect rotatedRect = getRectangleRotatedRect(largest, debugName);
 
+        // minAreaRect возвращает угол в [-90, 0).
+        // Нормализуем к [-45, 45]: если угол < -45 — добавляем 90°,
+        // затем при необходимости компенсируем перепутанные стороны.
         double angle = rotatedRect.angle;
+        if (angle < -45.0) {
+            angle += 90.0;
+        }
         if (rotatedRect.size.width < rotatedRect.size.height) {
             angle += 90.0;
         }
+
+        System.out.println("alignRectangle: нормализованный angle=" + String.format("%.1f", angle));
 
         int diagonal = (int) Math.ceil(
             Math.sqrt(binary.cols() * binary.cols() + binary.rows() * binary.rows()));
