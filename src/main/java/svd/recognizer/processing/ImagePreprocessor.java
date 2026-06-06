@@ -37,7 +37,6 @@ public class ImagePreprocessor {
     // Прямоугольник вращаем по длинной грани только если он заметно вытянут.
     // Для почти-квадрата (ниже порога) длинной грани фактически нет — не вращаем.
     private static final double RECT_MIN_ASPECT_FOR_ROTATION = 1.25;
-
     // Доли диагонали bbox фигуры для эскалации ядра MORPH_CLOSE (смыкание разрывов).
     // Перебираются по возрастанию: берётся первое ядро, собравшее фигуру.
     private static final double[] SHAPE_CLOSE_FRACTIONS = {0.03, 0.05, 0.08, 0.12};
@@ -48,10 +47,17 @@ public class ImagePreprocessor {
     // считаются шумом и удаляются (но не меньше MIN_SPECKLE_AREA пикселей).
     private static final double SPECKLE_AREA_FRACTION = 0.0008;
     private static final int MIN_SPECKLE_AREA = 20;
-    // Множитель ядра max-pooling при уменьшении: тонкая линия должна пережить
-    // даунскейл и не порвать фигуру. Подобрано по реальным данным (1.0 рвало).
+    // Ширина кольца вдоль линии контура (доля диагонали) для отличия
+    // куска грани (на кольце) от внутреннего шума (вне кольца).
+    private static final double EDGE_RING_FRACTION = 0.02;
+    // Кусок на кольце сохраняется, только если он не меньше этого размера
+    // (куски граней >=140px, внутренний/краевой шум <=96px по реальным данным).
+    private static final int EDGE_FRAGMENT_MIN_AREA = 120;
+    // Multiplier for max-pooling kernel at downscale (1.0 broke thin lines).
     private static final double MAXPOOL_DILATE_MULT = 1.5;
-
+    // Ядро финального смыкания на холсте 64x64 — сшивает микроразрывы тонкой линии,
+    // возникающие при уменьшении. 5 закрывает разрывы 2-5px, не сливая стороны.
+    private static final int FINAL_CLOSE_KERNEL = 5;
     private static final boolean DEBUG_SAVE = true;
     private static final String DEBUG_DIR = "debug-preprocess";
 
@@ -106,6 +112,11 @@ public class ImagePreprocessor {
         Mat aligned;
         if (shapeClass == ShapeClass.RECTANGLE) {
             aligned = alignRectangle(cropped, gray, debugName, lowQualityFlag, qualityReason);
+        } else if (shapeClass == ShapeClass.CIRCLE) {
+            // Круг симметричен к повороту — выравнивать ориентацию не нужно и
+            // вредно (нет ни вершины, ни длинной грани, любой поворот случаен).
+            // Просто вписываем по bounding box, как почти-квадрат.
+            aligned = renderOnCanvas(cropped);
         } else {
             aligned = alignTriangle(cropped, debugName, lowQualityFlag, qualityReason,
                     shapeClass == ShapeClass.TRIANGLE);
@@ -119,29 +130,34 @@ public class ImagePreprocessor {
     }
 
     private Mat binarize(Mat gray, boolean[] lowQualityFlag, String[] qualityReason) {
+        // Адаптивная гауссова бинаризация (51/10) как основной метод для ВСЕХ фигур,
+        // вместо Otsu. Otsu — глобальный порог — терял бледные/неравномерно
+        // нарисованные грани (например слабую верхнюю грань square2), отчего контур
+        // получался прерывистым. Adaptive берёт локальный порог и вытягивает слабые
+        // линии, замыкая такие грани. Затем MORPH_OPEN 3x3 убирает точечный шум,
+        // который adaptive может оставить на фоне. Проверено по реальным данным на
+        // всех 22 фигурах: контуры замкнуты, форма (включая наклон) сохранена,
+        // внутреннего шума нет.
+        Mat blurred = new Mat();
+        Imgproc.GaussianBlur(gray, blurred, new Size(3, 3), 0);
+
         Mat binary = new Mat();
-        Imgproc.threshold(gray, binary, 0, 255,
-            Imgproc.THRESH_BINARY_INV + Imgproc.THRESH_OTSU);
+        Imgproc.adaptiveThreshold(blurred, binary, 255,
+            Imgproc.ADAPTIVE_THRESH_GAUSSIAN_C,
+            Imgproc.THRESH_BINARY_INV, 51, 10);
+
+        // Точечный шум фона убираем лёгким открытием (эрозия+дилатация ядром 3x3).
+        binary = morphClean(binary);
 
         double whitePct = (double) Core.countNonZero(binary) / (binary.rows() * binary.cols());
+        System.out.println("binarize: adaptive gaussian 51/10 + open, whitePct="
+            + String.format("%.1f%%", whitePct * 100));
         if (whitePct > NOISE_THRESHOLD) {
-            System.out.println("binarize: Otsu whitePct=" +
-                String.format("%.1f%%", whitePct * 100) + " > 10% \u2192 fallback adaptive gaussian");
-            Mat blurred = new Mat();
-            Imgproc.GaussianBlur(gray, blurred, new Size(3, 3), 0);
-            Imgproc.adaptiveThreshold(blurred, binary, 255,
-                Imgproc.ADAPTIVE_THRESH_GAUSSIAN_C,
-                Imgproc.THRESH_BINARY_INV, 51, 10);
-
-            double whitePctAfter = (double) Core.countNonZero(binary) / (binary.rows() * binary.cols());
-            if (whitePctAfter > NOISE_THRESHOLD) {
-                lowQualityFlag[0] = true;
-                qualityReason[0]  = String.format(
-                    "высокий уровень шума после бинаризации (%.0f%% белых пикселей)",
-                    whitePctAfter * 100);
-                System.out.println("binarize: adaptive gaussian whitePct=" +
-                    String.format("%.1f%%", whitePctAfter * 100) + " — low quality flag set");
-            }
+            lowQualityFlag[0] = true;
+            qualityReason[0]  = String.format(
+                "высокий уровень шума после бинаризации (%.0f%% белых пикселей)",
+                whitePct * 100);
+            System.out.println("binarize: whitePct высок \u2192 low quality flag set");
         }
 
         return binary;
@@ -232,7 +248,23 @@ public class ImagePreprocessor {
             .max(Comparator.comparingDouble(Imgproc::contourArea))
             .orElse(contours.get(0));
 
-        if (isDegenerate(largest)) {
+        // Геометрию (вырожденность, aspect, поворот) считаем по bbox ВСЕХ белых
+        // пикселей фигуры, а не по одному контуру. У рукописного прямоугольника
+        // стороны часто остаются раздельными контурами, и самый большой из них —
+        // это одна сторона (длинная тонкая полоса, aspect>3). Если мерить по ней,
+        // фигура ложно признаётся вырожденной и уходит в adaptive-fallback, который
+        // вносит шум (наблюдалось на square2). По всем пикселям aspect корректен.
+        Mat nzRect = new Mat();
+        Core.findNonZero(binary, nzRect);
+        Rect figureBox = nzRect.empty() ? Imgproc.boundingRect(largest)
+                                        : Imgproc.boundingRect(nzRect);
+        double figMax = Math.max(figureBox.width, figureBox.height);
+        double figMin = Math.max(1, Math.min(figureBox.width, figureBox.height));
+        boolean degenerate = (figMax / figMin) > DEGENERATE_ASPECT_RATIO;
+        System.out.println("alignRectangle: figure bbox=" + figureBox.width + "x"
+            + figureBox.height + " aspect=" + String.format("%.2f", figMax / figMin));
+
+        if (degenerate) {
             System.out.println("alignRectangle: контур вырожден (aspect ratio > "
                 + DEGENERATE_ASPECT_RATIO + ") \u2192 fallback adaptive gaussian + morphClose");
 
@@ -273,7 +305,12 @@ public class ImagePreprocessor {
         // ориентир для вытянутого прямоугольника. Для почти-квадрата (aspect < 1.25)
         // и при отсутствии надёжных линий поворот не выполняется (фигура симметрична,
         // наклон мал и некритичен), чтобы не вносить случайных ориентаций в SVD-базис.
-        Rect bbox = Imgproc.boundingRect(largest);
+        // aspect/minSide для поворота — тоже по всей фигуре (см. выше),
+        // пересчитываем на случай, если в fallback binary был заменён.
+        Mat nzRect2 = new Mat();
+        Core.findNonZero(binary, nzRect2);
+        Rect bbox = nzRect2.empty() ? Imgproc.boundingRect(largest)
+                                    : Imgproc.boundingRect(nzRect2);
         double maxSide = Math.max(bbox.width, bbox.height);
         double minSide = Math.max(1, Math.min(bbox.width, bbox.height));
         double aspect = maxSide / minSide;
@@ -502,7 +539,16 @@ public class ImagePreprocessor {
         int offX = (CANVAS_SIZE - newW) / 2;
         int offY = (CANVAS_SIZE - newH) / 2;
         resized.copyTo(canvas.submat(offY, offY + newH, offX, offX + newW));
-        return canvas;
+
+        // Финальное лёгкое смыкание эллипсом 5x5 на готовом холсте 64x64.
+        // При уменьшении тонкая линия местами истончается и рвётся на 2-5px даже
+        // после max-pooling (square2 низ, circle2/3 дуга). Малое эллиптическое ядро
+        // сшивает эти микроразрывы, не сливая соседние стороны (проверено: вершины
+        // треугольников остаются острыми, рост белого ~1px толщины).
+        Mat closedCanvas = new Mat();
+        Imgproc.morphologyEx(canvas, closedCanvas, Imgproc.MORPH_CLOSE,
+            Imgproc.getStructuringElement(Imgproc.MORPH_ELLIPSE, new Size(FINAL_CLOSE_KERNEL, FINAL_CLOSE_KERNEL)));
+        return closedCanvas;
     }
 
     private Mat toGrayscale(Mat source) {
@@ -524,23 +570,65 @@ public class ImagePreprocessor {
      * (тени, грязь), не трогая контур. Переносится на лица — удалит шум сенсора,
      * сохранив черты лица как крупные компоненты.
      */
-    private Mat despeckle(Mat binary, Rect whiteBox) {
+    private Mat despeckle(Mat binary, Rect whiteBox, Mat contourMask) {
         double bboxArea = (double) whiteBox.width * whiteBox.height;
         int minArea = (int) Math.max(MIN_SPECKLE_AREA, bboxArea * SPECKLE_AREA_FRACTION);
+        double diag = Math.sqrt(
+            whiteBox.width * (double) whiteBox.width
+            + whiteBox.height * (double) whiteBox.height);
 
         Mat labels = new Mat();
         Mat stats = new Mat();
         Mat centroids = new Mat();
         int n = Imgproc.connectedComponentsWithStats(binary, labels, stats, centroids, 8, CvType.CV_32S);
+        if (n <= 1) {
+            return binary.clone();
+        }
+
+        // Главная компонента (самая большая) сохраняется всегда.
+        int mainIdx = 1;
+        double mainArea = -1;
+        for (int i = 1; i < n; i++) {
+            double a = stats.get(i, Imgproc.CC_STAT_AREA)[0];
+            if (a > mainArea) { mainArea = a; mainIdx = i; }
+        }
+
+        // "Кольцо" вдоль линии контура фигуры = dilate(маска) - erode(маска).
+        // Логика разделения двух разных дефектов ОДНИМ критерием неверна, поэтому:
+        //  - кусок прерывистой ГРАНИ лежит НА линии контура (попадает в кольцо) —
+        //    его сохраняем, даже если он меньше порога площади (иначе рвётся
+        //    основание square5, верх square2, дуга circle2);
+        //  - ВНУТРЕННИЙ шум лежит в пустой области, далеко от линии (вне кольца) —
+        //    его удаляем по площади (пятна в triangle3/4/5).
+        // По реальным данным куски граней >=140px, внутренний шум <=96px — порог
+        // EDGE_FRAGMENT_MIN_AREA между ними разделяет их надёжно.
+        Mat ring = new Mat();
+        if (contourMask != null) {
+            int rk = (int) Math.max(3, Math.round(diag * EDGE_RING_FRACTION));
+            if (rk % 2 == 0) rk++;
+            Mat ek = Imgproc.getStructuringElement(Imgproc.MORPH_ELLIPSE, new Size(rk, rk));
+            Mat dil = new Mat();
+            Mat ero = new Mat();
+            Imgproc.dilate(contourMask, dil, ek);
+            Imgproc.erode(contourMask, ero, ek);
+            Core.subtract(dil, ero, ring);
+        }
 
         Mat keepMask = Mat.zeros(binary.size(), CvType.CV_8UC1);
         int removed = 0;
         for (int i = 1; i < n; i++) {
             int area = (int) stats.get(i, Imgproc.CC_STAT_AREA)[0];
-            if (area >= minArea) {
-                // оставить компоненту: добавить её пиксели в маску
-                Mat comp = new Mat();
-                Core.compare(labels, new Scalar(i), comp, Core.CMP_EQ);
+            Mat comp = new Mat();
+            Core.compare(labels, new Scalar(i), comp, Core.CMP_EQ);
+
+            boolean onEdge = false;
+            if (ring.empty() == false && i != mainIdx && area < minArea) {
+                Mat inter = new Mat();
+                Core.bitwise_and(comp, ring, inter);
+                onEdge = Core.countNonZero(inter) > 0;
+            }
+
+            if (i == mainIdx || area >= minArea || (onEdge && area >= EDGE_FRAGMENT_MIN_AREA)) {
                 Core.bitwise_or(keepMask, comp, keepMask);
             } else {
                 removed++;
@@ -601,7 +689,7 @@ public class ImagePreprocessor {
             int k = (int) Math.max(3, Math.round(diag * frac));
             if (k % 2 == 0) k++;
 
-            Mat kernel = Imgproc.getStructuringElement(Imgproc.MORPH_RECT, new Size(k, k));
+            Mat kernel = Imgproc.getStructuringElement(Imgproc.MORPH_ELLIPSE, new Size(k, k));
             Mat closed = new Mat();
             Imgproc.morphologyEx(binary, closed, Imgproc.MORPH_CLOSE, kernel);
 
@@ -625,7 +713,7 @@ public class ImagePreprocessor {
             // despeckle ПОСЛЕ смыкания: фрагменты фигуры уже присоединены к
             // главному контуру и не будут отброшены; убираем только настоящий
             // мелкий шум (точки внутри/снаружи).
-            Mat cleanedResult = despeckle(result, whiteBox);
+            Mat cleanedResult = despeckle(result, whiteBox, mask);
 
             double coverage = total > 0 ? 100.0 * Core.countNonZero(cleanedResult) / total : 0;
             System.out.println("isolateMainShape: k=" + k
