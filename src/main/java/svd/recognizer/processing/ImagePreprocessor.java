@@ -106,7 +106,7 @@ public class ImagePreprocessor {
         Mat binary = binarize(gray, lowQualityFlag, qualityReason);
         saveDebugMat(debugName, "02_binary.png", binary);
 
-        Mat cleaned = isolateMainShape(binary, debugName, lowQualityFlag, qualityReason, shapeClass);
+        Mat cleaned = isolateMainShape(binary, debugName, lowQualityFlag, qualityReason);
         saveDebugMat(debugName, "03_cleaned.png", cleaned);
 
         Mat cropped = extractROI(cleaned);
@@ -717,9 +717,8 @@ public class ImagePreprocessor {
      *     1. MORPH_CLOSE ядром k=f*диагональ — смыкает разрывы (углы, грани).
      *     2. Берём самый большой контур, строим его ЗАЛИТУЮ маску (в памяти).
      *     3. coverage = доля исходных белых пикселей, попавших в маску.
-     *        Если coverage >= COVERAGE_OK_PERCENT — фигура собрана.
-     *        Для CIRCLE возвращаем closed AND mask (дорисованный разрыв сохранён).
-     *        Для остальных классов возвращаем binary AND mask (контур не меняется).
+     *        Если coverage >= COVERAGE_OK_PERCENT — фигура собрана: возвращаем
+     *        binary AND mask (контур сохранён, внешний шум убран).
      *   Если ни одно ядро не собрало фигуру (coverage остаётся низким — значит
      *   фигура развалилась на несвязные куски), помечаем lowQuality и возвращаем
      *   binary как есть, без отсечения.
@@ -727,12 +726,9 @@ public class ImagePreprocessor {
      * coverage честно различает смыкаемую фигуру (~100%) и реальный развал на
      * куски (главный контур охватывает лишь часть → coverage заметно < 100%).
      * Дырку в грани coverage не штрафует — её и не нужно: MORPH_CLOSE её закроет.
-     *
-     * @param shapeClass класс фигуры; null — поведение как для не-CIRCLE.
      */
     private Mat isolateMainShape(Mat binary, String debugName,
-                                  boolean[] lowQualityFlag, String[] qualityReason,
-                                  ShapeClass shapeClass) {
+                                  boolean[] lowQualityFlag, String[] qualityReason) {
         Mat nz = new Mat();
         Core.findNonZero(binary, nz);
         if (nz.empty()) {
@@ -773,14 +769,8 @@ public class ImagePreprocessor {
             one.add(main);
             Imgproc.drawContours(mask, one, 0, new Scalar(255), -1);
 
-            // Для CIRCLE используем closed как базу: MORPH_CLOSE дорисовал разрыв
-            // дуги, и нам нужно сохранить этот дорисованный участок в результате.
-            // Для остальных классов base = binary: контур не меняем, только маскируем.
-            // shapeClass == ShapeClass.CIRCLE безопасно при null (вернёт false).
-            Mat base = (shapeClass == ShapeClass.CIRCLE) ? closed : binary;
-
             Mat result = new Mat();
-            Core.bitwise_and(base, mask, result);
+            Core.bitwise_and(binary, mask, result);
 
             // despeckle ПОСЛЕ смыкания: фрагменты фигуры уже присоединены к
             // главному контуру и не будут отброшены; убираем только настоящий
@@ -966,7 +956,7 @@ public class ImagePreprocessor {
     }
 
     private String sanitizeFileName(String name) {
-        return name.replaceAll("[^a-zA-Z0-9.\\\\\-]", "_");
+        return name.replaceAll("[^a-zA-Z0-9.\\\\-]", "_");
     }
 
     private double[][] imageToMatrix(BufferedImage image) {
