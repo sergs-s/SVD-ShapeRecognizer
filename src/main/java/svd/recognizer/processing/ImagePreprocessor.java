@@ -58,6 +58,9 @@ public class ImagePreprocessor {
     // Ядро финального смыкания на холсте 64x64 — сшивает микроразрывы тонкой линии,
     // возникающие при уменьшении. 5 закрывает разрывы 2-5px, не сливая стороны.
     private static final int FINAL_CLOSE_KERNEL = 5;
+    // Максимальный разрыв (px на холсте 64x64), который досшивается соединением
+    // концов контура отрезком. Малый, чтобы соединять только реальные мелкие дыры.
+    private static final int BRIDGE_MAX_GAP = 8;
     private static final boolean DEBUG_SAVE = true;
     private static final String DEBUG_DIR = "debug-preprocess";
 
@@ -548,7 +551,66 @@ public class ImagePreprocessor {
         Mat closedCanvas = new Mat();
         Imgproc.morphologyEx(canvas, closedCanvas, Imgproc.MORPH_CLOSE,
             Imgproc.getStructuringElement(Imgproc.MORPH_ELLIPSE, new Size(FINAL_CLOSE_KERNEL, FINAL_CLOSE_KERNEL)));
+
+        // Сшивание оставшихся мелких разрывов контура: находим «концы» линии
+        // (пиксели ровно с одним соседом — там контур обрывается) и соединяем
+        // ближайшие пары отрезком, если они ближе BRIDGE_MAX_GAP. Закрывает разрыв
+        // в основании, который смыкание не дотянуло (например square2). Безопасно:
+        // у замкнутых фигур концов нет, поэтому их контур не трогается; одиночный
+        // конец без пары рядом тоже не трогается (например круг с тупым торцом дуги).
+        bridgeEndpoints(closedCanvas);
         return closedCanvas;
+    }
+
+    /**
+     * Сшивает мелкие разрывы контура на бинарном холсте 64x64. Находит концевые
+     * точки линии (пиксели ровно с одним белым 8-соседом) и соединяет взаимно
+     * близкие пары прямым отрезком толщиной 2. Замкнутые контуры концов не имеют —
+     * не изменяются. Изменяет переданный Mat на месте.
+     */
+    private void bridgeEndpoints(Mat canvas) {
+        int rows = canvas.rows();
+        int cols = canvas.cols();
+        byte[] buf = new byte[rows * cols];
+        canvas.get(0, 0, buf);
+
+        // Собираем концевые точки: белый пиксель ровно с одним белым соседом.
+        java.util.List<int[]> ends = new java.util.ArrayList<>();
+        for (int y = 1; y < rows - 1; y++) {
+            for (int x = 1; x < cols - 1; x++) {
+                if ((buf[y * cols + x] & 0xFF) == 0) continue;
+                int neighbors = 0;
+                for (int dy = -1; dy <= 1; dy++) {
+                    for (int dx = -1; dx <= 1; dx++) {
+                        if (dx == 0 && dy == 0) continue;
+                        if ((buf[(y + dy) * cols + (x + dx)] & 0xFF) != 0) neighbors++;
+                    }
+                }
+                if (neighbors == 1) ends.add(new int[]{x, y});
+            }
+        }
+
+        // Соединяем взаимно ближайшие концы в пределах BRIDGE_MAX_GAP.
+        boolean[] used = new boolean[ends.size()];
+        for (int i = 0; i < ends.size(); i++) {
+            if (used[i]) continue;
+            int best = -1;
+            double bestD = BRIDGE_MAX_GAP + 1;
+            for (int j = 0; j < ends.size(); j++) {
+                if (j == i || used[j]) continue;
+                double d = Math.hypot(ends.get(i)[0] - ends.get(j)[0],
+                                      ends.get(i)[1] - ends.get(j)[1]);
+                if (d < bestD) { bestD = d; best = j; }
+            }
+            if (best >= 0 && bestD <= BRIDGE_MAX_GAP) {
+                Imgproc.line(canvas,
+                    new Point(ends.get(i)[0], ends.get(i)[1]),
+                    new Point(ends.get(best)[0], ends.get(best)[1]),
+                    new Scalar(255), 2);
+                used[i] = true;
+                used[best] = true;
+            }
+        }
     }
 
     private Mat toGrayscale(Mat source) {
