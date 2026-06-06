@@ -1,0 +1,270 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+
+<Form version="1.5" maxVersion="1.9" type="org.netbeans.modules.form.forminfo.JPanelFormInfo">
+  <AuxValues>
+    <AuxValue name="FormSettings_autoResourcing" type="java.lang.Integer" value="0"/>
+    <AuxValue name="FormSettings_autoSetComponentName" type="java.lang.Boolean" value="false"/>
+    <AuxValue name="FormSettings_generateFQN" type="java.lang.Boolean" value="true"/>
+    <AuxValue name="FormSettings_generateMnemonicsCode" type="java.lang.Boolean" value="false"/>
+    <AuxValue name="FormSettings_i18nAutoMode" type="java.lang.Boolean" value="false"/>
+    <AuxValue name="FormSettings_layoutCodeTarget" type="java.lang.Integer" value="1"/>
+    <AuxValue name="FormSettings_listenerGenerationStyle" type="java.lang.Integer" value="0"/>
+    <AuxValue name="FormSettings_variablesLocal" type="java.lang.Boolean" value="false"/>
+    <AuxValue name="FormSettings_variablesModifier" type="java.lang.Integer" value="2"/>
+  </AuxValues>
+
+  <Layout>
+    <DimensionLayout dim="0">
+      <Group type="103" groupAlignment="0" attributes="0">
+        <Group type="102" attributes="0">
+          <EmptySpace max="-2" attributes="0"/>
+          <Component id="pnlTriangle"  min="-2" max="32767" attributes="0"/>
+          <EmptySpace max="-2" attributes="0"/>
+          <Component id="pnlRectangle" min="-2" max="32767" attributes="0"/>
+          <EmptySpace max="-2" attributes="0"/>
+          <Component id="pnlCircle"    min="-2" max="32767" attributes="0"/>
+          <EmptySpace max="-2" attributes="0"/>
+        </Group>
+      </Group>
+    </DimensionLayout>
+    <DimensionLayout dim="1">
+      <Group type="103" groupAlignment="0" attributes="0">
+        <Group type="102" attributes="0">
+          <EmptySpace max="-2" attributes="0"/>
+          <Group type="103" groupAlignment="0" attributes="0">
+            <Component id="pnlTriangle"  alignment="0" min="-2" max="32767" attributes="0"/>
+            <Component id="pnlRectangle" alignment="0" min="-2" max="32767" attributes="0"/>
+            <Component id="pnlCircle"    alignment="0" min="-2" max="32767" attributes="0"/>
+          </Group>
+          <EmptySpace max="-2" attributes="0"/>
+        </Group>
+      </Group>
+    </DimensionLayout>
+  </Layout>
+
+  <SubComponents>
+
+    <Container class="javax.swing.JPanel" name="pnlTriangle">
+      <Layout>
+        <DimensionLayout dim="0">
+          <Group type="103" groupAlignment="0" attributes="0">
+            <Component id="lblTriangleTitle" alignment="0" max="32767" attributes="0"/>
+            <Component id="scrollTriangle"   alignment="0" max="32767" attributes="0"/>
+            <Component id="lblTriangleCount" alignment="0" max="32767" attributes="0"/>
+            <Group type="102" attributes="0">
+              <Component id="btnAddTriangle"       min="-2" max="32767" attributes="0"/>
+              <EmptySpace max="-2" attributes="0"/>
+              <Component id="btnAddFolderTriangle" min="-2" max="32767" attributes="0"/>
+              <EmptySpace max="-2" attributes="0"/>
+              <Component id="btnResetTriangle"     min="-2" max="32767" attributes="0"/>
+            </Group>
+          </Group>
+        </DimensionLayout>
+        <DimensionLayout dim="1">
+          <Group type="103" groupAlignment="0" attributes="0">
+            <Group type="102" attributes="0">
+              <Component id="lblTriangleTitle" min="-2" max="-2" attributes="0"/>
+              <EmptySpace max="-2" attributes="0"/>
+              <Component id="scrollTriangle"   min="-2" max="-2" attributes="0"/>
+              <EmptySpace max="-2" attributes="0"/>
+              <Component id="lblTriangleCount" min="-2" max="-2" attributes="0"/>
+              <EmptySpace max="-2" attributes="0"/>
+              <Group type="103" groupAlignment="3" attributes="0">
+                <Component id="btnAddTriangle"       alignment="3" min="-2" max="-2" attributes="0"/>
+                <Component id="btnAddFolderTriangle" alignment="3" min="-2" max="-2" attributes="0"/>
+                <Component id="btnResetTriangle"     alignment="3" min="-2" max="-2" attributes="0"/>
+              </Group>
+            </Group>
+          </Group>
+        </DimensionLayout>
+      </Layout>
+      <SubComponents>
+        <Component class="javax.swing.JLabel" name="lblTriangleTitle">
+          <Properties>
+            <Property name="horizontalAlignment" type="int" value="0"/>
+            <Property name="text" type="java.lang.String" value="Triangle"/>
+          </Properties>
+        </Component>
+        <Container class="javax.swing.JScrollPane" name="scrollTriangle">
+          <AuxValues>
+            <AuxValue name="autoScrollPane" type="java.lang.Boolean" value="true"/>
+          </AuxValues>
+          <SubComponents>
+            <Component class="svd.recognizer.ui.TemplatesPanel$SampleStripPanel" name="stripTriangle">
+            </Component>
+          </SubComponents>
+        </Container>
+        <Component class="javax.swing.JLabel" name="lblTriangleCount">
+          <Properties>
+            <Property name="horizontalAlignment" type="int" value="0"/>
+            <Property name="text" type="java.lang.String" value="0 загружено"/>
+          </Properties>
+        </Component>
+        <Component class="javax.swing.JButton" name="btnAddTriangle">
+          <Properties>
+            <Property name="text" type="java.lang.String" value="Add Triangle"/>
+          </Properties>
+        </Component>
+        <Component class="javax.swing.JButton" name="btnAddFolderTriangle">
+          <Properties>
+            <Property name="text" type="java.lang.String" value="Add Folder"/>
+          </Properties>
+        </Component>
+        <Component class="javax.swing.JButton" name="btnResetTriangle">
+          <Properties>
+            <Property name="text" type="java.lang.String" value="Reset Triangle"/>
+          </Properties>
+        </Component>
+      </SubComponents>
+    </Container>
+
+    <Container class="javax.swing.JPanel" name="pnlRectangle">
+      <Layout>
+        <DimensionLayout dim="0">
+          <Group type="103" groupAlignment="0" attributes="0">
+            <Component id="lblRectangleTitle" alignment="0" max="32767" attributes="0"/>
+            <Component id="scrollRectangle"   alignment="0" max="32767" attributes="0"/>
+            <Component id="lblRectangleCount" alignment="0" max="32767" attributes="0"/>
+            <Group type="102" attributes="0">
+              <Component id="btnAddRectangle"       min="-2" max="32767" attributes="0"/>
+              <EmptySpace max="-2" attributes="0"/>
+              <Component id="btnAddFolderRectangle" min="-2" max="32767" attributes="0"/>
+              <EmptySpace max="-2" attributes="0"/>
+              <Component id="btnResetRectangle"     min="-2" max="32767" attributes="0"/>
+            </Group>
+          </Group>
+        </DimensionLayout>
+        <DimensionLayout dim="1">
+          <Group type="103" groupAlignment="0" attributes="0">
+            <Group type="102" attributes="0">
+              <Component id="lblRectangleTitle" min="-2" max="-2" attributes="0"/>
+              <EmptySpace max="-2" attributes="0"/>
+              <Component id="scrollRectangle"   min="-2" max="-2" attributes="0"/>
+              <EmptySpace max="-2" attributes="0"/>
+              <Component id="lblRectangleCount" min="-2" max="-2" attributes="0"/>
+              <EmptySpace max="-2" attributes="0"/>
+              <Group type="103" groupAlignment="3" attributes="0">
+                <Component id="btnAddRectangle"       alignment="3" min="-2" max="-2" attributes="0"/>
+                <Component id="btnAddFolderRectangle" alignment="3" min="-2" max="-2" attributes="0"/>
+                <Component id="btnResetRectangle"     alignment="3" min="-2" max="-2" attributes="0"/>
+              </Group>
+            </Group>
+          </Group>
+        </DimensionLayout>
+      </Layout>
+      <SubComponents>
+        <Component class="javax.swing.JLabel" name="lblRectangleTitle">
+          <Properties>
+            <Property name="horizontalAlignment" type="int" value="0"/>
+            <Property name="text" type="java.lang.String" value="Rectangle"/>
+          </Properties>
+        </Component>
+        <Container class="javax.swing.JScrollPane" name="scrollRectangle">
+          <AuxValues>
+            <AuxValue name="autoScrollPane" type="java.lang.Boolean" value="true"/>
+          </AuxValues>
+          <SubComponents>
+            <Component class="svd.recognizer.ui.TemplatesPanel$SampleStripPanel" name="stripRectangle">
+            </Component>
+          </SubComponents>
+        </Container>
+        <Component class="javax.swing.JLabel" name="lblRectangleCount">
+          <Properties>
+            <Property name="horizontalAlignment" type="int" value="0"/>
+            <Property name="text" type="java.lang.String" value="0 загружено"/>
+          </Properties>
+        </Component>
+        <Component class="javax.swing.JButton" name="btnAddRectangle">
+          <Properties>
+            <Property name="text" type="java.lang.String" value="Add Rectangle"/>
+          </Properties>
+        </Component>
+        <Component class="javax.swing.JButton" name="btnAddFolderRectangle">
+          <Properties>
+            <Property name="text" type="java.lang.String" value="Add Folder"/>
+          </Properties>
+        </Component>
+        <Component class="javax.swing.JButton" name="btnResetRectangle">
+          <Properties>
+            <Property name="text" type="java.lang.String" value="Reset Rectangle"/>
+          </Properties>
+        </Component>
+      </SubComponents>
+    </Container>
+
+    <Container class="javax.swing.JPanel" name="pnlCircle">
+      <Layout>
+        <DimensionLayout dim="0">
+          <Group type="103" groupAlignment="0" attributes="0">
+            <Component id="lblCircleTitle" alignment="0" max="32767" attributes="0"/>
+            <Component id="scrollCircle"   alignment="0" max="32767" attributes="0"/>
+            <Component id="lblCircleCount" alignment="0" max="32767" attributes="0"/>
+            <Group type="102" attributes="0">
+              <Component id="btnAddCircle"       min="-2" max="32767" attributes="0"/>
+              <EmptySpace max="-2" attributes="0"/>
+              <Component id="btnAddFolderCircle" min="-2" max="32767" attributes="0"/>
+              <EmptySpace max="-2" attributes="0"/>
+              <Component id="btnResetCircle"     min="-2" max="32767" attributes="0"/>
+            </Group>
+          </Group>
+        </DimensionLayout>
+        <DimensionLayout dim="1">
+          <Group type="103" groupAlignment="0" attributes="0">
+            <Group type="102" attributes="0">
+              <Component id="lblCircleTitle" min="-2" max="-2" attributes="0"/>
+              <EmptySpace max="-2" attributes="0"/>
+              <Component id="scrollCircle"   min="-2" max="-2" attributes="0"/>
+              <EmptySpace max="-2" attributes="0"/>
+              <Component id="lblCircleCount" min="-2" max="-2" attributes="0"/>
+              <EmptySpace max="-2" attributes="0"/>
+              <Group type="103" groupAlignment="3" attributes="0">
+                <Component id="btnAddCircle"       alignment="3" min="-2" max="-2" attributes="0"/>
+                <Component id="btnAddFolderCircle" alignment="3" min="-2" max="-2" attributes="0"/>
+                <Component id="btnResetCircle"     alignment="3" min="-2" max="-2" attributes="0"/>
+              </Group>
+            </Group>
+          </Group>
+        </DimensionLayout>
+      </Layout>
+      <SubComponents>
+        <Component class="javax.swing.JLabel" name="lblCircleTitle">
+          <Properties>
+            <Property name="horizontalAlignment" type="int" value="0"/>
+            <Property name="text" type="java.lang.String" value="Circle"/>
+          </Properties>
+        </Component>
+        <Container class="javax.swing.JScrollPane" name="scrollCircle">
+          <AuxValues>
+            <AuxValue name="autoScrollPane" type="java.lang.Boolean" value="true"/>
+          </AuxValues>
+          <SubComponents>
+            <Component class="svd.recognizer.ui.TemplatesPanel$SampleStripPanel" name="stripCircle">
+            </Component>
+          </SubComponents>
+        </Container>
+        <Component class="javax.swing.JLabel" name="lblCircleCount">
+          <Properties>
+            <Property name="horizontalAlignment" type="int" value="0"/>
+            <Property name="text" type="java.lang.String" value="0 загружено"/>
+          </Properties>
+        </Component>
+        <Component class="javax.swing.JButton" name="btnAddCircle">
+          <Properties>
+            <Property name="text" type="java.lang.String" value="Add Circle"/>
+          </Properties>
+        </Component>
+        <Component class="javax.swing.JButton" name="btnAddFolderCircle">
+          <Properties>
+            <Property name="text" type="java.lang.String" value="Add Folder"/>
+          </Properties>
+        </Component>
+        <Component class="javax.swing.JButton" name="btnResetCircle">
+          <Properties>
+            <Property name="text" type="java.lang.String" value="Reset Circle"/>
+          </Properties>
+        </Component>
+      </SubComponents>
+    </Container>
+
+  </SubComponents>
+</Form>

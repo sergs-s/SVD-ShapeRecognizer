@@ -28,16 +28,24 @@ import svd.recognizer.model.TemplateStore;
  */
 public class TemplatesPanel extends javax.swing.JPanel {
 
+    // Поля для кнопок «Add Folder» объявлены вне GEN-блока (добавлены вручную)
+    private javax.swing.JButton btnAddFolderCircle;
+    private javax.swing.JButton btnAddFolderTriangle;
+    private javax.swing.JButton btnAddFolderRectangle;
+
     public TemplatesPanel() {
         initComponents();
     }
 
-    public JButton getBtnAddCircle()     { return btnAddCircle; }
-    public JButton getBtnAddTriangle()   { return btnAddTriangle; }
-    public JButton getBtnAddRectangle()  { return btnAddRectangle; }
-    public JButton getBtnResetCircle()   { return btnResetCircle; }
-    public JButton getBtnResetTriangle() { return btnResetTriangle; }
-    public JButton getBtnResetRectangle(){ return btnResetRectangle; }
+    public JButton getBtnAddCircle()          { return btnAddCircle; }
+    public JButton getBtnAddTriangle()        { return btnAddTriangle; }
+    public JButton getBtnAddRectangle()       { return btnAddRectangle; }
+    public JButton getBtnResetCircle()        { return btnResetCircle; }
+    public JButton getBtnResetTriangle()      { return btnResetTriangle; }
+    public JButton getBtnResetRectangle()     { return btnResetRectangle; }
+    public JButton getBtnAddFolderCircle()    { return btnAddFolderCircle; }
+    public JButton getBtnAddFolderTriangle()  { return btnAddFolderTriangle; }
+    public JButton getBtnAddFolderRectangle() { return btnAddFolderRectangle; }
 
     public void refresh(Map<ShapeClass, TemplateStore> stores) {
         updateSection(stores.get(ShapeClass.CIRCLE),    stripCircle,    lblCircleCount);
@@ -153,7 +161,7 @@ public class TemplatesPanel extends javax.swing.JPanel {
         /** Обрезает строку до maxWidth пикселей, добавляя «…» если не влезает. */
         private String ellipsize(String text, int maxWidth, FontMetrics fm) {
             if (fm.stringWidth(text) <= maxWidth) return text;
-            String ellipsis = "…";
+            String ellipsis = "\u2026";
             int ellipsisW = fm.stringWidth(ellipsis);
             StringBuilder sb = new StringBuilder(text);
             while (sb.length() > 0 && fm.stringWidth(sb.toString()) + ellipsisW > maxWidth) {
@@ -189,12 +197,17 @@ public class TemplatesPanel extends javax.swing.JPanel {
         lblTriangleCount  = new javax.swing.JLabel();
         lblRectangleCount = new javax.swing.JLabel();
 
-        btnAddCircle     = new javax.swing.JButton();
-        btnAddTriangle   = new javax.swing.JButton();
-        btnAddRectangle  = new javax.swing.JButton();
-        btnResetCircle   = new javax.swing.JButton();
-        btnResetTriangle = new javax.swing.JButton();
+        btnAddCircle      = new javax.swing.JButton();
+        btnAddTriangle    = new javax.swing.JButton();
+        btnAddRectangle   = new javax.swing.JButton();
+        btnResetCircle    = new javax.swing.JButton();
+        btnResetTriangle  = new javax.swing.JButton();
         btnResetRectangle = new javax.swing.JButton();
+
+        // Кнопки «Add Folder» — инициализируются вручную (вне GEN-блока переменных)
+        btnAddFolderCircle    = new javax.swing.JButton();
+        btnAddFolderTriangle  = new javax.swing.JButton();
+        btnAddFolderRectangle = new javax.swing.JButton();
 
         lblCircleTitle.setHorizontalAlignment(javax.swing.SwingConstants.CENTER);
         lblCircleTitle.setText("Circle");
@@ -216,10 +229,13 @@ public class TemplatesPanel extends javax.swing.JPanel {
         btnResetCircle.setText("Reset Circle");
         btnResetTriangle.setText("Reset Triangle");
         btnResetRectangle.setText("Reset Rectangle");
+        btnAddFolderCircle.setText("Add Folder");
+        btnAddFolderTriangle.setText("Add Folder");
+        btnAddFolderRectangle.setText("Add Folder");
 
-        buildSection(pnlCircle,    lblCircleTitle,    scrollCircle,    lblCircleCount,    btnAddCircle,    btnResetCircle);
-        buildSection(pnlTriangle,  lblTriangleTitle,  scrollTriangle,  lblTriangleCount,  btnAddTriangle,  btnResetTriangle);
-        buildSection(pnlRectangle, lblRectangleTitle, scrollRectangle, lblRectangleCount, btnAddRectangle, btnResetRectangle);
+        buildSection(pnlCircle,    lblCircleTitle,    scrollCircle,    lblCircleCount,    btnAddCircle,    btnAddFolderCircle,    btnResetCircle);
+        buildSection(pnlTriangle,  lblTriangleTitle,  scrollTriangle,  lblTriangleCount,  btnAddTriangle,  btnAddFolderTriangle,  btnResetTriangle);
+        buildSection(pnlRectangle, lblRectangleTitle, scrollRectangle, lblRectangleCount, btnAddRectangle, btnAddFolderRectangle, btnResetRectangle);
 
         javax.swing.GroupLayout layout = new javax.swing.GroupLayout(this);
         this.setLayout(layout);
@@ -247,18 +263,20 @@ public class TemplatesPanel extends javax.swing.JPanel {
     }// </editor-fold>//GEN-END:initComponents
 
     private void buildSection(JPanel panel, JLabel title, JScrollPane scroll,
-                              JLabel count, JButton add, JButton reset) {
+                              JLabel count, JButton add, JButton addFolder, JButton reset) {
         javax.swing.GroupLayout layout = new javax.swing.GroupLayout(panel);
         panel.setLayout(layout);
         layout.setHorizontalGroup(
             layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
-            .addComponent(title,  javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE)
-            .addComponent(scroll, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE)
-            .addComponent(count,  javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE)
+            .addComponent(title,     javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE)
+            .addComponent(scroll,    javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE)
+            .addComponent(count,     javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE)
             .addGroup(layout.createSequentialGroup()
-                .addComponent(add,   javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE)
+                .addComponent(add,       javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE)
                 .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
-                .addComponent(reset, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE))
+                .addComponent(addFolder, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE)
+                .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
+                .addComponent(reset,     javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE))
         );
         layout.setVerticalGroup(
             layout.createSequentialGroup()
@@ -270,6 +288,7 @@ public class TemplatesPanel extends javax.swing.JPanel {
                 .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
                 .addGroup(layout.createParallelGroup(javax.swing.GroupLayout.Alignment.BASELINE)
                     .addComponent(add)
+                    .addComponent(addFolder)
                     .addComponent(reset))
         );
     }

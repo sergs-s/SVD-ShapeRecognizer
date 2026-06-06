@@ -1,6 +1,9 @@
 package svd.recognizer.ui;
 
 import java.io.File;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
 import java.util.Map;
 import javax.swing.JFileChooser;
 import javax.swing.JOptionPane;
@@ -16,8 +19,9 @@ import svd.recognizer.storage.TemplateRepository;
  * Отдельная форма управления эталонами.
  *
  * Назначение формы: 1. Загружать по одному файлу в выбранный класс фигур 2.
- * Сбрасывать шаблоны по каждому классу отдельно 3. Отображать все загруженные образцы
- * фигур и количество шаблонов 4. Обновлять интерфейс после каждого изменения данных
+ * Загружать все JPEG из выбранной папки в выбранный класс фигур 3.
+ * Сбрасывать шаблоны по каждому классу отдельно 4. Отображать все загруженные образцы
+ * фигур и количество шаблонов 5. Обновлять интерфейс после каждого изменения данных
  *
  * Кнопка Templates на MainFrame открывает именно эту форму, а вся работа с
  * эталонами сосредоточена только здесь.
@@ -105,7 +109,14 @@ public class TemplatesFrame extends javax.swing.JFrame {
         templatesPanel.getBtnResetCircle().addActionListener(e -> resetStore(ShapeClass.CIRCLE));
         templatesPanel.getBtnResetTriangle().addActionListener(e -> resetStore(ShapeClass.TRIANGLE));
         templatesPanel.getBtnResetRectangle().addActionListener(e -> resetStore(ShapeClass.RECTANGLE));
+        templatesPanel.getBtnAddFolderCircle().addActionListener(e -> addTemplatesFromFolder(ShapeClass.CIRCLE));
+        templatesPanel.getBtnAddFolderTriangle().addActionListener(e -> addTemplatesFromFolder(ShapeClass.TRIANGLE));
+        templatesPanel.getBtnAddFolderRectangle().addActionListener(e -> addTemplatesFromFolder(ShapeClass.RECTANGLE));
     }
+
+    // -------------------------------------------------------------------------
+    // Загрузка одного файла
+    // -------------------------------------------------------------------------
 
     private JFileChooser createJpegChooser() {
         JFileChooser chooser = new JFileChooser();
@@ -156,6 +167,99 @@ public class TemplatesFrame extends javax.swing.JFrame {
             JOptionPane.showMessageDialog(this, shortMsg, "Ошибка", JOptionPane.ERROR_MESSAGE);
         }
     }
+
+    // -------------------------------------------------------------------------
+    // Загрузка папки
+    // -------------------------------------------------------------------------
+
+    private JFileChooser createFolderChooser() {
+        JFileChooser chooser = new JFileChooser();
+        File dir = new File(System.getProperty("user.dir"), LEARNING_DATA_DIR);
+        if (!dir.exists()) dir = new File(System.getProperty("user.dir"));
+        chooser.setCurrentDirectory(dir);
+        chooser.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
+        chooser.setAcceptAllFileFilterUsed(false);
+        return chooser;
+    }
+
+    private void addTemplatesFromFolder(ShapeClass shapeClass) {
+        JFileChooser chooser = createFolderChooser();
+        if (chooser.showOpenDialog(this) != JFileChooser.APPROVE_OPTION) {
+            return;
+        }
+
+        File folder = chooser.getSelectedFile();
+        File[] files = folder.listFiles(f ->
+            f.isFile() && (f.getName().toLowerCase().endsWith(".jpg")
+                        || f.getName().toLowerCase().endsWith(".jpeg")));
+
+        if (files == null || files.length == 0) {
+            JOptionPane.showMessageDialog(this,
+                "В папке не найдено JPEG-файлов.",
+                "Нет файлов", JOptionPane.INFORMATION_MESSAGE);
+            return;
+        }
+
+        Arrays.sort(files);   // воспроизводимый порядок (по имени)
+
+        int added = 0;
+        int errors = 0;
+        List<String> lowQualityNames = new ArrayList<>();
+
+        for (File file : files) {
+            try {
+                ImagePreprocessor.PreprocessResult result =
+                    preprocessor.preprocess(file, shapeClass);
+
+                if (result.isLowQuality()) {
+                    lowQualityNames.add(file.getName() + " — " + result.getQualityReason());
+                }
+
+                double[] signature = svdComputer.computeFeatures(result.getMatrix());
+                Template template = new Template(
+                    signature, result.getImage(), file.getAbsolutePath(),
+                    result.isLowQuality(), result.getQualityReason());
+                stores.get(shapeClass).addTemplate(template);
+                added++;
+
+            } catch (Exception ex) {
+                ex.printStackTrace();
+                errors++;
+            }
+        }
+
+        // Один save и один refresh после всего цикла
+        try {
+            repository.save(stores.get(shapeClass));
+        } catch (Exception ex) {
+            ex.printStackTrace();
+            JOptionPane.showMessageDialog(this,
+                "Ошибка сохранения: " + ex.getMessage(),
+                "Ошибка", JOptionPane.ERROR_MESSAGE);
+        }
+        refreshPanel();
+
+        // Сводный диалог
+        StringBuilder msg = new StringBuilder();
+        msg.append("Добавлено: ").append(added).append("\n");
+        if (errors > 0)
+            msg.append("Ошибок:    ").append(errors).append("\n");
+        if (!lowQualityNames.isEmpty()) {
+            msg.append("\nНизкое качество (").append(lowQualityNames.size()).append("):\n");
+            for (String s : lowQualityNames)
+                msg.append("  \u2022 ").append(s).append("\n");
+        }
+        JOptionPane.showMessageDialog(this,
+            msg.toString().trim(),
+            "Загрузка папки завершена",
+            lowQualityNames.isEmpty() && errors == 0
+                ? JOptionPane.INFORMATION_MESSAGE
+                : JOptionPane.WARNING_MESSAGE);
+    }
+
+    // -------------------------------------------------------------------------
+    // Сброс и вспомогательные методы
+    // -------------------------------------------------------------------------
 
     private void resetStore(ShapeClass shapeClass) {
         try {
