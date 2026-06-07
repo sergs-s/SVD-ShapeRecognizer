@@ -48,12 +48,13 @@ public class TemplatesPanel extends javax.swing.JPanel {
     public JButton getBtnAddFolderRectangle() { return btnAddFolderRectangle; }
 
     public void refresh(Map<ShapeClass, TemplateStore> stores) {
-        updateSection(stores.get(ShapeClass.CIRCLE),    stripCircle,    lblCircleCount);
-        updateSection(stores.get(ShapeClass.TRIANGLE),  stripTriangle,  lblTriangleCount);
-        updateSection(stores.get(ShapeClass.RECTANGLE), stripRectangle, lblRectangleCount);
+        updateSection(stores.get(ShapeClass.CIRCLE),    stripCircle,    scrollCircle,    lblCircleCount);
+        updateSection(stores.get(ShapeClass.TRIANGLE),  stripTriangle,  scrollTriangle,  lblTriangleCount);
+        updateSection(stores.get(ShapeClass.RECTANGLE), stripRectangle, scrollRectangle, lblRectangleCount);
     }
 
-    private void updateSection(TemplateStore store, SampleStripPanel strip, JLabel label) {
+    private void updateSection(TemplateStore store, SampleStripPanel strip,
+                               JScrollPane scroll, JLabel label) {
         if (store == null) {
             strip.setSamples(List.of());
             label.setText("0 загружено");
@@ -64,6 +65,16 @@ public class TemplatesPanel extends javax.swing.JPanel {
         strip.setSamples(store.getTemplates());
         label.setText(count + " загружено");
         label.setForeground(count >= TemplateStore.MIN_TEMPLATES ? new Color(0, 128, 0) : Color.RED);
+
+        // Скролл к последнему добавленному.
+        // invokeLater нужен: setSamples() вызывает revalidate(), но layout-проход
+        // случится позже в EDT. К моменту исполнения лямбды getMaximum() уже
+        // отражает новую ширину SampleStripPanel.
+        javax.swing.SwingUtilities.invokeLater(() ->
+            scroll.getHorizontalScrollBar().setValue(
+                scroll.getHorizontalScrollBar().getMaximum()
+            )
+        );
     }
 
     // -------------------------------------------------------------------------
