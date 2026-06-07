@@ -17,6 +17,7 @@
         <Group type="102" attributes="0">
           <EmptySpace max="-2" attributes="0"/>
           <Group type="103" groupAlignment="0" attributes="0">
+            <Component id="lblResult" max="32767" attributes="0"/>
             <Component id="progressBar" max="32767" attributes="0"/>
             <Component id="scrollLog" max="32767" attributes="0"/>
             <Group type="102" attributes="0">
@@ -56,6 +57,8 @@
             <Component id="pnlProcessed" max="32767" attributes="0"/>
           </Group>
           <EmptySpace max="-2" attributes="0"/>
+          <Component id="lblResult" min="-2" pref="32" max="-2" attributes="0"/>
+          <EmptySpace max="-2" attributes="0"/>
           <Component id="progressBar" min="-2" max="-2" attributes="0"/>
           <EmptySpace max="-2" attributes="0"/>
           <Component id="scrollLog" min="-2" pref="180" max="-2" attributes="0"/>
@@ -88,6 +91,15 @@
     <Component class="svd.recognizer.ui.ImageView" name="pnlTemplate">
     </Component>
     <Component class="svd.recognizer.ui.ImageView" name="pnlProcessed">
+    </Component>
+    <Component class="javax.swing.JLabel" name="lblResult">
+      <Properties>
+        <Property name="font" type="java.awt.Font" editor="org.netbeans.beaninfo.editors.FontEditor">
+          <Font name="Segoe UI" size="20" style="1"/>
+        </Property>
+        <Property name="horizontalAlignment" type="int" value="0"/>
+        <Property name="text" type="java.lang.String" value=" "/>
+      </Properties>
     </Component>
     <Component class="javax.swing.JProgressBar" name="progressBar">
     </Component>

@@ -34,14 +34,29 @@
               <EmptySpace max="-2" attributes="0"/>
               <Component id="btnTemplates" min="-2" max="-2" attributes="0"/>
               <EmptySpace max="-2" attributes="0"/>
-              <Component id="btnAutoThreshold" min="-2" max="-2" attributes="0"/>
-              <EmptySpace type="unrelated" max="-2" attributes="0"/>
-              <Component id="lblThreshold" min="-2" max="-2" attributes="0"/>
-              <EmptySpace max="-2" attributes="0"/>
-              <Component id="spinnerThreshold" min="-2" pref="90" max="-2" attributes="0"/>
-              <EmptySpace pref="130" max="32767" attributes="0"/>
               <Component id="btnExit" min="-2" max="-2" attributes="0"/>
+              <EmptySpace pref="200" max="32767" attributes="0"/>
+          </Group>
+          <Group type="102" attributes="0">
               <EmptySpace max="-2" attributes="0"/>
+              <Component id="lblCircle" min="-2" max="-2" attributes="0"/>
+              <EmptySpace max="-2" attributes="0"/>
+              <Component id="spinnerCircle" min="-2" pref="80" max="-2" attributes="0"/>
+              <EmptySpace type="unrelated" max="-2" attributes="0"/>
+              <Component id="lblTriangle" min="-2" max="-2" attributes="0"/>
+              <EmptySpace max="-2" attributes="0"/>
+              <Component id="spinnerTriangle" min="-2" pref="80" max="-2" attributes="0"/>
+              <EmptySpace type="unrelated" max="-2" attributes="0"/>
+              <Component id="lblRectangle" min="-2" max="-2" attributes="0"/>
+              <EmptySpace max="-2" attributes="0"/>
+              <Component id="spinnerRectangle" min="-2" pref="80" max="-2" attributes="0"/>
+              <EmptySpace type="unrelated" max="-2" attributes="0"/>
+              <Component id="btnMul10" min="-2" max="-2" attributes="0"/>
+              <EmptySpace max="-2" attributes="0"/>
+              <Component id="btnMul15" min="-2" max="-2" attributes="0"/>
+              <EmptySpace max="-2" attributes="0"/>
+              <Component id="btnMul20" min="-2" max="-2" attributes="0"/>
+              <EmptySpace pref="40" max="32767" attributes="0"/>
           </Group>
       </Group>
     </DimensionLayout>
@@ -58,9 +73,18 @@
                   <Component id="btnRecognize" alignment="3" min="-2" max="-2" attributes="0"/>
                   <Component id="btnTemplates" alignment="3" min="-2" max="-2" attributes="0"/>
                   <Component id="btnExit" alignment="3" min="-2" max="-2" attributes="0"/>
-                  <Component id="lblThreshold" alignment="3" min="-2" max="-2" attributes="0"/>
-                  <Component id="spinnerThreshold" alignment="3" min="-2" max="-2" attributes="0"/>
-                  <Component id="btnAutoThreshold" alignment="3" min="-2" max="-2" attributes="0"/>
+              </Group>
+              <EmptySpace max="-2" attributes="0"/>
+              <Group type="103" groupAlignment="3" attributes="0">
+                  <Component id="lblCircle" alignment="3" min="-2" max="-2" attributes="0"/>
+                  <Component id="spinnerCircle" alignment="3" min="-2" max="-2" attributes="0"/>
+                  <Component id="lblTriangle" alignment="3" min="-2" max="-2" attributes="0"/>
+                  <Component id="spinnerTriangle" alignment="3" min="-2" max="-2" attributes="0"/>
+                  <Component id="lblRectangle" alignment="3" min="-2" max="-2" attributes="0"/>
+                  <Component id="spinnerRectangle" alignment="3" min="-2" max="-2" attributes="0"/>
+                  <Component id="btnMul10" alignment="3" min="-2" max="-2" attributes="0"/>
+                  <Component id="btnMul15" alignment="3" min="-2" max="-2" attributes="0"/>
+                  <Component id="btnMul20" alignment="3" min="-2" max="-2" attributes="0"/>
               </Group>
               <EmptySpace max="-2" attributes="0"/>
           </Group>
@@ -83,33 +107,102 @@
       <Properties>
         <Property name="text" type="java.lang.String" value="Load Image"/>
       </Properties>
+      <Events>
+        <EventHandler event="actionPerformed" listener="java.awt.event.ActionListener" parameters="java.awt.event.ActionEvent" handler="btnLoadImageActionPerformed"/>
+      </Events>
     </Component>
     <Component class="javax.swing.JButton" name="btnRecognize">
       <Properties>
         <Property name="text" type="java.lang.String" value="Recognize"/>
       </Properties>
+      <Events>
+        <EventHandler event="actionPerformed" listener="java.awt.event.ActionListener" parameters="java.awt.event.ActionEvent" handler="btnRecognizeActionPerformed"/>
+      </Events>
     </Component>
     <Component class="javax.swing.JButton" name="btnTemplates">
       <Properties>
         <Property name="text" type="java.lang.String" value="Templates"/>
       </Properties>
+      <Events>
+        <EventHandler event="actionPerformed" listener="java.awt.event.ActionListener" parameters="java.awt.event.ActionEvent" handler="btnTemplatesActionPerformed"/>
+      </Events>
     </Component>
     <Component class="javax.swing.JButton" name="btnExit">
       <Properties>
         <Property name="text" type="java.lang.String" value="Exit"/>
       </Properties>
+      <Events>
+        <EventHandler event="actionPerformed" listener="java.awt.event.ActionListener" parameters="java.awt.event.ActionEvent" handler="btnExitActionPerformed"/>
+      </Events>
     </Component>
-    <Component class="javax.swing.JLabel" name="lblThreshold">
+    <Component class="javax.swing.JLabel" name="lblCircle">
       <Properties>
-        <Property name="text" type="java.lang.String" value="Threshold:"/>
+        <Property name="text" type="java.lang.String" value="Circle:"/>
       </Properties>
     </Component>
-    <Component class="javax.swing.JSpinner" name="spinnerThreshold">
-    </Component>
-    <Component class="javax.swing.JButton" name="btnAutoThreshold">
+    <Component class="javax.swing.JSpinner" name="spinnerCircle">
       <Properties>
-        <Property name="text" type="java.lang.String" value="Auto Threshold"/>
+        <Property name="model" type="javax.swing.SpinnerModel" editor="org.netbeans.modules.form.editors2.SpinnerModelEditor">
+          <SpinnerModel initial="0.35" minimum="0.01" maximum="10.0" stepSize="0.01" numberType="java.lang.Double"/>
+        </Property>
+      </Properties>
+          <Events>
+        <EventHandler event="stateChanged" listener="javax.swing.event.ChangeListener" parameters="javax.swing.event.ChangeEvent" handler="spinnerThresholdStateChanged"/>
+      </Events>
+</Component>
+    <Component class="javax.swing.JLabel" name="lblTriangle">
+      <Properties>
+        <Property name="text" type="java.lang.String" value="Triangle:"/>
       </Properties>
     </Component>
+    <Component class="javax.swing.JSpinner" name="spinnerTriangle">
+      <Properties>
+        <Property name="model" type="javax.swing.SpinnerModel" editor="org.netbeans.modules.form.editors2.SpinnerModelEditor">
+          <SpinnerModel initial="0.35" minimum="0.01" maximum="10.0" stepSize="0.01" numberType="java.lang.Double"/>
+        </Property>
+      </Properties>
+          <Events>
+        <EventHandler event="stateChanged" listener="javax.swing.event.ChangeListener" parameters="javax.swing.event.ChangeEvent" handler="spinnerThresholdStateChanged"/>
+      </Events>
+</Component>
+    <Component class="javax.swing.JLabel" name="lblRectangle">
+      <Properties>
+        <Property name="text" type="java.lang.String" value="Rectangle:"/>
+      </Properties>
+    </Component>
+    <Component class="javax.swing.JSpinner" name="spinnerRectangle">
+      <Properties>
+        <Property name="model" type="javax.swing.SpinnerModel" editor="org.netbeans.modules.form.editors2.SpinnerModelEditor">
+          <SpinnerModel initial="0.35" minimum="0.01" maximum="10.0" stepSize="0.01" numberType="java.lang.Double"/>
+        </Property>
+      </Properties>
+          <Events>
+        <EventHandler event="stateChanged" listener="javax.swing.event.ChangeListener" parameters="javax.swing.event.ChangeEvent" handler="spinnerThresholdStateChanged"/>
+      </Events>
+</Component>
+    <Component class="javax.swing.JButton" name="btnMul10">
+      <Properties>
+        <Property name="text" type="java.lang.String" value="&#215;1.0"/>
+      </Properties>
+          <Events>
+        <EventHandler event="actionPerformed" listener="java.awt.event.ActionListener" parameters="java.awt.event.ActionEvent" handler="btnMul10ActionPerformed"/>
+      </Events>
+</Component>
+    <Component class="javax.swing.JButton" name="btnMul15">
+      <Properties>
+        <Property name="text" type="java.lang.String" value="&#215;1.5"/>
+      </Properties>
+          <Events>
+        <EventHandler event="actionPerformed" listener="java.awt.event.ActionListener" parameters="java.awt.event.ActionEvent" handler="btnMul15ActionPerformed"/>
+      </Events>
+</Component>
+    <Component class="javax.swing.JButton" name="btnMul20">
+      <Properties>
+        <Property name="text" type="java.lang.String" value="&#215;2.0"/>
+      </Properties>
+          <Events>
+        <EventHandler event="actionPerformed" listener="java.awt.event.ActionListener" parameters="java.awt.event.ActionEvent" handler="btnMul20ActionPerformed"/>
+      </Events>
+</Component>
   </SubComponents>
 </Form>

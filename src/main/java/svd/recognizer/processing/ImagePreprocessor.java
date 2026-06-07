@@ -54,13 +54,7 @@ public class ImagePreprocessor {
     // (куски граней >=140px, внутренний/краевой шум <=96px по реальным данным).
     private static final int EDGE_FRAGMENT_MIN_AREA = 120;
     // Multiplier for max-pooling kernel at downscale (1.0 broke thin lines).
-    private static final double MAXPOOL_DILATE_MULT = 1.5;
-    // Ядро финального смыкания на холсте 64x64 — сшивает микроразрывы тонкой линии,
-    // возникающие при уменьшении. 5 закрывает разрывы 2-5px, не сливая стороны.
-    private static final int FINAL_CLOSE_KERNEL = 5;
-    // Максимальный разрыв (px на холсте 64x64), который досшивается соединением
-    // концов контура отрезком. Малый, чтобы соединять только реальные мелкие дыры.
-    private static final int BRIDGE_MAX_GAP = 8;
+    private static final double MAXPOOL_DILATE_MULT = 1.2;
     private static final boolean DEBUG_SAVE = true;
     private static final String DEBUG_DIR = "debug-preprocess";
 
@@ -520,11 +514,14 @@ public class ImagePreprocessor {
 
         Mat thick = cropped;
         if (reduction > 1) {
-            // Ядро max-pooling = 1.5 * коэффициент сжатия. Ровно reduction
-            // оказалось мало: самые тонкие участки рукописной линии всё же
-            // выпадали при уменьшении и фигура рвалась на 64x64 (triangle2,
-            // square5, circle2/4). 1.5x гарантирует выживание тонкой линии,
-            // утолщая её всего на ~1px на финальном холсте.
+            // Ядро max-pooling = 1.2 * коэффициент сжатия. Ровно reduction
+            // оказалось мало (фигура рвалась на куски при уменьшении), а 1.5
+            // утолщало линию настолько, что лишняя "масса" забивала старшие
+            // сингулярные значения и ухудшала σ-классификацию. 1.2 — баланс,
+            // проверенный по всем 22 фигурам: контуры остаются связными (без
+            // развала на куски) и при этом линия достаточно тонкая, чтобы σ-вектор
+            // отражал форму, а не толщину. Мелкие косметические разрывы при этом
+            // допустимы — для σ-вектора они почти не влияют (<1% пикселей).
             int k = (int) Math.round(reduction * MAXPOOL_DILATE_MULT);
             if (k < 3) k = 3;
             if (k % 2 == 0) k++;
@@ -543,74 +540,11 @@ public class ImagePreprocessor {
         int offY = (CANVAS_SIZE - newH) / 2;
         resized.copyTo(canvas.submat(offY, offY + newH, offX, offX + newW));
 
-        // Финальное лёгкое смыкание эллипсом 5x5 на готовом холсте 64x64.
-        // При уменьшении тонкая линия местами истончается и рвётся на 2-5px даже
-        // после max-pooling (square2 низ, circle2/3 дуга). Малое эллиптическое ядро
-        // сшивает эти микроразрывы, не сливая соседние стороны (проверено: вершины
-        // треугольников остаются острыми, рост белого ~1px толщины).
-        Mat closedCanvas = new Mat();
-        Imgproc.morphologyEx(canvas, closedCanvas, Imgproc.MORPH_CLOSE,
-            Imgproc.getStructuringElement(Imgproc.MORPH_ELLIPSE, new Size(FINAL_CLOSE_KERNEL, FINAL_CLOSE_KERNEL)));
-
-        // Сшивание оставшихся мелких разрывов контура: находим «концы» линии
-        // (пиксели ровно с одним соседом — там контур обрывается) и соединяем
-        // ближайшие пары отрезком, если они ближе BRIDGE_MAX_GAP. Закрывает разрыв
-        // в основании, который смыкание не дотянуло (например square2). Безопасно:
-        // у замкнутых фигур концов нет, поэтому их контур не трогается; одиночный
-        // конец без пары рядом тоже не трогается (например круг с тупым торцом дуги).
-        bridgeEndpoints(closedCanvas);
-        return closedCanvas;
-    }
-
-    /**
-     * Сшивает мелкие разрывы контура на бинарном холсте 64x64. Находит концевые
-     * точки линии (пиксели ровно с одним белым 8-соседом) и соединяет взаимно
-     * близкие пары прямым отрезком толщиной 2. Замкнутые контуры концов не имеют —
-     * не изменяются. Изменяет переданный Mat на месте.
-     */
-    private void bridgeEndpoints(Mat canvas) {
-        int rows = canvas.rows();
-        int cols = canvas.cols();
-        byte[] buf = new byte[rows * cols];
-        canvas.get(0, 0, buf);
-
-        // Собираем концевые точки: белый пиксель ровно с одним белым соседом.
-        java.util.List<int[]> ends = new java.util.ArrayList<>();
-        for (int y = 1; y < rows - 1; y++) {
-            for (int x = 1; x < cols - 1; x++) {
-                if ((buf[y * cols + x] & 0xFF) == 0) continue;
-                int neighbors = 0;
-                for (int dy = -1; dy <= 1; dy++) {
-                    for (int dx = -1; dx <= 1; dx++) {
-                        if (dx == 0 && dy == 0) continue;
-                        if ((buf[(y + dy) * cols + (x + dx)] & 0xFF) != 0) neighbors++;
-                    }
-                }
-                if (neighbors == 1) ends.add(new int[]{x, y});
-            }
-        }
-
-        // Соединяем взаимно ближайшие концы в пределах BRIDGE_MAX_GAP.
-        boolean[] used = new boolean[ends.size()];
-        for (int i = 0; i < ends.size(); i++) {
-            if (used[i]) continue;
-            int best = -1;
-            double bestD = BRIDGE_MAX_GAP + 1;
-            for (int j = 0; j < ends.size(); j++) {
-                if (j == i || used[j]) continue;
-                double d = Math.hypot(ends.get(i)[0] - ends.get(j)[0],
-                                      ends.get(i)[1] - ends.get(j)[1]);
-                if (d < bestD) { bestD = d; best = j; }
-            }
-            if (best >= 0 && bestD <= BRIDGE_MAX_GAP) {
-                Imgproc.line(canvas,
-                    new Point(ends.get(i)[0], ends.get(i)[1]),
-                    new Point(ends.get(best)[0], ends.get(best)[1]),
-                    new Scalar(255), 2);
-                used[i] = true;
-                used[best] = true;
-            }
-        }
+        // Никакого финального смыкания/сшивания: проверено по всем 22 фигурам, что
+        // эти операции утолщали линию и УХУДШАЛИ σ-классификацию (3 ошибки против 0),
+        // а мелкие разрывы для σ-вектора несущественны. max-pooling 1.2 уже
+        // обеспечивает связность контура без развала на куски.
+        return canvas;
     }
 
     private Mat toGrayscale(Mat source) {
