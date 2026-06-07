@@ -27,10 +27,17 @@ public class SettingsStore {
     private static final String KEY_PREFIX = "threshold.";
     private static final double DEFAULT_THRESHOLD = 0.35;
 
+    /** @return путь к файлу settings.properties в корне проекта */
     private Path getPath() {
         return Paths.get(System.getProperty("user.dir"), FILE_NAME);
     }
 
+    /**
+     * Загружает пороги всех классов из settings.properties. Для отсутствующих
+     * или некорректных значений подставляется порог по умолчанию.
+     *
+     * @return карта «класс → порог»
+     */
     public Map<ShapeClass, Double> loadThresholds() {
         Map<ShapeClass, Double> map = new EnumMap<>(ShapeClass.class);
         Properties props = new Properties();
@@ -55,6 +62,11 @@ public class SettingsStore {
         return map;
     }
 
+    /**
+     * Сохраняет пороги всех классов в settings.properties в корне проекта.
+     *
+     * @param thresholds карта «класс → порог»
+     */
     public void saveThresholds(Map<ShapeClass, Double> thresholds) {
         Properties props = new Properties();
         for (Map.Entry<ShapeClass, Double> e : thresholds.entrySet()) {

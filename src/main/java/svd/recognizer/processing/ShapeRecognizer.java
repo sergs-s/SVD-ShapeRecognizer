@@ -40,10 +40,22 @@ public class ShapeRecognizer {
         }
     }
 
+    /**
+     * Устанавливает порог распознавания для одного класса. Порог — максимально
+     * допустимое расстояние до эталона, при котором фигура ещё считается
+     * принадлежащей классу.
+     *
+     * @param shapeClass класс фигуры
+     * @param threshold  максимально допустимое расстояние до эталона класса
+     */
     public void setThreshold(ShapeClass shapeClass, double threshold) {
         thresholds.put(shapeClass, threshold);
     }
 
+    /**
+     * @param shapeClass класс фигуры
+     * @return текущий порог распознавания класса (или значение по умолчанию)
+     */
     public double getThreshold(ShapeClass shapeClass) {
         Double t = thresholds.get(shapeClass);
         return t != null ? t : DEFAULT_THRESHOLD;
@@ -103,9 +115,13 @@ public class ShapeRecognizer {
     }
 
     /**
-     * Среднее внутриклассовое расстояние эталонов класса до их среднего,
-     * умноженное на коэффициент. Используется кнопками ×1.0 / ×1.5 / ×2.0
-     * для расчёта порога каждого класса в его собственном масштабе.
+     * Рассчитывает авто-порог класса: среднее расстояние эталонов до их
+     * усреднённого σ-вектора, умноженное на коэффициент. Кнопки ×1.0/×1.5/×2.0
+     * задают коэффициент; у каждого класса свой масштаб расстояний.
+     *
+     * @param store      хранилище эталонов класса
+     * @param multiplier коэффициент строгости (например, 2.0)
+     * @return порог расстояния для класса (или значение по умолчанию, если эталонов нет)
      */
     public double calculateAutoThreshold(TemplateStore store, double multiplier) {
         if (store == null || store.getAverageSingularValues() == null
@@ -126,6 +142,15 @@ public class ShapeRecognizer {
         return mean > 0.0 ? mean * multiplier : DEFAULT_THRESHOLD;
     }
 
+    /**
+     * Евклидово расстояние между двумя σ-векторами — мера непохожести форм.
+     * Чем меньше расстояние, тем ближе подпись фигуры к эталонной. Если длины
+     * различаются, сравнение идёт по общей (меньшей) части.
+     *
+     * @param a первый σ-вектор
+     * @param b второй σ-вектор
+     * @return sqrt(Σ (aᵢ − bᵢ)²)
+     */
     private double euclideanDistance(double[] a, double[] b) {
         int n = Math.min(a.length, b.length);
         double sum = 0.0;

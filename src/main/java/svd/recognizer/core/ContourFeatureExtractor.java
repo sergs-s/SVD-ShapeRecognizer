@@ -30,6 +30,14 @@ public class ContourFeatureExtractor {
         this.featureSize = featureSize;
     }
 
+    /**
+     * Извлекает контурный признаковый вектор из бинарного изображения: находит
+     * внешние контуры, берёт крупнейший и строит из него вектор фиксированной
+     * длины.
+     *
+     * @param binaryMat бинарное изображение фигуры
+     * @return нормированный вектор признаков длиной featureSize·2 или null, если контуров нет
+     */
     public double[] extract(Mat binaryMat) {
         List<MatOfPoint> contours = new ArrayList<>();
         Mat hierarchy = new Mat();
@@ -41,6 +49,12 @@ public class ContourFeatureExtractor {
         return buildFeatureVector(largest);
     }
 
+    /**
+     * Возвращает контур с наибольшей площадью (основная фигура, а не шум).
+     *
+     * @param contours список найденных контуров
+     * @return контур максимальной площади
+     */
     private MatOfPoint getLargestContour(List<MatOfPoint> contours) {
         MatOfPoint largest = contours.get(0);
         double maxArea = Imgproc.contourArea(largest);
@@ -54,6 +68,14 @@ public class ContourFeatureExtractor {
         return largest;
     }
 
+    /**
+     * Строит вектор признаков, равномерно выбирая featureSize точек вдоль
+     * контура (индекс i отображается в позицию i/featureSize · total) и
+     * раскладывая их координаты (x, y) подряд, после чего нормирует вектор.
+     *
+     * @param contour контур фигуры
+     * @return нормированный вектор координат длиной featureSize·2
+     */
     private double[] buildFeatureVector(MatOfPoint contour) {
         Point[] points = contour.toArray();
         double[] featureVector = new double[featureSize * 2];
@@ -66,6 +88,13 @@ public class ContourFeatureExtractor {
         return normalize(featureVector);
     }
 
+    /**
+     * Нормировка вектора по евклидовой норме (деление на длину), чтобы признак
+     * не зависел от масштаба фигуры.
+     *
+     * @param vector исходный вектор
+     * @return вектор единичной длины (или исходный, если он нулевой)
+     */
     private double[] normalize(double[] vector) {
         double sum = 0.0;
         for (double v : vector) {

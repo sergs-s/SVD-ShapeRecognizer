@@ -102,6 +102,10 @@ public class TemplatesFrame extends javax.swing.JFrame {
         dispose();
     }//GEN-LAST:event_btnCloseActionPerformed
 
+    /**
+     * Привязывает кнопки панели к действиям: добавление эталона (файл/папка) и
+     * сброс — отдельно для каждого из трёх классов фигур.
+     */
     private void bindActions() {
         templatesPanel.getBtnAddCircle().addActionListener(e -> addTemplate(ShapeClass.CIRCLE));
         templatesPanel.getBtnAddTriangle().addActionListener(e -> addTemplate(ShapeClass.TRIANGLE));
@@ -118,6 +122,7 @@ public class TemplatesFrame extends javax.swing.JFrame {
     // Загрузка одного файла
     // -------------------------------------------------------------------------
 
+    /** @return диалог выбора одного JPEG-файла, открытый в каталоге learningData */
     private JFileChooser createJpegChooser() {
         JFileChooser chooser = new JFileChooser();
         File dir = new File(System.getProperty("user.dir"), LEARNING_DATA_DIR);
@@ -130,6 +135,12 @@ public class TemplatesFrame extends javax.swing.JFrame {
         return chooser;
     }
 
+    /**
+     * Добавляет один эталон в указанный класс: препроцессинг файла → при низком
+     * качестве запрос подтверждения у пользователя → вычисление σ-вектора →
+     * сохранение Template в хранилище класса и на диск.
+     * @param shapeClass класс, в который добавляется эталон
+     */
     private void addTemplate(ShapeClass shapeClass) {
         JFileChooser chooser = createJpegChooser();
         if (chooser.showOpenDialog(this) != JFileChooser.APPROVE_OPTION) {
@@ -172,6 +183,7 @@ public class TemplatesFrame extends javax.swing.JFrame {
     // Загрузка папки
     // -------------------------------------------------------------------------
 
+    /** @return диалог выбора папки с JPEG-файлами для пакетной загрузки */
     private JFileChooser createFolderChooser() {
         JFileChooser chooser = new JFileChooser();
         File dir = new File(System.getProperty("user.dir"), LEARNING_DATA_DIR);
@@ -182,6 +194,13 @@ public class TemplatesFrame extends javax.swing.JFrame {
         return chooser;
     }
 
+    /**
+     * Пакетно добавляет все JPEG из выбранной папки в класс. Файлы берутся в
+     * воспроизводимом порядке (по имени), каждый препроцессится и превращается в
+     * эталон; в конце один раз сохраняется хранилище и показывается сводка
+     * (добавлено / ошибки / образцы низкого качества).
+     * @param shapeClass класс, в который добавляются эталоны
+     */
     private void addTemplatesFromFolder(ShapeClass shapeClass) {
         JFileChooser chooser = createFolderChooser();
         if (chooser.showOpenDialog(this) != JFileChooser.APPROVE_OPTION) {
@@ -261,6 +280,11 @@ public class TemplatesFrame extends javax.swing.JFrame {
     // Сброс и вспомогательные методы
     // -------------------------------------------------------------------------
 
+    /**
+     * Очищает класс (удаляет все эталоны) и сохраняет пустое хранилище.
+     *
+     * @param shapeClass класс для очистки
+     */
     private void resetStore(ShapeClass shapeClass) {
         try {
             stores.get(shapeClass).clear();
@@ -274,10 +298,15 @@ public class TemplatesFrame extends javax.swing.JFrame {
         }
     }
 
+    /** Перерисовывает панель эталонов согласно текущему содержимому хранилищ. */
     private void refreshPanel() {
         templatesPanel.refresh(stores);
     }
 
+    /**
+     * @param sc класс фигуры
+     * @return русское название класса для сообщений пользователю
+     */
     private static String shapeClassToRussian(ShapeClass sc) {
         if (sc == null) return "неизвестная фигура";
         switch (sc) {

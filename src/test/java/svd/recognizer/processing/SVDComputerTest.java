@@ -18,11 +18,15 @@ import svd.recognizer.math.CommonsMathSvdEngine;
 public class SVDComputerTest {
     @Test
     public void testComputeFeatures() {
+        // Единичная матрица 3×3: все сингулярные значения равны 1, поэтому
+        // после нормализации по первому ожидаем [1, 1, 1] и невозрастание.
         double[][] matrix = {
             {1, 0, 0},
             {0, 1, 0},
             {0, 0, 1}
         };
+        // Единичная матрица даёт равные сингулярные значения; после нормализации
+        // по первому ожидаем [1,1,1] и невозрастание компонент.
         SVDComputer computer = new SVDComputer(new CommonsMathSvdEngine());
         double[] features = computer.computeFeatures(matrix, 3);
         assertEquals(3, features.length);

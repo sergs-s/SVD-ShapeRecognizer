@@ -32,21 +32,40 @@ public class TemplateStore implements Serializable {
         this.shapeClass = shapeClass;
     }
 
+    /**
+     * Добавляет эталон в класс и немедленно пересчитывает усреднённый σ-вектор.
+     * Пересчёт «на лету» означает, что усреднённый портрет класса (по сути
+     * результат обучения) всегда актуален и не требует отдельной операции.
+     *
+     * @param template новый эталонный образец
+     */
     public void addTemplate(Template template) {
         templates.add(template);
         recalculateAverage();
     }
 
+    /** Удаляет все эталоны класса и сбрасывает усреднённый σ-вектор. */
     public void clear() {
         templates.clear();
         averageSingularValues = null;
     }
 
+    /**
+     * При десериализации хранилища кэш усреднённого σ-вектора не пишется в
+     * поток, поэтому пересчитывается заново после чтения списка эталонов.
+     */
     private void readObject(ObjectInputStream in) throws IOException, ClassNotFoundException {
         in.defaultReadObject();
         recalculateAverage();
     }
 
+    /**
+     * Пересчитывает усреднённый σ-вектор класса — покомпонентное среднее
+     * арифметическое σ-векторов всех эталонов. Этот средний вектор служит
+     * «портретом класса»: при распознавании расстояние неизвестной фигуры
+     * измеряется именно до него. Длина берётся по первому эталону (у всех
+     * эталонов одинаковое число признаков).
+     */
     private void recalculateAverage() {
         if (templates.isEmpty()) {
             averageSingularValues = null;
@@ -65,6 +84,10 @@ public class TemplateStore implements Serializable {
         }
     }
 
+    /**
+     * @return true, если эталонов не меньше минимума (MIN_TEMPLATES) — класс
+     *         пригоден для устойчивого усреднения и распознавания
+     */
     public boolean isReady() {
         return templates.size() >= MIN_TEMPLATES;
     }
@@ -77,6 +100,10 @@ public class TemplateStore implements Serializable {
         return shapeClass;
     }
 
+    /**
+     * @return усреднённый σ-вектор класса (портрет класса) или null, если
+     *         эталонов нет
+     */
     public double[] getAverageSingularValues() {
         return averageSingularValues;
     }

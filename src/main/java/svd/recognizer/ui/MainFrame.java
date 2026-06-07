@@ -364,6 +364,13 @@ public class MainFrame extends javax.swing.JFrame {
      * (среднее внутриклассовое расстояние) × множитель. У каждого класса своя
      * статистика, поэтому три спиннера получают разные значения.
      */
+    /**
+     * Кнопки ×1.0/×1.5/×2.0: задаёт порог каждого класса как (среднее
+     * внутриклассовое расстояние) × множитель. У каждого класса своя статистика,
+     * поэтому три спиннера получают разные значения. Результат сохраняется.
+     *
+     * @param multiplier коэффициент строгости порога (1.0 / 1.5 / 2.0)
+     */
     private void onAutoThreshold(double multiplier) {
         stores = repository.loadAll();
         spinnerCircle.setValue(recognizer.calculateAutoThreshold(stores.get(ShapeClass.CIRCLE), multiplier));
@@ -397,7 +404,10 @@ public class MainFrame extends javax.swing.JFrame {
         persistThresholds();
     }
 
-    /** Блокирует/разблокирует кнопки на время фонового распознавания. */
+    /** Блокирует/разблокирует кнопки на время фонового распознавания.
+     *
+     * @param enabled true — включить кнопки, false — заблокировать на время работы
+     */
     private void setControlsEnabled(boolean enabled) {
         btnLoadImage.setEnabled(enabled);
         btnRecognize.setEnabled(enabled);

@@ -30,6 +30,9 @@ public final class ShapeIconFactory {
     /**
      * Контурная идеальная фигура заданного класса: круг, квадрат или
      * равнобедренный треугольник на широком основании.
+     *
+     * @param shapeClass класс фигуры для отрисовки
+     * @return контурное изображение идеальной фигуры (чёрным на белом)
      */
     public static BufferedImage createShapeIcon(ShapeClass shapeClass) {
         BufferedImage img = new BufferedImage(SIZE, SIZE, BufferedImage.TYPE_INT_RGB);
@@ -66,6 +69,8 @@ public final class ShapeIconFactory {
     /**
      * Значок «не распознано»: красный наклонный крест среднего размера по
      * центру белого поля.
+     *
+     * @return изображение с красным наклонным крестом (значок «не распознано»)
      */
     public static BufferedImage createNotRecognizedIcon() {
         BufferedImage img = new BufferedImage(SIZE, SIZE, BufferedImage.TYPE_INT_RGB);

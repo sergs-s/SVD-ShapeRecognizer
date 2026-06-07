@@ -38,6 +38,13 @@ public class Template implements Serializable {
         this(singularValues, normalizedImage, sourceFilePath, false, "");
     }
 
+    /**
+     * @param singularValues  нормализованный σ-вектор эталона
+     * @param normalizedImage нормализованное изображение 64×64
+     * @param sourceFilePath  путь к исходному файлу (трассировка происхождения)
+     * @param lowQuality      признак низкого качества препроцессинга
+     * @param qualityReason   текстовая причина низкого качества (если есть)
+     */
     public Template(double[] singularValues, BufferedImage normalizedImage,
                     String sourceFilePath, boolean lowQuality, String qualityReason) {
         this.singularValues  = singularValues;
@@ -59,6 +66,11 @@ public class Template implements Serializable {
     public void setLowQuality(boolean lowQuality)               { this.lowQuality = lowQuality; }
     public void setQualityReason(String qualityReason)          { this.qualityReason = qualityReason; }
 
+    /**
+     * Ручная сериализация: поле normalizedImage помечено transient (BufferedImage
+     * не сериализуем напрямую), поэтому изображение записывается отдельно в виде
+     * PNG-потока. Сначала флаг наличия изображения, затем — сами PNG-байты.
+     */
     private void writeObject(ObjectOutputStream out) throws IOException {
         out.defaultWriteObject();
         if (normalizedImage == null) {
@@ -69,6 +81,11 @@ public class Template implements Serializable {
         }
     }
 
+    /**
+     * Ручная десериализация — обратная операция к writeObject: читает флаг
+     * наличия изображения и, если оно было сохранено, восстанавливает
+     * BufferedImage из PNG-потока.
+     */
     private void readObject(ObjectInputStream in) throws IOException, ClassNotFoundException {
         in.defaultReadObject();
         boolean hasImage = in.readBoolean();

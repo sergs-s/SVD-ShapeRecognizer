@@ -47,12 +47,22 @@ public class TemplatesPanel extends javax.swing.JPanel {
     public JButton getBtnAddFolderTriangle()  { return btnAddFolderTriangle; }
     public JButton getBtnAddFolderRectangle() { return btnAddFolderRectangle; }
 
+    /**
+     * Обновляет все три секции (круг/треугольник/прямоугольник) согласно
+     * текущему содержимому хранилищ: миниатюры образцов и счётчик загруженных.
+     * @param stores карта «класс → хранилище эталонов»
+     */
     public void refresh(Map<ShapeClass, TemplateStore> stores) {
         updateSection(stores.get(ShapeClass.CIRCLE),    stripCircle,    scrollCircle,    lblCircleCount);
         updateSection(stores.get(ShapeClass.TRIANGLE),  stripTriangle,  scrollTriangle,  lblTriangleCount);
         updateSection(stores.get(ShapeClass.RECTANGLE), stripRectangle, scrollRectangle, lblRectangleCount);
     }
 
+    /**
+     * Обновляет одну секцию класса: загружает миниатюры в полосу образцов,
+     * пишет счётчик (зелёный, если эталонов достаточно, иначе красный) и
+     * прокручивает полосу к последнему добавленному образцу.
+     */
     private void updateSection(TemplateStore store, SampleStripPanel strip,
                                JScrollPane scroll, JLabel label) {
         if (store == null) {
@@ -80,6 +90,11 @@ public class TemplatesPanel extends javax.swing.JPanel {
     // -------------------------------------------------------------------------
     // SampleStripPanel — горизонтальная полоса из миниатюр всех образцов
     // -------------------------------------------------------------------------
+    /**
+     * Горизонтальная полоса миниатюр всех образцов класса. Каждый образец
+     * показывается с именем файла; образцы низкого качества помечаются красной
+     * рамкой и меткой «BAD».
+     */
     public static class SampleStripPanel extends JPanel {
         private static final int THUMB   = 128;
         private static final int GAP     = 4;
@@ -99,7 +114,12 @@ public class TemplatesPanel extends javax.swing.JPanel {
             setPreferredSize(new Dimension(THUMB, THUMB + LABEL_H));
         }
 
-        public void setSamples(List<Template> templates) {
+            /**
+         * Задаёт список образцов и пересчитывает предпочтительную ширину полосы
+         * (по числу миниатюр), затем перерисовывает её.
+     * @param templates образцы класса для отображения
+     */
+    public void setSamples(List<Template> templates) {
             this.samples = templates;
             int w = samples.isEmpty() ? THUMB : samples.size() * (THUMB + GAP) + GAP;
             setPreferredSize(new Dimension(w, THUMB + LABEL_H + 2 * GAP));
@@ -108,6 +128,11 @@ public class TemplatesPanel extends javax.swing.JPanel {
         }
 
         @Override
+        /**
+         * Рисует горизонтальную ленту миниатюр: над каждой — имя файла (красным,
+         * если образец низкого качества), сама нормализованная картинка 64×64, а
+         * для брака — двойная красная рамка и подпись «BAD».
+         */
         protected void paintComponent(Graphics g) {
             super.paintComponent(g);
             if (samples.isEmpty()) {
@@ -169,7 +194,14 @@ public class TemplatesPanel extends javax.swing.JPanel {
             }
         }
 
-        /** Обрезает строку до maxWidth пикселей, добавляя «…» если не влезает. */
+        /**
+         * Обрезает строку до maxWidth пикселей, добавляя «…», если не помещается.
+         *
+         * @param text     исходная строка
+         * @param maxWidth максимальная ширина в пикселях
+         * @param fm       метрики шрифта для измерения ширины
+         * @return строка, помещающаяся в maxWidth (возможно с многоточием)
+         */
         private String ellipsize(String text, int maxWidth, FontMetrics fm) {
             if (fm.stringWidth(text) <= maxWidth) return text;
             String ellipsis = "\u2026";

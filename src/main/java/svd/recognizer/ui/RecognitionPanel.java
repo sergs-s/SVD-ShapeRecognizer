@@ -46,7 +46,12 @@ public class RecognitionPanel extends javax.swing.JPanel {
         return lblResult;
     }
 
-    /** Устанавливает текст и цвет метки результата. */
+    /**
+     * Устанавливает текст и цвет метки результата.
+     *
+     * @param text  текст (название класса или «Не распознано»)
+     * @param color цвет текста
+     */
     public void setResult(String text, java.awt.Color color) {
         lblResult.setText(text);
         lblResult.setForeground(color);

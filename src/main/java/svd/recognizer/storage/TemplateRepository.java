@@ -32,6 +32,13 @@ import svd.recognizer.model.TemplateStore;
 public class TemplateRepository {
     private static final String TEMPLATES_DIR = "templates";
 
+    /**
+     * Сохраняет хранилище эталонов класса в его dat-файл (Java-сериализация),
+     * при необходимости создавая каталог templates.
+     *
+     * @param store хранилище эталонов одного класса
+     * @throws Exception при ошибке записи на диск
+     */
     public void save(TemplateStore store) throws Exception {
         Path path = getPath(store.getShapeClass());
         Files.createDirectories(path.getParent());
@@ -40,6 +47,14 @@ public class TemplateRepository {
         }
     }
 
+    /**
+     * Загружает эталоны класса из dat-файла. Если файл отсутствует, пуст или
+     * повреждён, возвращается новое пустое хранилище — приложение должно
+     * стартовать даже без ранее сохранённых эталонов.
+     *
+     * @param shapeClass класс фигуры
+     * @return хранилище эталонов класса (возможно пустое)
+     */
     public TemplateStore load(ShapeClass shapeClass) {
         Path path = getPath(shapeClass);
         try {
@@ -60,6 +75,7 @@ public class TemplateRepository {
         return new TemplateStore(shapeClass);
     }
 
+    /** Загружает хранилища всех трёх классов разом. */
     public Map<ShapeClass, TemplateStore> loadAll() {
         Map<ShapeClass, TemplateStore> map = new EnumMap<>(ShapeClass.class);
         for (ShapeClass shapeClass : ShapeClass.values()) {
@@ -68,6 +84,12 @@ public class TemplateRepository {
         return map;
     }
 
+    /**
+     * Полностью очищает эталоны класса: удаляет dat-файл и создаёт пустой.
+     *
+     * @param shapeClass класс фигуры
+     * @throws Exception при ошибке работы с файлом
+     */
     public void reset(ShapeClass shapeClass) throws Exception {
         Path path = getPath(shapeClass);
         Files.createDirectories(path.getParent());
@@ -77,6 +99,10 @@ public class TemplateRepository {
         Files.createFile(path);
     }
 
+    /**
+     * @param shapeClass класс фигуры
+     * @return путь к dat-файлу класса внутри каталога templates
+     */
     private Path getPath(ShapeClass shapeClass) {
         return Paths.get(TEMPLATES_DIR, shapeClass.getFileName());
     }

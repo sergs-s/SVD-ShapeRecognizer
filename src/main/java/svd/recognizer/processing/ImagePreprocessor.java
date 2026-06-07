@@ -24,6 +24,22 @@ import org.opencv.imgcodecs.Imgcodecs;
 import org.opencv.imgproc.Imgproc;
 import svd.recognizer.model.ShapeClass;
 
+/**
+ * Конвейер предобработки изображения фигуры перед вычислением SVD-подписи.
+ *
+ * Преобразует фотографию или скан рукописной фигуры в нормализованное бинарное
+ * изображение {@value #OUTPUT_SIZE}x{@value #OUTPUT_SIZE} для сингулярного
+ * разложения. Этапы: загрузка и перевод в серый; адаптивная бинаризация;
+ * выделение главной фигуры и очистка от шума; обрезка по bounding box;
+ * выравнивание ориентации по классу (треугольник — по основанию, прямоугольник
+ * — по длинной грани, круг — без поворота); вписывание в холст и масштабирование.
+ *
+ * Параметры подобраны эмпирически по набору из 22 фигур; ключевые решения
+ * поясняются у соответствующих констант и методов. Требует инициализированной
+ * нативной библиотеки OpenCV.
+ *
+ * @author ssv
+ */
 public class ImagePreprocessor {
 
     public static final int OUTPUT_SIZE = 64;
@@ -58,12 +74,22 @@ public class ImagePreprocessor {
     private static final boolean DEBUG_SAVE = true;
     private static final String DEBUG_DIR = "debug-preprocess";
 
+    /**
+     * Результат предобработки одного изображения: нормализованное изображение,
+     * его числовая матрица для SVD и признак качества.
+     */
     public static class PreprocessResult {
         private final BufferedImage image;
         private final double[][] matrix;
         private final boolean lowQuality;
         private final String qualityReason;
 
+        /**
+         * @param image        нормализованное изображение 64x64
+         * @param matrix       матрица яркостей этого изображения (0..1) для SVD
+         * @param lowQuality   true, если препроцессинг счёл качество низким
+         * @param qualityReason текстовая причина низкого качества (иначе пустая)
+         */
         public PreprocessResult(BufferedImage image, double[][] matrix,
                                 boolean lowQuality, String qualityReason) {
             this.image = image;
@@ -78,10 +104,28 @@ public class ImagePreprocessor {
         public String getQualityReason()     { return qualityReason; }
     }
 
+    /**
+     * Предобработка без указания класса фигуры (ориентация по классу не
+     * выравнивается — фигура проходит ветку треугольника по умолчанию).
+     *
+     * @param imageFile входной файл изображения (JPEG/PNG)
+     * @return результат предобработки
+     * @throws Exception если файл не удалось загрузить
+     */
     public PreprocessResult preprocess(File imageFile) throws Exception {
         return preprocess(imageFile, null);
     }
 
+    /**
+     * Полный конвейер предобработки с выравниванием под класс фигуры. Класс
+     * задаёт способ выравнивания: прямоугольник — по длинной грани, круг — без
+     * поворота, треугольник (или null) — по основанию.
+     *
+     * @param imageFile  входной файл изображения (JPEG/PNG)
+     * @param shapeClass класс фигуры для выбора ветки выравнивания (может быть null)
+     * @return результат: изображение, матрица для SVD и признак качества
+     * @throws Exception если файл не удалось загрузить или обработать
+     */
     public PreprocessResult preprocess(File imageFile, ShapeClass shapeClass) throws Exception {
         Mat source = Imgcodecs.imread(imageFile.getAbsolutePath());
         if (source.empty()) {
@@ -126,6 +170,17 @@ public class ImagePreprocessor {
         return new PreprocessResult(image, matrix, lowQualityFlag[0], qualityReason[0]);
     }
 
+    /**
+     * Бинаризует полутоновое изображение, выделяя линию фигуры. Применяет
+     * адаптивный гауссов порог (устойчив к неравномерной яркости) и лёгкое
+     * открытие против точечного шума. При слишком большой доле белых пикселей
+     * выставляет флаг низкого качества.
+     *
+     * @param gray           полутоновое изображение
+     * @param lowQualityFlag выходной флаг (массив из 1 элемента): true при шуме
+     * @param qualityReason  выходная причина (массив из 1 элемента) при низком качестве
+     * @return бинарное изображение (фигура белым, фон чёрным)
+     */
     private Mat binarize(Mat gray, boolean[] lowQualityFlag, String[] qualityReason) {
         // Адаптивная гауссова бинаризация (51/10) как основной метод для ВСЕХ фигур,
         // вместо Otsu. Otsu — глобальный порог — терял бледные/неравномерно
@@ -160,6 +215,14 @@ public class ImagePreprocessor {
         return binary;
     }
 
+    /**
+     * Повторная адаптивная бинаризация исходного полутонового изображения —
+     * запасной путь, когда основная маска фигуры оказалась неудачной.
+     *
+     * @param gray      полутоновое изображение
+     * @param debugName имя для отладочного снимка
+     * @return заново бинаризованное изображение
+     */
     private Mat rebinarizeAdaptive(Mat gray, String debugName) {
         Mat blurred = new Mat();
         Imgproc.GaussianBlur(gray, blurred, new Size(3, 3), 0);
@@ -172,6 +235,18 @@ public class ImagePreprocessor {
         return binary;
     }
 
+    /**
+     * Выравнивает треугольник так, чтобы основание (самая длинная сторона) стало
+     * горизонтальным, а вершина смотрела вверх: находит три вершины,
+     * поворачивает на угол основания и при необходимости отражает по вертикали.
+     *
+     * @param binary           бинарное изображение фигуры
+     * @param debugName        имя для отладочных снимков
+     * @param lowQualityFlag   выходной флаг низкого качества (массив из 1 элемента)
+     * @param qualityReason    выходная причина низкого качества (массив из 1 элемента)
+     * @param validateVertices помечать ли низким качеством случай, когда 3 вершины не найдены
+     * @return выровненное и вписанное в холст изображение
+     */
     private Mat alignTriangle(Mat binary, String debugName,
                                boolean[] lowQualityFlag, String[] qualityReason,
                                boolean validateVertices) {
@@ -231,6 +306,18 @@ public class ImagePreprocessor {
         return renderOnCanvas(rotated);
     }
 
+    /**
+     * Выравнивает прямоугольник по длинной грани в горизонталь. Для заметно
+     * вытянутого прямоугольника определяет угол длинной стороны и поворачивает
+     * фигуру; почти-квадрат не вращается (длинной грани фактически нет).
+     *
+     * @param binary         бинарное изображение фигуры
+     * @param originalGray   исходное полутоновое изображение (для запасной перебинаризации)
+     * @param debugName      имя для отладочных снимков
+     * @param lowQualityFlag выходной флаг низкого качества (массив из 1 элемента)
+     * @param qualityReason  выходная причина низкого качества (массив из 1 элемента)
+     * @return выровненное и вписанное в холст изображение
+     */
     private Mat alignRectangle(Mat binary, Mat originalGray, String debugName,
                                 boolean[] lowQualityFlag, String[] qualityReason) {
         List<MatOfPoint> contours = new ArrayList<>();
@@ -415,8 +502,11 @@ public class ImagePreprocessor {
 
     /**
      * Приводит угол грани к минимальному повороту в диапазоне [-45, 45].
-     * Грань горизонтальна с точностью до 90°, поэтому достаточно привести
-     * угол по модулю 90 к ближайшему к нулю значению.
+     * Грань горизонтальна с точностью до 90°, поэтому достаточно привести угол
+     * по модулю 90 к ближайшему к нулю значению.
+     *
+     * @param angle исходный угол грани в градусах
+     * @return эквивалентный угол в диапазоне [-45, 45]
      */
     private double normalizeEdgeAngle(double angle) {
         while (angle >  45.0) angle -= 90.0;
@@ -424,6 +514,15 @@ public class ImagePreprocessor {
         return angle;
     }
 
+    /**
+     * Определяет три вершины треугольника: аппроксимирует контур многоугольником
+     * (approxPolyDP) с убывающей точностью до получения трёх вершин; при неудаче
+     * берёт минимальный объемлющий треугольник.
+     *
+     * @param contour   контур фигуры
+     * @param debugName имя для отладочных снимков
+     * @return массив из 3 вершин или null, если получить их не удалось
+     */
     private Point[] getTriangleVertices(MatOfPoint contour, String debugName) {
         MatOfPoint2f contour2f = new MatOfPoint2f(contour.toArray());
         double perimeter = Imgproc.arcLength(contour2f, true);
@@ -448,6 +547,13 @@ public class ImagePreprocessor {
         return readTrianglePoints(triMat);
     }
 
+    /**
+     * Проверяет вырожденность контура по соотношению сторон bbox: сильно
+     * вытянутая фигура (полоса) считается вырожденной.
+     *
+     * @param contour контур фигуры
+     * @return true, если соотношение сторон превышает допустимый порог
+     */
     private boolean isDegenerate(MatOfPoint contour) {
         Rect bbox = Imgproc.boundingRect(contour);
         double maxSide = Math.max(bbox.width, bbox.height);
@@ -459,6 +565,13 @@ public class ImagePreprocessor {
         return ratio > DEGENERATE_ASPECT_RATIO;
     }
 
+    /**
+     * Индекс самой длинной стороны треугольника (между v[i] и v[(i+1)%3]) —
+     * она принимается за основание.
+     *
+     * @param v массив из трёх вершин
+     * @return индекс начальной вершины самой длинной стороны (0..2)
+     */
     private int longestSideIndex(Point[] v) {
         double best = -1;
         int idx = 0;
@@ -471,12 +584,28 @@ public class ImagePreprocessor {
         return idx;
     }
 
+    /**
+     * Применяет аффинное преобразование 2x3 к точке.
+     *
+     * @param m матрица аффинного преобразования (2x3)
+     * @param p исходная точка
+     * @return координаты {x, y} после преобразования
+     */
     private double[] applyAffine(Mat m, Point p) {
         double x = m.get(0, 0)[0] * p.x + m.get(0, 1)[0] * p.y + m.get(0, 2)[0];
         double y = m.get(1, 0)[0] * p.x + m.get(1, 1)[0] * p.y + m.get(1, 2)[0];
         return new double[]{x, y};
     }
 
+    /**
+     * Вписывает фигуру в квадратный холст: обрезает по содержимому, масштабирует
+     * до нормированного размера с сохранением пропорций (с max-pooling, чтобы
+     * тонкая линия не пропадала при уменьшении) и центрирует на холсте
+     * {@value #CANVAS_SIZE}x{@value #CANVAS_SIZE}.
+     *
+     * @param binary бинарное изображение фигуры
+     * @return нормализованное изображение фиксированного размера
+     */
     private Mat renderOnCanvas(Mat binary) {
         List<MatOfPoint> contours = new ArrayList<>();
         Imgproc.findContours(binary.clone(), contours, new Mat(),
@@ -547,6 +676,12 @@ public class ImagePreprocessor {
         return canvas;
     }
 
+    /**
+     * Переводит изображение в оттенки серого; одноканальное возвращается копией.
+     *
+     * @param source исходное изображение (цветное или серое)
+     * @return полутоновое одноканальное изображение
+     */
     private Mat toGrayscale(Mat source) {
         Mat gray = new Mat();
         if (source.channels() == 1) {
@@ -565,6 +700,11 @@ public class ImagePreprocessor {
      * Подобрано по реальным данным: убирает крап внутри рукописных фигур
      * (тени, грязь), не трогая контур. Переносится на лица — удалит шум сенсора,
      * сохранив черты лица как крупные компоненты.
+     *
+     * @param binary      бинарное изображение
+     * @param whiteBox    bbox фигуры (задаёт порог площади «шумовой» компоненты)
+     * @param contourMask маска главного контура (для определения «кольца» вдоль линии)
+     * @return изображение без мелкого шума, с сохранённой фигурой и кусками граней
      */
     private Mat despeckle(Mat binary, Rect whiteBox, Mat contourMask) {
         double bboxArea = (double) whiteBox.width * whiteBox.height;
@@ -736,6 +876,13 @@ public class ImagePreprocessor {
         return bestResult != null ? bestResult : binary.clone();
     }
 
+    /**
+     * Лёгкая морфологическая очистка: открытие эллиптическим ядром 3x3 убирает
+     * одиночные точки шума, не повреждая линию фигуры.
+     *
+     * @param binary бинарное изображение
+     * @return очищенное изображение
+     */
     private Mat morphClean(Mat binary) {
         Mat kernel = Imgproc.getStructuringElement(Imgproc.MORPH_ELLIPSE, new Size(3, 3));
         Mat cleaned = new Mat();
@@ -743,6 +890,14 @@ public class ImagePreprocessor {
         return cleaned;
     }
 
+    /**
+     * Морфологическое замыкание прямоугольным ядром заданного размера —
+     * соединяет близкие разрывы линии.
+     *
+     * @param binary бинарное изображение
+     * @param ksize  размер квадратного ядра
+     * @return изображение с замкнутыми мелкими разрывами
+     */
     private Mat morphClose(Mat binary, int ksize) {
         Mat kernel = Imgproc.getStructuringElement(Imgproc.MORPH_RECT, new Size(ksize, ksize));
         Mat closed = new Mat();
@@ -750,6 +905,14 @@ public class ImagePreprocessor {
         return closed;
     }
 
+    /**
+     * Обрезает изображение по bounding box фигуры с отступом. Bbox строится по
+     * ВСЕМ контурам (не только крупнейшему), чтобы при разрывах не потерять
+     * оторванные части фигуры.
+     *
+     * @param binary бинарное изображение
+     * @return обрезанная область с запасом BBOX_PADDING
+     */
     private Mat extractROI(Mat binary) {
         List<MatOfPoint> contours = new ArrayList<>();
         Imgproc.findContours(binary.clone(), contours, new Mat(),
@@ -779,6 +942,13 @@ public class ImagePreprocessor {
         return new Mat(binary, new Rect(x, y, ww, hh)).clone();
     }
 
+    /**
+     * Масштабирует изображение к итоговому размеру методом ближайшего соседа
+     * (сохраняет бинарность без полутонов).
+     *
+     * @param src исходное изображение
+     * @return изображение размера OUTPUT_SIZE x OUTPUT_SIZE
+     */
     private Mat resizeToOutput(Mat src) {
         Mat resized = new Mat();
         Imgproc.resize(src, resized, new Size(OUTPUT_SIZE, OUTPUT_SIZE),
@@ -786,6 +956,12 @@ public class ImagePreprocessor {
         return resized;
     }
 
+    /**
+     * Извлекает три вершины из матрицы, возвращённой minEnclosingTriangle.
+     *
+     * @param triangle матрица с координатами вершин
+     * @return массив из 3 точек или null, если их меньше трёх
+     */
     private Point[] readTrianglePoints(Mat triangle) {
         if (triangle == null || triangle.empty()) return null;
         List<Point> pts = new ArrayList<>();
@@ -798,6 +974,14 @@ public class ImagePreprocessor {
         return pts.size() == 3 ? pts.toArray(new Point[0]) : null;
     }
 
+    /**
+     * Сохраняет промежуточное изображение конвейера в каталог отладки (если
+     * отладка включена). Матрицы CV_64F приводятся к 8 битам.
+     *
+     * @param debugName подкаталог (обычно имя исходного файла)
+     * @param fileName  имя файла снимка
+     * @param mat       изображение для сохранения
+     */
     private void saveDebugMat(String debugName, String fileName, Mat mat) {
         if (!DEBUG_SAVE) return;
         try {
@@ -814,6 +998,15 @@ public class ImagePreprocessor {
         }
     }
 
+    /**
+     * Отладочный снимок: контур и поверх него аппроксимирующий многоугольник с
+     * подписанными вершинами.
+     *
+     * @param contour   исходный контур
+     * @param approx    вершины аппроксимации
+     * @param debugName подкаталог отладки
+     * @param filename  имя файла снимка
+     */
     private void saveApproxPreview(MatOfPoint contour, Point[] approx,
                                     String debugName, String filename) {
         Rect bound = Imgproc.boundingRect(contour);
@@ -843,6 +1036,14 @@ public class ImagePreprocessor {
         saveDebugMat(debugName, filename, canvas);
     }
 
+    /**
+     * Отладочный снимок: контур и найденный треугольник с подписанными вершинами.
+     *
+     * @param contour     исходный контур
+     * @param triangleMat матрица вершин треугольника
+     * @param debugName   подкаталог отладки
+     * @param filename    имя файла снимка
+     */
     private void saveTrianglePreview(MatOfPoint contour, Mat triangleMat,
                                       String debugName, String filename) {
         Rect bound = Imgproc.boundingRect(contour);
@@ -873,6 +1074,13 @@ public class ImagePreprocessor {
         saveDebugMat(debugName, filename, canvas);
     }
 
+    /**
+     * Конвертирует OpenCV Mat в Java BufferedImage (3BYTE_BGR). Одноканальное
+     * изображение предварительно разворачивается в три канала.
+     *
+     * @param mat исходная матрица OpenCV
+     * @return эквивалентное BufferedImage
+     */
     private BufferedImage matToBufferedImage(Mat mat) {
         Mat display = mat;
         if (mat.channels() == 1) {
@@ -889,10 +1097,24 @@ public class ImagePreprocessor {
         return image;
     }
 
+    /**
+     * Заменяет в имени файла все символы, кроме латиницы, цифр, точки и дефиса,
+     * на подчёркивание — для безопасного имени каталога отладки.
+     *
+     * @param name исходное имя
+     * @return безопасное имя
+     */
     private String sanitizeFileName(String name) {
         return name.replaceAll("[^a-zA-Z0-9.\\\\-]", "_");
     }
 
+    /**
+     * Строит матрицу яркостей: каждый пиксель переводится в 0..1 по формуле
+     * светимости (0.299*R + 0.587*G + 0.114*B). Эта матрица подаётся на вход SVD.
+     *
+     * @param image нормализованное изображение
+     * @return матрица [высота][ширина] яркостей 0..1
+     */
     private double[][] imageToMatrix(BufferedImage image) {
         int w = image.getWidth();
         int h = image.getHeight();
