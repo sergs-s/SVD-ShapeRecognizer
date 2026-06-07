@@ -38,8 +38,25 @@ public class RecognitionPanel extends javax.swing.JPanel {
         return progressBar;
     }
 
+    /**
+     * Крупная метка под изображениями для вывода названия распознанного класса
+     * (или сообщения «Не распознано»). Цвет задаётся вызывающей стороной.
+     */
+    public javax.swing.JLabel getResultLabel() {
+        return lblResult;
+    }
+
+    /** Устанавливает текст и цвет метки результата. */
+    public void setResult(String text, java.awt.Color color) {
+        lblResult.setText(text);
+        lblResult.setForeground(color);
+    }
+
     public void appendLog(String message) {
         txtLog.append(message + System.lineSeparator());
+        // Автопрокрутка к последней добавленной строке: ставим курсор в конец
+        // текста, и область прокручивается так, чтобы он был виден.
+        txtLog.setCaretPosition(txtLog.getDocument().getLength());
     }
 
     @SuppressWarnings("unchecked")
@@ -52,6 +69,7 @@ public class RecognitionPanel extends javax.swing.JPanel {
         pnlSource = new ImageView();
         pnlTemplate = new ImageView();
         pnlProcessed = new ImageView();
+        lblResult = new javax.swing.JLabel();
         progressBar = new javax.swing.JProgressBar();
         scrollLog = new javax.swing.JScrollPane();
         txtLog = new javax.swing.JTextArea();
@@ -65,6 +83,10 @@ public class RecognitionPanel extends javax.swing.JPanel {
         lblProcessed.setHorizontalAlignment(javax.swing.SwingConstants.CENTER);
         lblProcessed.setText("Processed 64x64");
 
+        lblResult.setFont(new java.awt.Font("Segoe UI", 1, 20));
+        lblResult.setHorizontalAlignment(javax.swing.SwingConstants.CENTER);
+        lblResult.setText(" ");
+
         txtLog.setColumns(20);
         txtLog.setRows(8);
         scrollLog.setViewportView(txtLog);
@@ -76,6 +98,7 @@ public class RecognitionPanel extends javax.swing.JPanel {
             .addGroup(layout.createSequentialGroup()
                 .addContainerGap()
                 .addGroup(layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
+                    .addComponent(lblResult, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE)
                     .addComponent(progressBar, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE)
                     .addComponent(scrollLog)
                     .addGroup(layout.createSequentialGroup()
@@ -106,6 +129,8 @@ public class RecognitionPanel extends javax.swing.JPanel {
                     .addComponent(pnlTemplate, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE)
                     .addComponent(pnlProcessed, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE))
                 .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
+                .addComponent(lblResult, javax.swing.GroupLayout.PREFERRED_SIZE, 32, javax.swing.GroupLayout.PREFERRED_SIZE)
+                .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
                 .addComponent(progressBar, javax.swing.GroupLayout.PREFERRED_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.PREFERRED_SIZE)
                 .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
                 .addComponent(scrollLog, javax.swing.GroupLayout.PREFERRED_SIZE, 180, javax.swing.GroupLayout.PREFERRED_SIZE)
@@ -115,6 +140,7 @@ public class RecognitionPanel extends javax.swing.JPanel {
 
     // Variables declaration - do not modify//GEN-BEGIN:variables
     private javax.swing.JLabel lblProcessed;
+    private javax.swing.JLabel lblResult;
     private javax.swing.JLabel lblSource;
     private javax.swing.JLabel lblTemplate;
     private svd.recognizer.ui.ImageView pnlProcessed;

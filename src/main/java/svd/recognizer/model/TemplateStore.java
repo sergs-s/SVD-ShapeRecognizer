@@ -1,8 +1,5 @@
 package svd.recognizer.model;
 
-import java.awt.Graphics2D;
-import java.awt.RenderingHints;
-import java.awt.image.BufferedImage;
 import java.io.IOException;
 import java.io.ObjectInputStream;
 import java.io.Serializable;
@@ -13,13 +10,12 @@ import java.util.List;
 /**
  * Хранилище эталонов одного класса фигур.
  *
- * Обязанности класса: 1. Хранить список загруженных шаблонов выбранного класса
- * 2. Автоматически пересчитывать усреднённый σ-вектор 3. Автоматически
- * пересчитывать усреднённое изображение 4. Поддерживать признак готовности
- * набора при количестве 5 и более
+ * Хранит список загруженных шаблонов и кэшированный усреднённый σ-вектор.
+ * Усреднённый σ-вектор пересчитывается автоматически при каждом добавлении
+ * или сбросе эталонов и используется при распознавании.
  *
- * После каждого добавления или сброса вызывается пересчёт усреднённых данных,
- * чтобы TemplatesPanel сразу обновляла счётчики и предпросмотр эталона.
+ * Усреднённое изображение НЕ хранится и НЕ строится: для отладки в UI
+ * отображаются все загруженные образцы (SampleStripPanel в TemplatesPanel).
  *
  * @author ssv
  */
@@ -31,7 +27,6 @@ public class TemplateStore implements Serializable {
     private final ShapeClass shapeClass;
     private final List<Template> templates = new ArrayList<>();
     private double[] averageSingularValues;
-    private transient BufferedImage averageImage;
 
     public TemplateStore(ShapeClass shapeClass) {
         this.shapeClass = shapeClass;
@@ -45,7 +40,6 @@ public class TemplateStore implements Serializable {
     public void clear() {
         templates.clear();
         averageSingularValues = null;
-        averageImage = null;
     }
 
     private void readObject(ObjectInputStream in) throws IOException, ClassNotFoundException {
@@ -56,11 +50,8 @@ public class TemplateStore implements Serializable {
     private void recalculateAverage() {
         if (templates.isEmpty()) {
             averageSingularValues = null;
-            averageImage = null;
             return;
         }
-
-        // --- σ-вектор ---
         int featureCount = templates.get(0).getSingularValues().length;
         averageSingularValues = new double[featureCount];
         for (Template template : templates) {
@@ -72,65 +63,6 @@ public class TemplateStore implements Serializable {
         for (int i = 0; i < featureCount; i++) {
             averageSingularValues[i] /= templates.size();
         }
-
-        // --- Усреднённое изображение ---
-        BufferedImage sample = templates.get(0).getNormalizedImage();
-        int width = sample.getWidth();
-        int height = sample.getHeight();
-        double[] acc = new double[width * height];
-
-        for (Template template : templates) {
-            BufferedImage image = scaleImage(template.getNormalizedImage(), width, height);
-            for (int y = 0; y < height; y++) {
-                for (int x = 0; x < width; x++) {
-                    acc[y * width + x] += image.getRGB(x, y) & 0xFF;
-                }
-            }
-        }
-
-        // Честное среднее
-        double maxVal = 0;
-        for (int i = 0; i < acc.length; i++) {
-            acc[i] /= templates.size();
-            if (acc[i] > maxVal) {
-                maxVal = acc[i];
-            }
-        }
-
-        // Нормализация [0..maxVal] → [0..255] только для визуализации.
-        // На σ-векторы не влияет: они считаются из оригинальных образцов.
-        double normScale = (maxVal > 0) ? (255.0 / maxVal) : 1.0;
-
-        averageImage = new BufferedImage(width, height, BufferedImage.TYPE_BYTE_GRAY);
-        for (int y = 0; y < height; y++) {
-            for (int x = 0; x < width; x++) {
-                int gray = (int) Math.round(acc[y * width + x] * normScale);
-                gray = Math.min(255, Math.max(0, gray));
-                int rgb = (gray << 16) | (gray << 8) | gray;
-                averageImage.setRGB(x, y, rgb);
-            }
-        }
-        // В конце recalculateAverage(), перед закрывающей скобкой:
-// Инвертировать для отображения (белый фон, чёрные линии)
-        for (int y = 0; y < height; y++) {
-            for (int x = 0; x < width; x++) {
-                int rgb = averageImage.getRGB(x, y) & 0xFF;
-                int inv = 255 - rgb;
-                averageImage.setRGB(x, y, (inv << 16) | (inv << 8) | inv);
-            }
-        }
-    }
-
-    private BufferedImage scaleImage(BufferedImage source, int width, int height) {
-        if (source.getWidth() == width && source.getHeight() == height) {
-            return source;
-        }
-        BufferedImage target = new BufferedImage(width, height, BufferedImage.TYPE_BYTE_GRAY);
-        Graphics2D g = target.createGraphics();
-        g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
-        g.drawImage(source, 0, 0, width, height, null);
-        g.dispose();
-        return target;
     }
 
     public boolean isReady() {
@@ -147,10 +79,6 @@ public class TemplateStore implements Serializable {
 
     public double[] getAverageSingularValues() {
         return averageSingularValues;
-    }
-
-    public BufferedImage getAverageImage() {
-        return averageImage;
     }
 
     public List<Template> getTemplates() {

@@ -1,75 +1,129 @@
 package svd.recognizer.processing;
 
+import java.util.EnumMap;
 import java.util.Map;
 import svd.recognizer.model.ShapeClass;
 import svd.recognizer.model.Template;
 import svd.recognizer.model.TemplateStore;
 
 /**
- * Классификатор фигур по SVD-сигнатурам.
+ * Классификатор фигур по SVD-сигнатурам (σ-векторам).
  *
- * Алгоритм распознавания:
- * 1. Получить σ-вектор тестового изображения
- * 2. Для каждого класса взять усреднённый эталонный σ-вектор
- * 3. Вычислить евклидово расстояние до каждого эталона класса
- * 4. Найти класс с минимальным расстоянием
- * 5. Сравнить минимум с порогом, задаваемым пользователем через JSpinner
- * 6. Если расстояние превышает порог, вернуть состояние "Фигура не распознана"
+ * Распознавание по схеме «Путь B»: тестовая фигура прогоняется через ВСЕ три
+ * ветки обработки (как круг, как треугольник, как прямоугольник), и для каждой
+ * гипотезы вычисляется σ-вектор именно той ветки. Затем:
+ *   1. для каждого класса берётся расстояние гипотезы этого класса до его
+ *      усреднённого эталонного σ-вектора;
+ *   2. гипотеза «проходит», если её расстояние не превышает порог СВОЕГО класса
+ *      (у каждого класса свой порог — масштаб расстояний у классов разный);
+ *   3. среди прошедших гипотез выбирается класс с минимальным расстоянием;
+ *   4. если ни одна гипотеза не прошла свой порог — «фигура не распознана».
  *
- * Дополнительно реализован автоматический расчёт рекомендуемого порога на основе
- * среднего внутриклассового расстояния, умноженного на коэффициент 1.5.
+ * Почему гипотеза каждого класса считается в своей ветке: эталоны класса
+ * хранятся обработанными своей веткой (квадраты повёрнуты на широкое основание,
+ * треугольники — вершиной вверх и т.д.). Чтобы сравнение было корректным,
+ * неизвестную фигуру нужно обработать так же — поэтому она гоняется через
+ * каждую ветку и сравнивается с «родным» классом в его системе координат.
  *
  * @author ssv
  */
 public class ShapeRecognizer {
-    public static final double DEFAULT_THRESHOLD = 0.35;
 
-    private double threshold = DEFAULT_THRESHOLD;
+    public static final double DEFAULT_THRESHOLD = 0.35;
+    public static final double DEFAULT_AUTO_MULTIPLIER = 2.0;
+
+    private final Map<ShapeClass, Double> thresholds = new EnumMap<>(ShapeClass.class);
 
     public ShapeRecognizer() {
+        for (ShapeClass sc : ShapeClass.values()) {
+            thresholds.put(sc, DEFAULT_THRESHOLD);
+        }
     }
 
-    public ShapeRecognizer(double threshold) {
-        this.threshold = threshold;
+    public void setThreshold(ShapeClass shapeClass, double threshold) {
+        thresholds.put(shapeClass, threshold);
     }
 
-    public RecognitionResult recognize(double[] testSignature, Map<ShapeClass, TemplateStore> stores) {
-        double minDistance = Double.MAX_VALUE;
+    public double getThreshold(ShapeClass shapeClass) {
+        Double t = thresholds.get(shapeClass);
+        return t != null ? t : DEFAULT_THRESHOLD;
+    }
+
+    /**
+     * Распознавание по Пути B.
+     *
+     * @param hypothesisSignatures σ-вектор тестовой фигуры для каждой гипотезы
+     *                             класса (фигура, обработанная веткой этого класса)
+     * @param stores               эталоны (усреднённые σ-векторы) по классам
+     * @return результат с найденным классом, его расстоянием и порогом
+     */
+    public RecognitionResult recognize(Map<ShapeClass, double[]> hypothesisSignatures,
+            Map<ShapeClass, TemplateStore> stores) {
+
         ShapeClass bestClass = null;
+        double bestDistance = Double.MAX_VALUE;
+        double bestThreshold = 0.0;
 
-        for (Map.Entry<ShapeClass, TemplateStore> entry : stores.entrySet()) {
-            double[] average = entry.getValue().getAverageSingularValues();
+        // Для информативного лога фиксируем также абсолютный минимум (даже если
+        // он не прошёл порог), чтобы показать пользователю ближайший класс.
+        ShapeClass nearestClass = null;
+        double nearestDistance = Double.MAX_VALUE;
+        double nearestThreshold = 0.0;
+
+        for (ShapeClass sc : ShapeClass.values()) {
+            TemplateStore store = stores.get(sc);
+            double[] signature = hypothesisSignatures.get(sc);
+            if (store == null || signature == null) {
+                continue;
+            }
+            double[] average = store.getAverageSingularValues();
             if (average == null) {
                 continue;
             }
-            double distance = euclideanDistance(testSignature, average);
-            if (distance < minDistance) {
-                minDistance = distance;
-                bestClass = entry.getKey();
+            double distance = euclideanDistance(signature, average);
+            double threshold = getThreshold(sc);
+
+            if (distance < nearestDistance) {
+                nearestDistance = distance;
+                nearestClass = sc;
+                nearestThreshold = threshold;
+            }
+            if (distance <= threshold && distance < bestDistance) {
+                bestDistance = distance;
+                bestClass = sc;
+                bestThreshold = threshold;
             }
         }
 
-        boolean recognized = bestClass != null && minDistance <= threshold;
-        return new RecognitionResult(recognized ? bestClass : null, minDistance, threshold, recognized);
+        if (bestClass != null) {
+            return new RecognitionResult(bestClass, bestDistance, bestThreshold, true);
+        }
+        // Ничего не прошло порог — возвращаем ближайший класс для лога, но recognized=false.
+        return new RecognitionResult(null, nearestDistance, nearestThreshold, false);
     }
 
-    public double calculateAutoThreshold(Map<ShapeClass, TemplateStore> stores) {
-        double maxMeanDistance = 0.0;
-        for (TemplateStore store : stores.values()) {
-            if (store.getAverageSingularValues() == null || store.getTemplates().isEmpty()) {
-                continue;
-            }
-            double sum = 0.0;
-            int count = 0;
-            for (Template template : store.getTemplates()) {
-                sum += euclideanDistance(template.getSingularValues(), store.getAverageSingularValues());
-                count++;
-            }
-            if (count > 0) {
-                maxMeanDistance = Math.max(maxMeanDistance, sum / count);
-            }
+    /**
+     * Среднее внутриклассовое расстояние эталонов класса до их среднего,
+     * умноженное на коэффициент. Используется кнопками ×1.0 / ×1.5 / ×2.0
+     * для расчёта порога каждого класса в его собственном масштабе.
+     */
+    public double calculateAutoThreshold(TemplateStore store, double multiplier) {
+        if (store == null || store.getAverageSingularValues() == null
+                || store.getTemplates().isEmpty()) {
+            return DEFAULT_THRESHOLD;
         }
-        return maxMeanDistance > 0.0 ? maxMeanDistance * 1.5 : DEFAULT_THRESHOLD;
+        double sum = 0.0;
+        int count = 0;
+        for (Template template : store.getTemplates()) {
+            sum += euclideanDistance(template.getSingularValues(),
+                    store.getAverageSingularValues());
+            count++;
+        }
+        if (count == 0) {
+            return DEFAULT_THRESHOLD;
+        }
+        double mean = sum / count;
+        return mean > 0.0 ? mean * multiplier : DEFAULT_THRESHOLD;
     }
 
     private double euclideanDistance(double[] a, double[] b) {
@@ -82,19 +136,8 @@ public class ShapeRecognizer {
         return Math.sqrt(sum);
     }
 
-    public double getThreshold() {
-        return threshold;
-    }
-
-    public void setThreshold(double threshold) {
-        this.threshold = threshold;
-    }
-
     /**
      * Результат распознавания для GUI и служебных сообщений.
-     *
-     * Содержит найденный класс, фактическое расстояние, использованный порог
-     * и признак успешного распознавания.
      */
     public static class RecognitionResult {
         private final ShapeClass shapeClass;
@@ -102,7 +145,8 @@ public class ShapeRecognizer {
         private final double threshold;
         private final boolean recognized;
 
-        public RecognitionResult(ShapeClass shapeClass, double distance, double threshold, boolean recognized) {
+        public RecognitionResult(ShapeClass shapeClass, double distance,
+                double threshold, boolean recognized) {
             this.shapeClass = shapeClass;
             this.distance = distance;
             this.threshold = threshold;
