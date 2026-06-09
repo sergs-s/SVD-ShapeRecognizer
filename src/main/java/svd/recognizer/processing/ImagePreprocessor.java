@@ -156,10 +156,10 @@ public class ImagePreprocessor {
                     shapeClass == ShapeClass.TRIANGLE);
         } else aligned = switch (shapeClass) {
             case RECTANGLE -> alignRectangle(cropped, gray, debugName, lowQualityFlag, qualityReason);
-            case CIRCLE -> renderOnCanvas(cropped);
         // Круг симметричен к повороту — выравнивать ориентацию не нужно и
         // вредно (нет ни вершины, ни длинной грани, любой поворот случаен).
         // Просто вписываем по bounding box, как почти-квадрат.
+            case CIRCLE -> renderOnCanvas(cropped);
             default -> alignTriangle(cropped, debugName, lowQualityFlag, qualityReason,
                     shapeClass == ShapeClass.TRIANGLE);
         }; 
