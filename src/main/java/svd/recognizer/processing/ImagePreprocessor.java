@@ -151,17 +151,19 @@ public class ImagePreprocessor {
         saveDebugMat(debugName, "04_cropped.png", cropped);
 
         Mat aligned;
-        if (shapeClass == ShapeClass.RECTANGLE) {
-            aligned = alignRectangle(cropped, gray, debugName, lowQualityFlag, qualityReason);
-        } else if (shapeClass == ShapeClass.CIRCLE) {
-            // Круг симметричен к повороту — выравнивать ориентацию не нужно и
-            // вредно (нет ни вершины, ни длинной грани, любой поворот случаен).
-            // Просто вписываем по bounding box, как почти-квадрат.
-            aligned = renderOnCanvas(cropped);
-        } else {
+        if (null == shapeClass) {
             aligned = alignTriangle(cropped, debugName, lowQualityFlag, qualityReason,
                     shapeClass == ShapeClass.TRIANGLE);
-        }
+        } else aligned = switch (shapeClass) {
+            case RECTANGLE -> alignRectangle(cropped, gray, debugName, lowQualityFlag, qualityReason);
+            case CIRCLE -> renderOnCanvas(cropped);
+        // Круг симметричен к повороту — выравнивать ориентацию не нужно и
+        // вредно (нет ни вершины, ни длинной грани, любой поворот случаен).
+        // Просто вписываем по bounding box, как почти-квадрат.
+            default -> alignTriangle(cropped, debugName, lowQualityFlag, qualityReason,
+                    shapeClass == ShapeClass.TRIANGLE);
+        }; 
+        
         saveDebugMat(debugName, "05_aligned.png", aligned);
 
         BufferedImage image = matToBufferedImage(aligned);
