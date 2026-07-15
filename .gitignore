@@ -3,3 +3,5 @@
 .claude/
 *.iml
 nbproject/private/
+maven-repo/
+m2-repo/

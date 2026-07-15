@@ -27,6 +27,9 @@ public class TemplateStore implements Serializable {
     private final ShapeClass shapeClass;
     private final List<Template> templates = new ArrayList<>();
     private double[] averageSingularValues;
+    private double[] meanVector;       // средний вектор класса (длина 4096)
+    private double[][] basisMatrix;    // матрица базиса (4096 x k)
+    private int subspaceDimension;     // размерность подпространства k
 
     public TemplateStore(ShapeClass shapeClass) {
         this.shapeClass = shapeClass;
@@ -42,12 +45,14 @@ public class TemplateStore implements Serializable {
     public void addTemplate(Template template) {
         templates.add(template);
         recalculateAverage();
+        clearSubspaceModel();
     }
 
     /** Удаляет все эталоны класса и сбрасывает усреднённый σ-вектор. */
     public void clear() {
         templates.clear();
         averageSingularValues = null;
+        clearSubspaceModel();
     }
 
     /**
@@ -99,6 +104,9 @@ public class TemplateStore implements Serializable {
     public ShapeClass getShapeClass() {
         return shapeClass;
     }
+    public double[] getMeanVector() {return meanVector;}
+    public double[][] getBasisMatrix() {return basisMatrix;}
+    public int getSubspaceDimension() {return subspaceDimension;}
 
     /**
      * @return усреднённый σ-вектор класса (портрет класса) или null, если
@@ -110,5 +118,21 @@ public class TemplateStore implements Serializable {
 
     public List<Template> getTemplates() {
         return Collections.unmodifiableList(templates);
+    }
+
+    public void setSubspaceModel(double[] meanVector, double[][] basisMatrix, int k) {
+        this.meanVector = meanVector;
+        this.basisMatrix = basisMatrix;
+        this.subspaceDimension = k;
+    }
+
+    public void clearSubspaceModel() {
+        this.meanVector = null;
+        this.basisMatrix = null;
+        this.subspaceDimension = 0;
+    }
+
+    public boolean isTrained() {
+        return this.meanVector != null && this.basisMatrix != null && this.subspaceDimension > 0;
     }
 }
