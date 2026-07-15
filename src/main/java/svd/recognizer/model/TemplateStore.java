@@ -27,9 +27,7 @@ public class TemplateStore implements Serializable {
     private final ShapeClass shapeClass;
     private final List<Template> templates = new ArrayList<>();
     private double[] averageSingularValues;
-    private double[] meanVector;       // средний вектор класса (длина 4096)
-    private double[][] basisMatrix;    // матрица базиса (4096 x k)
-    private int subspaceDimension;     // размерность подпространства k
+    private SubspaceModel subspaceModel;
 
     public TemplateStore(ShapeClass shapeClass) {
         this.shapeClass = shapeClass;
@@ -45,14 +43,14 @@ public class TemplateStore implements Serializable {
     public void addTemplate(Template template) {
         templates.add(template);
         recalculateAverage();
-        clearSubspaceModel();
+        clearSubspaceModel(); // Сброс подпространства при изменении эталонов
     }
 
     /** Удаляет все эталоны класса и сбрасывает усреднённый σ-вектор. */
     public void clear() {
         templates.clear();
         averageSingularValues = null;
-        clearSubspaceModel();
+        clearSubspaceModel(); // Сброс подпространства при очистке
     }
 
     /**
@@ -104,9 +102,6 @@ public class TemplateStore implements Serializable {
     public ShapeClass getShapeClass() {
         return shapeClass;
     }
-    public double[] getMeanVector() {return meanVector;}
-    public double[][] getBasisMatrix() {return basisMatrix;}
-    public int getSubspaceDimension() {return subspaceDimension;}
 
     /**
      * @return усреднённый σ-вектор класса (портрет класса) или null, если
@@ -120,19 +115,35 @@ public class TemplateStore implements Serializable {
         return Collections.unmodifiableList(templates);
     }
 
-    public void setSubspaceModel(double[] meanVector, double[][] basisMatrix, int k) {
-        this.meanVector = meanVector;
-        this.basisMatrix = basisMatrix;
-        this.subspaceDimension = k;
+    /**
+     * Устанавливает модель подпространства для класса.
+     *
+     * @param model обученная модель подпространства (может быть null)
+     */
+    public void setSubspaceModel(SubspaceModel model) {
+        this.subspaceModel = model;
     }
 
-    public void clearSubspaceModel() {
-        this.meanVector = null;
-        this.basisMatrix = null;
-        this.subspaceDimension = 0;
+    /**
+     * @return текущая модель подпространства или null, если класс не обучен
+     */
+    public SubspaceModel getSubspaceModel() {
+        return subspaceModel;
     }
 
+    /**
+     * Проверяет, обучен ли класс (имеет ли подпространство).
+     *
+     * @return true, если subspaceModel != null
+     */
     public boolean isTrained() {
-        return this.meanVector != null && this.basisMatrix != null && this.subspaceDimension > 0;
+        return subspaceModel != null;
+    }
+
+    /**
+     * Сбрасывает обученное подпространство — вызывается при изменении набора эталонов.
+     */
+    public void clearSubspaceModel() {
+        this.subspaceModel = null;
     }
 }
