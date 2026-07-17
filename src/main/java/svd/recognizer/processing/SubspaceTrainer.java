@@ -91,9 +91,6 @@ public class SubspaceTrainer {
         }
 
         // Шаг 3: Центрирование и формирование матрицы X (4096 x n)
-        // В SvdEngine.decompose(matrix) матрица имеет размер [rows][cols],
-        // где rows = количество строк, cols = количество столбцов.
-        // Для X мы хотим 4096 строк и n столбцов.
         double[][] x = new double[VECTOR_LENGTH][n];
         for (int i = 0; i < n; i++) {
             for (int j = 0; j < VECTOR_LENGTH; j++) {
@@ -107,7 +104,6 @@ public class SubspaceTrainer {
         double[][] u = svd.getU();
 
         // Шаг 5: Отбор первых k столбцов U как базис
-        // U имеет размер [VECTOR_LENGTH][n] (в экономичной форме)
         int actualK = Math.min(k, u[0].length);
         System.out.println("SubspaceTrainer: доступно " + u[0].length +
                 " сингулярных векторов, используем " + actualK);
@@ -126,54 +122,8 @@ public class SubspaceTrainer {
 
     /**
      * Строит подпространство класса с размерностью по умолчанию (DEFAULT_K = 4).
-     *
-     * @param store хранилище эталонов класса
-     * @return обученная модель подпространства класса
-     * @throws IllegalArgumentException если хранилище пусто или у эталона
-     *         нет normalizedMatrix
      */
     public SubspaceModel train(TemplateStore store) {
         return train(store, DEFAULT_K);
-    }
-
-    /**
-     * Проверяет, можно ли обучить подпространство для данного хранилища.
-     *
-     * @param store хранилище эталонов
-     * @return true, если хранилище содержит как минимум один эталон с
-     *         заполненным normalizedMatrix
-     */
-    public boolean isTrainable(TemplateStore store) {
-        if (store == null || store.getTemplates().isEmpty()) {
-            return false;
-        }
-
-        for (Template template : store.getTemplates()) {
-            if (template.getNormalizedMatrix() == null) {
-                return false;
-            }
-        }
-        return true;
-    }
-
-    /**
-     * Проверяет, можно ли обучить подпространство для всех классов.
-     *
-     * @param stores карта хранилищ всех классов
-     * @return true, если все хранилища содержат как минимум один эталон с
-     *         заполненным normalizedMatrix
-     */
-    public boolean isTrainableAll(java.util.Map<svd.recognizer.model.ShapeClass, TemplateStore> stores) {
-        if (stores == null) {
-            return false;
-        }
-
-        for (svd.recognizer.model.ShapeClass sc : svd.recognizer.model.ShapeClass.values()) {
-            TemplateStore store = stores.get(sc);
-            if (!isTrainable(store)) {
-                return false;
-            }
-        }
-        return true;
     }
 }

@@ -3,12 +3,14 @@ package svd.recognizer.processing;
 /**
  * Утилитный класс для векторизации изображений.
  *
- * Разворачивает матрицу 64×64 в вектор длины 4096 построчной укладкой (row-major):
- * вектор = [строка0, строка1, ..., строка63]
+ * Разворачивает матрицу 64×64 в вектор длины 4096 построчной укладкой (row-major).
  *
  * @author ssv
  */
 public final class ImageVectorizer {
+
+    public static final int VECTOR_LENGTH = 64 * 64; // 4096
+    private static final int IMAGE_SIZE = 64;
 
     private ImageVectorizer() {}
 
@@ -16,8 +18,7 @@ public final class ImageVectorizer {
      * Преобразует матрицу яркостей в вектор построчной укладкой.
      *
      * @param matrix матрица яркостей 0..1 размера 64x64
-     * @return вектор длины 4096, где первые 64 элемента — первая строка матрицы,
-     *         следующие 64 — вторая строка, и т.д.
+     * @return вектор длины 4096, построчная укладка
      * @throws IllegalArgumentException если матрица null или имеет некорректный размер
      */
     public static double[] toVector(double[][] matrix) {
@@ -26,13 +27,17 @@ public final class ImageVectorizer {
         }
 
         int rows = matrix.length;
-        if (rows == 0) {
-            throw new IllegalArgumentException("Матрица не может быть пустой");
+        if (rows != IMAGE_SIZE) {
+            throw new IllegalArgumentException(
+                    "Матрица должна иметь " + IMAGE_SIZE + " строк, получено: " + rows
+            );
         }
 
         int cols = matrix[0].length;
-        if (cols == 0) {
-            throw new IllegalArgumentException("Матрица не может иметь нулевую ширину");
+        if (cols != IMAGE_SIZE) {
+            throw new IllegalArgumentException(
+                    "Матрица должна иметь " + IMAGE_SIZE + " столбцов, получено: " + cols
+            );
         }
 
         // Проверка, что все строки имеют одинаковую длину
@@ -45,39 +50,10 @@ public final class ImageVectorizer {
             }
         }
 
-        double[] vector = new double[rows * cols];
+        double[] vector = new double[VECTOR_LENGTH];
         for (int r = 0; r < rows; r++) {
             System.arraycopy(matrix[r], 0, vector, r * cols, cols);
         }
         return vector;
-    }
-
-    /**
-     * Преобразует вектор обратно в матрицу.
-     *
-     * @param vector вектор длины 4096
-     * @param rows количество строк в матрице
-     * @param cols количество столбцов в матрице
-     * @return матрица размера rows x cols
-     * @throws IllegalArgumentException если размер вектора не соответствует rows * cols
-     */
-    public static double[][] toMatrix(double[] vector, int rows, int cols) {
-        if (vector == null) {
-            throw new IllegalArgumentException("Вектор не может быть null");
-        }
-
-        if (vector.length != rows * cols) {
-            throw new IllegalArgumentException(
-                    "Размер вектора " + vector.length +
-                            " не соответствует размеру матрицы " + rows + "x" + cols +
-                            " = " + (rows * cols)
-            );
-        }
-
-        double[][] matrix = new double[rows][cols];
-        for (int r = 0; r < rows; r++) {
-            System.arraycopy(vector, r * cols, matrix[r], 0, cols);
-        }
-        return matrix;
     }
 }

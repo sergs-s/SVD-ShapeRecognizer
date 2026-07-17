@@ -2,6 +2,7 @@ package svd.recognizer.processing;
 
 import java.util.EnumMap;
 import java.util.Map;
+import svd.recognizer.model.RecognitionResult;
 import svd.recognizer.model.ShapeClass;
 import svd.recognizer.model.Template;
 import svd.recognizer.model.TemplateStore;
@@ -70,7 +71,7 @@ public class ShapeRecognizer {
      * @return результат с найденным классом, его расстоянием и порогом
      */
     public RecognitionResult recognize(Map<ShapeClass, double[]> hypothesisSignatures,
-            Map<ShapeClass, TemplateStore> stores) {
+                                       Map<ShapeClass, TemplateStore> stores) {
 
         ShapeClass bestClass = null;
         double bestDistance = Double.MAX_VALUE;
@@ -159,39 +160,5 @@ public class ShapeRecognizer {
             sum += d * d;
         }
         return Math.sqrt(sum);
-    }
-
-    /**
-     * Результат распознавания для GUI и служебных сообщений.
-     */
-    public static class RecognitionResult {
-        private final ShapeClass shapeClass;
-        private final double distance;
-        private final double threshold;
-        private final boolean recognized;
-
-        public RecognitionResult(ShapeClass shapeClass, double distance,
-                double threshold, boolean recognized) {
-            this.shapeClass = shapeClass;
-            this.distance = distance;
-            this.threshold = threshold;
-            this.recognized = recognized;
-        }
-
-        public ShapeClass getShapeClass() {
-            return shapeClass;
-        }
-
-        public double getDistance() {
-            return distance;
-        }
-
-        public double getThreshold() {
-            return threshold;
-        }
-
-        public boolean isRecognized() {
-            return recognized;
-        }
     }
 }

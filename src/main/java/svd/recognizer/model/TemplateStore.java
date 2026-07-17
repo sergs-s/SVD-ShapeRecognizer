@@ -27,6 +27,8 @@ public class TemplateStore implements Serializable {
     private final ShapeClass shapeClass;
     private final List<Template> templates = new ArrayList<>();
     private double[] averageSingularValues;
+
+    // НОВОЕ ПОЛЕ: модель подпространства класса (null, если класс не обучен)
     private SubspaceModel subspaceModel;
 
     public TemplateStore(ShapeClass shapeClass) {

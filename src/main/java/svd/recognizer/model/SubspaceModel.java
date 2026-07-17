@@ -1,7 +1,6 @@
 package svd.recognizer.model;
 
 import java.io.Serializable;
-import java.util.Arrays;
 
 /**
  * Неизменяемый DTO — результат обучения подпространства одного класса.
@@ -26,11 +25,17 @@ public final class SubspaceModel implements Serializable {
         this.k = k;
     }
 
-    public double[] getMeanVector() {return meanVector.clone();}
+    public double[] getMeanVector() {
+        return meanVector.clone();
+    }
 
-    public double[][] getBasisMatrix() {return deepCopy(basisMatrix);}
+    public double[][] getBasisMatrix() {
+        return deepCopy(basisMatrix);
+    }
 
-    public int getK() {return k;}
+    public int getK() {
+        return k;
+    }
 
     /**
      * Глубокое копирование матрицы для обеспечения неизменяемости.
