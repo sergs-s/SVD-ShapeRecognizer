@@ -2,6 +2,7 @@ package svd.recognizer.processing;
 
 import svd.recognizer.math.SvdEngine;
 import svd.recognizer.math.SvdResult;
+import svd.recognizer.model.ShapeClass;
 import svd.recognizer.model.SubspaceModel;
 import svd.recognizer.model.Template;
 import svd.recognizer.model.TemplateStore;

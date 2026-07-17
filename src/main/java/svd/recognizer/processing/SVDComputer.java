@@ -69,4 +69,14 @@ public class SVDComputer {
         }
         return normalized;
     }
+
+    /**
+     * Возвращает движок SVD, используемый для вычислений.
+     * Необходим для создания SubspaceTrainer.
+     *
+     * @return экземпляр SvdEngine
+     */
+    public SvdEngine getSvdEngine() {
+        return svdEngine;
+    }
 }

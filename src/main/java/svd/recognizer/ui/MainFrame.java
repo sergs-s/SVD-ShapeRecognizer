@@ -7,12 +7,16 @@ import javax.swing.JFileChooser;
 import javax.swing.JOptionPane;
 import javax.swing.SpinnerNumberModel;
 import javax.swing.filechooser.FileNameExtensionFilter;
+import svd.recognizer.model.RecognitionMode;
+import svd.recognizer.model.RecognitionResult;
 import svd.recognizer.model.ShapeClass;
 import svd.recognizer.model.TemplateStore;
 import svd.recognizer.processing.ImagePreprocessor;
+import svd.recognizer.processing.ImageVectorizer;
 import svd.recognizer.processing.SVDComputer;
 import svd.recognizer.processing.ShapeRecognizer;
-import svd.recognizer.processing.ShapeRecognizer.RecognitionResult;
+import svd.recognizer.processing.SubspaceRecognizer;
+import svd.recognizer.processing.SubspaceTrainer;
 import svd.recognizer.storage.SettingsStore;
 import svd.recognizer.storage.TemplateRepository;
 
@@ -43,16 +47,26 @@ public class MainFrame extends javax.swing.JFrame {
     private final SettingsStore settingsStore = new SettingsStore();
     private final ImagePreprocessor preprocessor = new ImagePreprocessor();
     private final ShapeRecognizer recognizer = new ShapeRecognizer();
+
+    private final SubspaceRecognizer subspaceRecognizer;
+    private final SubspaceTrainer subspaceTrainer;
+    private RecognitionMode currentMode = RecognitionMode.SIGMA_VECTOR;
+
     private Map<ShapeClass, TemplateStore> stores;
     private File selectedImageFile;
 
     public MainFrame(SVDComputer svdComputer, TemplateRepository repository) {
         this.svdComputer = svdComputer;
         this.repository = repository;
+
+        this.subspaceRecognizer = new SubspaceRecognizer();
+        this.subspaceTrainer = new SubspaceTrainer(svdComputer.getSvdEngine());
+
         this.stores = repository.loadAll();
         initComponents();
         setLocationRelativeTo(null);
         loadThresholdsIntoUi();
+        loadSubspaceSettings();
         recognitionPanel.appendLog("Приложение запущено.");
     }
 
@@ -63,6 +77,16 @@ public class MainFrame extends javax.swing.JFrame {
         spinnerTriangle.setValue(saved.get(ShapeClass.TRIANGLE));
         spinnerRectangle.setValue(saved.get(ShapeClass.RECTANGLE));
         applySpinnersToRecognizer();
+    }
+
+    /** Загружает настройки subspace-режима. */
+    private void loadSubspaceSettings() {
+        currentMode = settingsStore.loadRecognitionMode();
+        double theta = settingsStore.loadSubspaceThreshold();
+        subspaceRecognizer.setThreshold(theta);
+        int k = settingsStore.loadSubspaceK();
+        // k используется в SubspaceTrainer при обучении
+        recognitionPanel.appendLog("Subspace режим: k=" + k + ", theta=" + theta);
     }
 
     /** Переносит значения трёх спиннеров в recognizer. */
@@ -181,65 +205,65 @@ public class MainFrame extends javax.swing.JFrame {
         javax.swing.GroupLayout layout = new javax.swing.GroupLayout(getContentPane());
         getContentPane().setLayout(layout);
         layout.setHorizontalGroup(
-            layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
-            .addComponent(lblTitle, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE)
-            .addComponent(recognitionPanel, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE)
-            .addGroup(layout.createSequentialGroup()
-                .addContainerGap()
-                .addComponent(btnLoadImage)
-                .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
-                .addComponent(btnRecognize)
-                .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
-                .addComponent(btnTemplates)
-                .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
-                .addComponent(btnExit)
-                .addContainerGap(javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE))
-            .addGroup(layout.createSequentialGroup()
-                .addContainerGap()
-                .addComponent(lblCircle)
-                .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
-                .addComponent(spinnerCircle, javax.swing.GroupLayout.PREFERRED_SIZE, 80, javax.swing.GroupLayout.PREFERRED_SIZE)
-                .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.UNRELATED)
-                .addComponent(lblTriangle)
-                .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
-                .addComponent(spinnerTriangle, javax.swing.GroupLayout.PREFERRED_SIZE, 80, javax.swing.GroupLayout.PREFERRED_SIZE)
-                .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.UNRELATED)
-                .addComponent(lblRectangle)
-                .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
-                .addComponent(spinnerRectangle, javax.swing.GroupLayout.PREFERRED_SIZE, 80, javax.swing.GroupLayout.PREFERRED_SIZE)
-                .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.UNRELATED)
-                .addComponent(btnMul10)
-                .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
-                .addComponent(btnMul15)
-                .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
-                .addComponent(btnMul20)
-                .addContainerGap(javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE))
+                layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
+                        .addComponent(lblTitle, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE)
+                        .addComponent(recognitionPanel, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE)
+                        .addGroup(layout.createSequentialGroup()
+                                .addContainerGap()
+                                .addComponent(btnLoadImage)
+                                .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
+                                .addComponent(btnRecognize)
+                                .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
+                                .addComponent(btnTemplates)
+                                .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
+                                .addComponent(btnExit)
+                                .addContainerGap(javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE))
+                        .addGroup(layout.createSequentialGroup()
+                                .addContainerGap()
+                                .addComponent(lblCircle)
+                                .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
+                                .addComponent(spinnerCircle, javax.swing.GroupLayout.PREFERRED_SIZE, 80, javax.swing.GroupLayout.PREFERRED_SIZE)
+                                .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.UNRELATED)
+                                .addComponent(lblTriangle)
+                                .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
+                                .addComponent(spinnerTriangle, javax.swing.GroupLayout.PREFERRED_SIZE, 80, javax.swing.GroupLayout.PREFERRED_SIZE)
+                                .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.UNRELATED)
+                                .addComponent(lblRectangle)
+                                .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
+                                .addComponent(spinnerRectangle, javax.swing.GroupLayout.PREFERRED_SIZE, 80, javax.swing.GroupLayout.PREFERRED_SIZE)
+                                .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.UNRELATED)
+                                .addComponent(btnMul10)
+                                .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
+                                .addComponent(btnMul15)
+                                .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
+                                .addComponent(btnMul20)
+                                .addContainerGap(javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE))
         );
         layout.setVerticalGroup(
-            layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
-            .addGroup(layout.createSequentialGroup()
-                .addContainerGap()
-                .addComponent(lblTitle)
-                .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
-                .addComponent(recognitionPanel, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE)
-                .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
-                .addGroup(layout.createParallelGroup(javax.swing.GroupLayout.Alignment.BASELINE)
-                    .addComponent(btnLoadImage)
-                    .addComponent(btnRecognize)
-                    .addComponent(btnTemplates)
-                    .addComponent(btnExit))
-                .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
-                .addGroup(layout.createParallelGroup(javax.swing.GroupLayout.Alignment.BASELINE)
-                    .addComponent(lblCircle)
-                    .addComponent(spinnerCircle, javax.swing.GroupLayout.PREFERRED_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.PREFERRED_SIZE)
-                    .addComponent(lblTriangle)
-                    .addComponent(spinnerTriangle, javax.swing.GroupLayout.PREFERRED_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.PREFERRED_SIZE)
-                    .addComponent(lblRectangle)
-                    .addComponent(spinnerRectangle, javax.swing.GroupLayout.PREFERRED_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.PREFERRED_SIZE)
-                    .addComponent(btnMul10)
-                    .addComponent(btnMul15)
-                    .addComponent(btnMul20))
-                .addContainerGap())
+                layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
+                        .addGroup(layout.createSequentialGroup()
+                                .addContainerGap()
+                                .addComponent(lblTitle)
+                                .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
+                                .addComponent(recognitionPanel, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE)
+                                .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
+                                .addGroup(layout.createParallelGroup(javax.swing.GroupLayout.Alignment.BASELINE)
+                                        .addComponent(btnLoadImage)
+                                        .addComponent(btnRecognize)
+                                        .addComponent(btnTemplates)
+                                        .addComponent(btnExit))
+                                .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
+                                .addGroup(layout.createParallelGroup(javax.swing.GroupLayout.Alignment.BASELINE)
+                                        .addComponent(lblCircle)
+                                        .addComponent(spinnerCircle, javax.swing.GroupLayout.PREFERRED_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.PREFERRED_SIZE)
+                                        .addComponent(lblTriangle)
+                                        .addComponent(spinnerTriangle, javax.swing.GroupLayout.PREFERRED_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.PREFERRED_SIZE)
+                                        .addComponent(lblRectangle)
+                                        .addComponent(spinnerRectangle, javax.swing.GroupLayout.PREFERRED_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.PREFERRED_SIZE)
+                                        .addComponent(btnMul10)
+                                        .addComponent(btnMul15)
+                                        .addComponent(btnMul20))
+                                .addContainerGap())
         );
 
         pack();
@@ -284,74 +308,100 @@ public class MainFrame extends javax.swing.JFrame {
             return;
         }
 
-        // Распознавание выполняется в фоновом потоке (SwingWorker), чтобы интерфейс
-        // не зависал и прогресс-бар реально анимировался во время обработки.
         final File fileToRecognize = selectedImageFile;
         setControlsEnabled(false);
         recognitionPanel.getProgressBar().setIndeterminate(true);
         recognitionPanel.setResult(" ", java.awt.Color.BLACK);
         recognitionPanel.appendLog("Распознавание...");
 
+        // Определяем режим
+        final RecognitionMode mode = currentMode;
+
+        // Загружаем свежие настройки
+        stores = repository.loadAll();
+        applySpinnersToRecognizer();
+
         javax.swing.SwingWorker<RecognitionResult, Void> worker =
                 new javax.swing.SwingWorker<RecognitionResult, Void>() {
 
-            private final Map<ShapeClass, java.awt.image.BufferedImage> processedImages =
-                    new EnumMap<>(ShapeClass.class);
+                    private final Map<ShapeClass, java.awt.image.BufferedImage> processedImages =
+                            new EnumMap<>(ShapeClass.class);
 
-            @Override
-            protected RecognitionResult doInBackground() throws Exception {
-                stores = repository.loadAll();
-                applySpinnersToRecognizer();
-
-                // Путь B: обрабатываем фигуру каждой веткой и считаем σ-вектор гипотезы.
-                Map<ShapeClass, double[]> hypotheses = new EnumMap<>(ShapeClass.class);
-                for (ShapeClass sc : ShapeClass.values()) {
-                    ImagePreprocessor.PreprocessResult prep =
-                            preprocessor.preprocess(fileToRecognize, sc);
-                    hypotheses.put(sc, svdComputer.computeFeatures(prep.getMatrix()));
-                    processedImages.put(sc, prep.getImage());
-                }
-                return recognizer.recognize(hypotheses, stores);
-            }
-
-            @Override
-            protected void done() {
-                try {
-                    RecognitionResult result = get();
-                    if (result.isRecognized()) {
-                        ShapeClass winner = result.getShapeClass();
-                        // Processed 64x64 — картинка ветки-победителя (правильная ориентация).
-                        recognitionPanel.getProcessedView().setImage(processedImages.get(winner));
-                        // Template — идеальный контурный эталон победившего класса.
-                        recognitionPanel.getTemplateView().setImage(ShapeIconFactory.createShapeIcon(winner));
-                        // Подпись результата под изображениями.
-                        recognitionPanel.setResult(winner.getDisplayName(), new java.awt.Color(0, 128, 0));
-                        recognitionPanel.appendLog("Результат: " + winner.getDisplayName());
-                        recognitionPanel.appendLog(String.format("Distance = %.6f, Threshold = %.6f",
-                                result.getDistance(), result.getThreshold()));
-                    } else {
-                        recognitionPanel.getProcessedView().setImage(null);
-                        recognitionPanel.getTemplateView().setImage(ShapeIconFactory.createNotRecognizedIcon());
-                        recognitionPanel.setResult("Не распознано", java.awt.Color.RED);
-                        recognitionPanel.appendLog("Фигура не распознана");
-                        recognitionPanel.appendLog(String.format(
-                                "Ближайшее расстояние = %.6f, порог класса = %.6f",
-                                result.getDistance(), result.getThreshold()));
+                    @Override
+                    protected RecognitionResult doInBackground() throws Exception {
+                        if (mode == RecognitionMode.SIGMA_VECTOR) {
+                            return doSigmaRecognition(fileToRecognize);
+                        } else {
+                            return doSubspaceRecognition(fileToRecognize);
+                        }
                     }
-                } catch (Exception ex) {
-                    Throwable cause = ex.getCause() != null ? ex.getCause() : ex;
-                    cause.printStackTrace();
-                    String shortMsg = cause.getMessage() != null
-                            ? cause.getMessage().split("\n")[0] : cause.getClass().getSimpleName();
-                    recognitionPanel.setResult("Ошибка", java.awt.Color.RED);
-                    JOptionPane.showMessageDialog(MainFrame.this, shortMsg, "Ошибка", JOptionPane.ERROR_MESSAGE);
-                    recognitionPanel.appendLog("Ошибка распознавания: " + shortMsg);
-                } finally {
-                    recognitionPanel.getProgressBar().setIndeterminate(false);
-                    setControlsEnabled(true);
-                }
-            }
-        };
+
+                    private RecognitionResult doSigmaRecognition(File file) throws Exception {
+                        Map<ShapeClass, double[]> hypotheses = new EnumMap<>(ShapeClass.class);
+                        for (ShapeClass sc : ShapeClass.values()) {
+                            ImagePreprocessor.PreprocessResult prep =
+                                    preprocessor.preprocess(file, sc);
+                            hypotheses.put(sc, svdComputer.computeFeatures(prep.getMatrix()));
+                            processedImages.put(sc, prep.getImage());
+                        }
+                        return recognizer.recognize(hypotheses, stores);
+                    }
+
+                    private RecognitionResult doSubspaceRecognition(File file) throws Exception {
+                        Map<ShapeClass, double[]> hypothesisVectors = new EnumMap<>(ShapeClass.class);
+                        for (ShapeClass sc : ShapeClass.values()) {
+                            ImagePreprocessor.PreprocessResult prep =
+                                    preprocessor.preprocess(file, sc);
+                            double[] vector = ImageVectorizer.toVector(prep.getMatrix());
+                            hypothesisVectors.put(sc, vector);
+                            processedImages.put(sc, prep.getImage());
+                        }
+                        return subspaceRecognizer.recognize(hypothesisVectors, stores);
+                    }
+
+                    @Override
+                    protected void done() {
+                        try {
+                            RecognitionResult result = get();
+                            if (result.isRecognized()) {
+                                ShapeClass winner = result.getShapeClass();
+                                recognitionPanel.getProcessedView().setImage(processedImages.get(winner));
+                                recognitionPanel.getTemplateView().setImage(ShapeIconFactory.createShapeIcon(winner));
+                                recognitionPanel.setResult(winner.getDisplayName(), new java.awt.Color(0, 128, 0));
+                                recognitionPanel.appendLog("Результат: " + winner.getDisplayName());
+                                if (mode == RecognitionMode.SIGMA_VECTOR) {
+                                    recognitionPanel.appendLog(String.format("Distance = %.6f, Threshold = %.6f",
+                                            result.getDistance(), result.getThreshold()));
+                                } else {
+                                    recognitionPanel.appendLog(String.format("Reconstruction error = %.6f, Threshold = %.6f",
+                                            result.getScore(), result.getThreshold()));
+                                    if (result.getClassScores() != null) {
+                                        recognitionPanel.appendLog("Оценки по классам: " + result.getClassScores());
+                                    }
+                                }
+                            } else {
+                                recognitionPanel.getProcessedView().setImage(null);
+                                recognitionPanel.getTemplateView().setImage(ShapeIconFactory.createNotRecognizedIcon());
+                                recognitionPanel.setResult("Не распознано", java.awt.Color.RED);
+                                recognitionPanel.appendLog("Фигура не распознана");
+                                recognitionPanel.appendLog(String.format(
+                                        "Ближайшее расстояние = %.6f, порог = %.6f",
+                                        result.getDistance(), result.getThreshold()));
+                            }
+                        } catch (Exception ex) {
+                            Throwable cause = ex.getCause() != null ? ex.getCause() : ex;
+                            cause.printStackTrace();
+                            String shortMsg = cause.getMessage() != null
+                                    ? cause.getMessage().split("\n")[0] : cause.getClass().getSimpleName();
+                            recognitionPanel.setResult("Ошибка", java.awt.Color.RED);
+                            JOptionPane.showMessageDialog(MainFrame.this, shortMsg, "Ошибка", JOptionPane.ERROR_MESSAGE);
+                            recognitionPanel.appendLog("Ошибка распознавания: " + shortMsg);
+                        } finally {
+                            recognitionPanel.getProgressBar().setIndeterminate(false);
+                            setControlsEnabled(true);
+                        }
+                    }
+                };
         worker.execute();
     }
 
@@ -359,18 +409,6 @@ public class MainFrame extends javax.swing.JFrame {
         new TemplatesFrame(this, svdComputer, repository).setVisible(true);
     }
 
-    /**
-     * Кнопки ×1.0 / ×1.5 / ×2.0: для каждого класса выставляет порог =
-     * (среднее внутриклассовое расстояние) × множитель. У каждого класса своя
-     * статистика, поэтому три спиннера получают разные значения.
-     */
-    /**
-     * Кнопки ×1.0/×1.5/×2.0: задаёт порог каждого класса как (среднее
-     * внутриклассовое расстояние) × множитель. У каждого класса своя статистика,
-     * поэтому три спиннера получают разные значения. Результат сохраняется.
-     *
-     * @param multiplier коэффициент строгости порога (1.0 / 1.5 / 2.0)
-     */
     private void onAutoThreshold(double multiplier) {
         stores = repository.loadAll();
         spinnerCircle.setValue(recognizer.calculateAutoThreshold(stores.get(ShapeClass.CIRCLE), multiplier));
@@ -404,10 +442,6 @@ public class MainFrame extends javax.swing.JFrame {
         persistThresholds();
     }
 
-    /** Блокирует/разблокирует кнопки на время фонового распознавания.
-     *
-     * @param enabled true — включить кнопки, false — заблокировать на время работы
-     */
     private void setControlsEnabled(boolean enabled) {
         btnLoadImage.setEnabled(enabled);
         btnRecognize.setEnabled(enabled);
@@ -422,7 +456,6 @@ public class MainFrame extends javax.swing.JFrame {
         recognitionPanel.appendLog("Эталоны перечитаны из каталога templates.");
     }
 
-    // Variables declaration - do not modify//GEN-BEGIN:variables
     private javax.swing.JButton btnExit;
     private javax.swing.JButton btnLoadImage;
     private javax.swing.JButton btnMul10;
