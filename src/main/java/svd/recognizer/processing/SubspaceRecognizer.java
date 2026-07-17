@@ -38,31 +38,86 @@ public class SubspaceRecognizer {
      * @param x     входной вектор (длина 4096)
      * @param model обученная модель подпространства класса
      * @return евклидова норма остатка проекции (reconstruction error)
+     * @throws IllegalArgumentException если размеры не совпадают
      */
     public double reconstructionError(double[] x, SubspaceModel model) {
-        if (x == null || model == null) {
-            throw new IllegalArgumentException("Вектор и модель не могут быть null");
-        }
+        validateInputs(x, model);
 
         double[] mean = model.getMeanVector();
         double[][] basis = model.getBasisMatrix();
         int k = model.getK();
         int dim = x.length;
 
-        // Проверка размеров
+        validateDimensions(x, mean, basis, k);
+
+        // Шаг 1: Центрирование вектора
+        double[] centered = centerVector(x, mean);
+
+        // Шаг 2: Проекция на подпространство (координаты в базисе)
+        double[] coords = projectToSubspace(centered, basis, k);
+
+        // Шаг 3: Восстановление и вычисление ошибки
+        return computeReconstructionError(centered, basis, coords, k);
+    }
+
+    /**
+     * Проверяет входные параметры на null.
+     */
+    private void validateInputs(double[] x, SubspaceModel model) {
+        if (x == null || model == null) {
+            throw new IllegalArgumentException("Вектор и модель не могут быть null");
+        }
+    }
+
+    /**
+     * Проверяет соответствие размерностей вектора, среднего и базиса.
+     */
+    private void validateDimensions(double[] x, double[] mean, double[][] basis, int k) {
+        int dim = x.length;
+
         if (dim != mean.length) {
             throw new IllegalArgumentException(
                     "Размер вектора (" + dim + ") не совпадает с размером среднего (" + mean.length + ")"
             );
         }
+        if (basis.length != dim) {
+            throw new IllegalArgumentException(
+                    "Количество строк базиса (" + basis.length + ") не совпадает с размерностью (" + dim + ")"
+            );
+        }
+        if (basis[0].length < k) {
+            throw new IllegalArgumentException(
+                    "Базис имеет " + basis[0].length + " столбцов, ожидается как минимум " + k
+            );
+        }
+    }
 
-        // Шаг 1: Центрирование вектора
+    /**
+     * Центрирует вектор: вычитает среднее значение.
+     *
+     * @param x    исходный вектор
+     * @param mean средний вектор класса
+     * @return центрированный вектор
+     */
+    private double[] centerVector(double[] x, double[] mean) {
+        int dim = x.length;
         double[] centered = new double[dim];
         for (int i = 0; i < dim; i++) {
             centered[i] = x[i] - mean[i];
         }
+        return centered;
+    }
 
-        // Шаг 2: Проекция на подпространство (координаты в базисе)
+    /**
+     * Проецирует центрированный вектор на подпространство.
+     *
+     * @param centered центрированный вектор
+     * @param basis    матрица базиса подпространства
+     * @param k        размерность подпространства
+     * @return координаты вектора в базисе подпространства
+     */
+    private double[] projectToSubspace(double[] centered, double[][] basis, int k) {
+        int dim = centered.length;
         double[] coords = new double[k];
         for (int j = 0; j < k; j++) {
             double sum = 0.0;
@@ -71,8 +126,21 @@ public class SubspaceRecognizer {
             }
             coords[j] = sum;
         }
+        return coords;
+    }
 
-        // Шаг 3: Восстановление и вычисление ошибки
+    /**
+     * Вычисляет ошибку реконструкции: ||centered - B * coords||.
+     *
+     * @param centered центрированный вектор
+     * @param basis    матрица базиса подпространства
+     * @param coords   координаты в базисе
+     * @param k        размерность подпространства
+     * @return евклидова норма остатка проекции
+     */
+    private double computeReconstructionError(double[] centered, double[][] basis,
+                                              double[] coords, int k) {
+        int dim = centered.length;
         double sumSq = 0.0;
         for (int i = 0; i < dim; i++) {
             double reconstructed = 0.0;
@@ -82,7 +150,6 @@ public class SubspaceRecognizer {
             double residual = centered[i] - reconstructed;
             sumSq += residual * residual;
         }
-
         return Math.sqrt(sumSq);
     }
 
@@ -100,7 +167,26 @@ public class SubspaceRecognizer {
             Map<ShapeClass, TemplateStore> stores,
             double theta) {
 
-        // Проверка: все классы должны быть обучены
+        validateStoresTrained(stores);
+        validateHypothesisVectors(hypothesisVectors);
+
+        Map<ShapeClass, Double> classScores = computeAllErrors(hypothesisVectors, stores);
+        ShapeClass bestClass = findBestClass(classScores);
+        double bestError = classScores.get(bestClass);
+
+        // Принятие решения: проверка порога
+        if (bestError <= theta) {
+            return new RecognitionResult(bestClass, bestError, theta, true,
+                    RecognitionMode.SUBSPACE, classScores);
+        }
+        return new RecognitionResult(null, bestError, theta, false,
+                RecognitionMode.SUBSPACE, classScores);
+    }
+
+    /**
+     * Проверяет, что все классы обучены.
+     */
+    private void validateStoresTrained(Map<ShapeClass, TemplateStore> stores) {
         for (ShapeClass sc : ShapeClass.values()) {
             TemplateStore store = stores.get(sc);
             if (store == null) {
@@ -112,12 +198,12 @@ public class SubspaceRecognizer {
                 );
             }
         }
+    }
 
-        ShapeClass bestClass = null;
-        double bestError = Double.MAX_VALUE;
-        Map<ShapeClass, Double> classScores = new EnumMap<>(ShapeClass.class);
-
-        // Вычисляем ошибку реконструкции для каждой гипотезы
+    /**
+     * Проверяет, что все векторы гипотез присутствуют и имеют правильную длину.
+     */
+    private void validateHypothesisVectors(Map<ShapeClass, double[]> hypothesisVectors) {
         for (ShapeClass sc : ShapeClass.values()) {
             double[] x = hypothesisVectors.get(sc);
             if (x == null) {
@@ -131,24 +217,51 @@ public class SubspaceRecognizer {
                                 ", ожидается " + VECTOR_LENGTH
                 );
             }
+        }
+    }
 
+    /**
+     * Вычисляет ошибки реконструкции для всех гипотез.
+     *
+     * @param hypothesisVectors векторы гипотез для каждого класса
+     * @param stores            хранилища классов
+     * @return карта "класс → ошибка реконструкции"
+     */
+    private Map<ShapeClass, Double> computeAllErrors(
+            Map<ShapeClass, double[]> hypothesisVectors,
+            Map<ShapeClass, TemplateStore> stores) {
+
+        Map<ShapeClass, Double> classScores = new EnumMap<>(ShapeClass.class);
+
+        for (ShapeClass sc : ShapeClass.values()) {
+            double[] x = hypothesisVectors.get(sc);
             SubspaceModel model = stores.get(sc).getSubspaceModel();
             double error = reconstructionError(x, model);
             classScores.put(sc, error);
+        }
 
+        return classScores;
+    }
+
+    /**
+     * Находит класс с минимальной ошибкой реконструкции.
+     *
+     * @param classScores карта "класс → ошибка реконструкции"
+     * @return класс с минимальной ошибкой
+     */
+    private ShapeClass findBestClass(Map<ShapeClass, Double> classScores) {
+        ShapeClass bestClass = null;
+        double bestError = Double.MAX_VALUE;
+
+        for (Map.Entry<ShapeClass, Double> entry : classScores.entrySet()) {
+            double error = entry.getValue();
             if (error < bestError) {
                 bestError = error;
-                bestClass = sc;
+                bestClass = entry.getKey();
             }
         }
 
-        // Принятие решения: проверка порога
-        if (bestError <= theta) {
-            return new RecognitionResult(bestClass, bestError, theta, true,
-                    RecognitionMode.SUBSPACE, classScores);
-        }
-        return new RecognitionResult(null, bestError, theta, false,
-                RecognitionMode.SUBSPACE, classScores);
+        return bestClass;
     }
 
     /**
