@@ -441,9 +441,18 @@ public class MainFrame extends javax.swing.JFrame {
                                 recognitionPanel.getTemplateView().setImage(ShapeIconFactory.createNotRecognizedIcon());
                                 recognitionPanel.setResult("Не распознано", java.awt.Color.RED);
                                 recognitionPanel.appendLog("Фигура не распознана");
-                                recognitionPanel.appendLog(String.format(
-                                        "Ближайшее расстояние = %.6f, порог = %.6f",
-                                        result.getDistance(), result.getThreshold()));
+                                if (mode == RecognitionMode.SIGMA_VECTOR) {
+                                    recognitionPanel.appendLog(String.format(
+                                            "Ближайшее расстояние = %.6f, порог класса = %.6f",
+                                            result.getDistance(), result.getThreshold()));
+                                } else {
+                                    recognitionPanel.appendLog(String.format(
+                                            "Минимальная ошибка = %.6f, порог θ = %.6f",
+                                            result.getScore(), result.getThreshold()));
+                                    if (result.getClassScores() != null) {
+                                        recognitionPanel.appendLog("Оценки по классам: " + result.getClassScores());
+                                    }
+                                }
                             }
                         } catch (Exception ex) {
                             Throwable cause = ex.getCause() != null ? ex.getCause() : ex;
@@ -651,17 +660,19 @@ public class MainFrame extends javax.swing.JFrame {
         if (newMode == RecognitionMode.SUBSPACE) {
             stores = repository.loadAll();
             boolean allTrained = true;
+            StringBuilder notTrained = new StringBuilder();
             for (ShapeClass sc : ShapeClass.values()) {
                 TemplateStore store = stores.get(sc);
                 if (store == null || !store.isTrained()) {
                     allTrained = false;
-                    break;
+                    notTrained.append("  • ").append(sc.getDisplayName()).append("\n");
                 }
             }
             if (!allTrained) {
                 JOptionPane.showMessageDialog(this,
                         "Subspace-режим недоступен: не все классы обучены.\n" +
-                                "Нажмите кнопку «Обучение» для построения подпространств.",
+                                "Не обучены:\n" + notTrained.toString() +
+                                "\nНажмите кнопку «Обучение» для построения подпространств.",
                         "Режим недоступен",
                         JOptionPane.WARNING_MESSAGE);
                 comboMode.setSelectedItem("Sigma-vector");
