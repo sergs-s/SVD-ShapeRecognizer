@@ -154,11 +154,11 @@ public class TemplatesFrame extends javax.swing.JFrame {
             if (result.isLowQuality()) {
                 String shapeRu = shapeClassToRussian(shapeClass);
                 String msg = "Не удалось качественно распознать шаблон (" + shapeRu + "):\n"
-                           + result.getQualityReason() + "\n\n"
-                           + "Добавить шаблон всё равно?";
+                        + result.getQualityReason() + "\n\n"
+                        + "Добавить шаблон всё равно?";
                 int choice = JOptionPane.showConfirmDialog(
-                    this, msg, "Низкое качество изображения",
-                    JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
+                        this, msg, "Низкое качество изображения",
+                        JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
                 if (choice != JOptionPane.YES_OPTION) {
                     return;
                 }
@@ -166,15 +166,18 @@ public class TemplatesFrame extends javax.swing.JFrame {
 
             double[] signature = svdComputer.computeFeatures(result.getMatrix());
             Template template = new Template(
-                signature, result.getImage(), file.getAbsolutePath(),
-                result.isLowQuality(), result.getQualityReason());
+                    signature, result.getImage(), file.getAbsolutePath(),
+                    result.isLowQuality(), result.getQualityReason());
+
+            template.setNormalizedMatrix(result.getMatrix());
+
             stores.get(shapeClass).addTemplate(template);
             repository.save(stores.get(shapeClass));
             refreshPanel();
         } catch (Exception ex) {
             ex.printStackTrace();
             String shortMsg = ex.getMessage() != null
-                ? ex.getMessage().split("\n")[0] : ex.getClass().getSimpleName();
+                    ? ex.getMessage().split("\n")[0] : ex.getClass().getSimpleName();
             JOptionPane.showMessageDialog(this, shortMsg, "Ошибка", JOptionPane.ERROR_MESSAGE);
         }
     }
@@ -238,6 +241,9 @@ public class TemplatesFrame extends javax.swing.JFrame {
                 Template template = new Template(
                     signature, result.getImage(), file.getAbsolutePath(),
                     result.isLowQuality(), result.getQualityReason());
+
+                template.setNormalizedMatrix(result.getMatrix());
+
                 stores.get(shapeClass).addTemplate(template);
                 added++;
 

@@ -7,10 +7,8 @@ import javax.swing.JFileChooser;
 import javax.swing.JOptionPane;
 import javax.swing.SpinnerNumberModel;
 import javax.swing.filechooser.FileNameExtensionFilter;
-import svd.recognizer.model.RecognitionMode;
-import svd.recognizer.model.RecognitionResult;
-import svd.recognizer.model.ShapeClass;
-import svd.recognizer.model.TemplateStore;
+
+import svd.recognizer.model.*;
 import svd.recognizer.processing.ImagePreprocessor;
 import svd.recognizer.processing.ImageVectorizer;
 import svd.recognizer.processing.SVDComputer;
@@ -83,10 +81,14 @@ public class MainFrame extends javax.swing.JFrame {
     private void loadSubspaceSettings() {
         currentMode = settingsStore.loadRecognitionMode();
         double theta = settingsStore.loadSubspaceThreshold();
-        subspaceRecognizer.setThreshold(theta);
         int k = settingsStore.loadSubspaceK();
-        // k используется в SubspaceTrainer при обучении
+
+        subspaceRecognizer.setThreshold(theta);
+        spinnerTheta.setValue(theta);
+        comboMode.setSelectedItem(currentMode == RecognitionMode.SUBSPACE ? "Subspace" : "Sigma-vector");
+
         recognitionPanel.appendLog("Subspace режим: k=" + k + ", theta=" + theta);
+        updateTrainingStatus();
     }
 
     /** Переносит значения трёх спиннеров в recognizer. */
@@ -110,7 +112,6 @@ public class MainFrame extends javax.swing.JFrame {
     }
 
     @SuppressWarnings("unchecked")
-    // <editor-fold defaultstate="collapsed" desc="Generated Code">//GEN-BEGIN:initComponents
     private void initComponents() {
         lblTitle = new javax.swing.JLabel();
         recognitionPanel = new RecognitionPanel();
@@ -127,6 +128,12 @@ public class MainFrame extends javax.swing.JFrame {
         btnMul10 = new javax.swing.JButton();
         btnMul15 = new javax.swing.JButton();
         btnMul20 = new javax.swing.JButton();
+
+        btnTrain = new javax.swing.JButton();
+        lblTheta = new javax.swing.JLabel();
+        spinnerTheta = new javax.swing.JSpinner();
+        comboMode = new javax.swing.JComboBox<>();
+        lblTrainStatus = new javax.swing.JLabel();
 
         setDefaultCloseOperation(javax.swing.WindowConstants.EXIT_ON_CLOSE);
         setTitle("SVD Shape Recognizer");
@@ -150,6 +157,22 @@ public class MainFrame extends javax.swing.JFrame {
         btnMul10.setText("\u00d71.0");
         btnMul15.setText("\u00d71.5");
         btnMul20.setText("\u00d72.0");
+
+        btnTrain.setText("Обучение");
+        btnTrain.setToolTipText("Построить подпространства для всех классов");
+
+        lblTheta.setText("Порог θ:");
+
+        spinnerTheta.setModel(new SpinnerNumberModel(13.0d, 1.0d, 50.0d, 0.5d));
+        spinnerTheta.setPreferredSize(new java.awt.Dimension(60, 20));
+
+        comboMode.setModel(new javax.swing.DefaultComboBoxModel<>(
+                new String[] { "Sigma-vector", "Subspace" }
+        ));
+        comboMode.setPreferredSize(new java.awt.Dimension(120, 25));
+
+        lblTrainStatus.setText("Обучено: Circle — Triangle — Rectangle —");
+        lblTrainStatus.setFont(new java.awt.Font("Segoe UI", 0, 11));
 
         btnLoadImage.addActionListener(new java.awt.event.ActionListener() {
             public void actionPerformed(java.awt.event.ActionEvent evt) {
@@ -202,6 +225,24 @@ public class MainFrame extends javax.swing.JFrame {
             }
         });
 
+        btnTrain.addActionListener(new java.awt.event.ActionListener() {
+            public void actionPerformed(java.awt.event.ActionEvent evt) {
+                btnTrainActionPerformed(evt);
+            }
+        });
+
+        spinnerTheta.addChangeListener(new javax.swing.event.ChangeListener() {
+            public void stateChanged(javax.swing.event.ChangeEvent evt) {
+                spinnerThetaStateChanged(evt);
+            }
+        });
+
+        comboMode.addActionListener(new java.awt.event.ActionListener() {
+            public void actionPerformed(java.awt.event.ActionEvent evt) {
+                comboModeActionPerformed(evt);
+            }
+        });
+
         javax.swing.GroupLayout layout = new javax.swing.GroupLayout(getContentPane());
         getContentPane().setLayout(layout);
         layout.setHorizontalGroup(
@@ -215,6 +256,8 @@ public class MainFrame extends javax.swing.JFrame {
                                 .addComponent(btnRecognize)
                                 .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
                                 .addComponent(btnTemplates)
+                                .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
+                                .addComponent(btnTrain)
                                 .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
                                 .addComponent(btnExit)
                                 .addContainerGap(javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE))
@@ -238,6 +281,16 @@ public class MainFrame extends javax.swing.JFrame {
                                 .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
                                 .addComponent(btnMul20)
                                 .addContainerGap(javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE))
+                        .addGroup(layout.createSequentialGroup()
+                                .addContainerGap()
+                                .addComponent(comboMode, javax.swing.GroupLayout.PREFERRED_SIZE, 120, javax.swing.GroupLayout.PREFERRED_SIZE)
+                                .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
+                                .addComponent(lblTheta)
+                                .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
+                                .addComponent(spinnerTheta, javax.swing.GroupLayout.PREFERRED_SIZE, 60, javax.swing.GroupLayout.PREFERRED_SIZE)
+                                .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
+                                .addComponent(lblTrainStatus)
+                                .addContainerGap(javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE))
         );
         layout.setVerticalGroup(
                 layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
@@ -251,6 +304,7 @@ public class MainFrame extends javax.swing.JFrame {
                                         .addComponent(btnLoadImage)
                                         .addComponent(btnRecognize)
                                         .addComponent(btnTemplates)
+                                        .addComponent(btnTrain)
                                         .addComponent(btnExit))
                                 .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
                                 .addGroup(layout.createParallelGroup(javax.swing.GroupLayout.Alignment.BASELINE)
@@ -263,11 +317,17 @@ public class MainFrame extends javax.swing.JFrame {
                                         .addComponent(btnMul10)
                                         .addComponent(btnMul15)
                                         .addComponent(btnMul20))
+                                .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
+                                .addGroup(layout.createParallelGroup(javax.swing.GroupLayout.Alignment.BASELINE)
+                                        .addComponent(comboMode, javax.swing.GroupLayout.PREFERRED_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.PREFERRED_SIZE)
+                                        .addComponent(lblTheta)
+                                        .addComponent(spinnerTheta, javax.swing.GroupLayout.PREFERRED_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.PREFERRED_SIZE)
+                                        .addComponent(lblTrainStatus))
                                 .addContainerGap())
         );
 
         pack();
-    }// </editor-fold>//GEN-END:initComponents
+    }
 
     private JFileChooser createJpegChooser() {
         JFileChooser chooser = new JFileChooser();
@@ -314,10 +374,7 @@ public class MainFrame extends javax.swing.JFrame {
         recognitionPanel.setResult(" ", java.awt.Color.BLACK);
         recognitionPanel.appendLog("Распознавание...");
 
-        // Определяем режим
         final RecognitionMode mode = currentMode;
-
-        // Загружаем свежие настройки
         stores = repository.loadAll();
         applySpinnersToRecognizer();
 
@@ -446,16 +503,195 @@ public class MainFrame extends javax.swing.JFrame {
         btnLoadImage.setEnabled(enabled);
         btnRecognize.setEnabled(enabled);
         btnTemplates.setEnabled(enabled);
+        btnTrain.setEnabled(enabled);
         btnMul10.setEnabled(enabled);
         btnMul15.setEnabled(enabled);
         btnMul20.setEnabled(enabled);
+        comboMode.setEnabled(enabled);
+        spinnerTheta.setEnabled(enabled);
     }
 
     public void reloadStores() {
         stores = repository.loadAll();
         recognitionPanel.appendLog("Эталоны перечитаны из каталога templates.");
+        updateTrainingStatus();
     }
 
+    /**
+     * Обработчик кнопки «Обучение».
+     * Строит подпространства для всех классов по текущим эталонам.
+     */
+    private void btnTrainActionPerformed(java.awt.event.ActionEvent evt) {
+        stores = repository.loadAll();
+
+        // Проверяем, что все классы имеют эталоны с normalizedMatrix
+        boolean allReady = true;
+        StringBuilder missing = new StringBuilder();
+        for (ShapeClass sc : ShapeClass.values()) {
+            TemplateStore store = stores.get(sc);
+            if (store == null || store.getTemplates().isEmpty()) {
+                allReady = false;
+                missing.append(sc.getDisplayName()).append(" (нет эталонов)\n");
+                continue;
+            }
+            boolean hasMatrix = true;
+            for (Template template : store.getTemplates()) {
+                if (template.getNormalizedMatrix() == null) {
+                    hasMatrix = false;
+                    break;
+                }
+            }
+            if (!hasMatrix) {
+                allReady = false;
+                missing.append(sc.getDisplayName()).append(" (нет normalizedMatrix)\n");
+            }
+        }
+
+        if (!allReady) {
+            JOptionPane.showMessageDialog(this,
+                    "Невозможно выполнить обучение:\n" +
+                            missing.toString() + "\n\n" +
+                            "Удалите и загрузите эталоны заново через Templates.",
+                    "Ошибка обучения",
+                    JOptionPane.ERROR_MESSAGE);
+            return;
+        }
+
+        int confirm = JOptionPane.showConfirmDialog(this,
+                "Будет выполнено обучение подпространств для всех трёх классов.\n" +
+                        "Это может занять некоторое время. Продолжить?",
+                "Подтверждение обучения",
+                JOptionPane.YES_NO_OPTION);
+        if (confirm != JOptionPane.YES_OPTION) {
+            return;
+        }
+
+        setControlsEnabled(false);
+        recognitionPanel.getProgressBar().setIndeterminate(true);
+        recognitionPanel.appendLog("Начало обучения подпространств...");
+
+        final int k = settingsStore.loadSubspaceK();
+
+        javax.swing.SwingWorker<Void, Void> worker =
+                new javax.swing.SwingWorker<Void, Void>() {
+
+                    private final Map<ShapeClass, String> errors = new EnumMap<>(ShapeClass.class);
+
+                    @Override
+                    protected Void doInBackground() throws Exception {
+                        stores = repository.loadAll();
+
+                        for (ShapeClass sc : ShapeClass.values()) {
+                            try {
+                                recognitionPanel.appendLog("Обучение класса " + sc.getDisplayName() + "...");
+                                TemplateStore store = stores.get(sc);
+
+                                SubspaceModel model = subspaceTrainer.train(store, k);
+                                store.setSubspaceModel(model);
+                                repository.save(store);
+
+                                recognitionPanel.appendLog("  ✅ " + sc.getDisplayName() + " обучен (k=" + model.getK() + ")");
+                            } catch (Exception e) {
+                                errors.put(sc, e.getMessage());
+                                recognitionPanel.appendLog("  ❌ Ошибка обучения " + sc.getDisplayName() + ": " + e.getMessage());
+                            }
+                        }
+                        return null;
+                    }
+
+                    @Override
+                    protected void done() {
+                        recognitionPanel.getProgressBar().setIndeterminate(false);
+                        setControlsEnabled(true);
+
+                        if (errors.isEmpty()) {
+                            recognitionPanel.appendLog("✅ Обучение завершено успешно для всех классов!");
+                            JOptionPane.showMessageDialog(MainFrame.this,
+                                    "Обучение завершено успешно!\n\n" +
+                                            "Все три класса обучены и готовы к распознаванию в subspace-режиме.",
+                                    "Обучение завершено",
+                                    JOptionPane.INFORMATION_MESSAGE);
+                        } else {
+                            StringBuilder msg = new StringBuilder("Обучение завершено с ошибками:\n");
+                            for (Map.Entry<ShapeClass, String> entry : errors.entrySet()) {
+                                msg.append("  • ").append(entry.getKey().getDisplayName())
+                                        .append(": ").append(entry.getValue()).append("\n");
+                            }
+                            recognitionPanel.appendLog("❌ Обучение завершено с ошибками");
+                            JOptionPane.showMessageDialog(MainFrame.this,
+                                    msg.toString(),
+                                    "Ошибки обучения",
+                                    JOptionPane.ERROR_MESSAGE);
+                        }
+                        updateTrainingStatus();
+                    }
+                };
+        worker.execute();
+    }
+
+    /**
+     * Обработчик изменения порога θ.
+     */
+    private void spinnerThetaStateChanged(javax.swing.event.ChangeEvent evt) {
+        double theta = doubleValue(spinnerTheta);
+        subspaceRecognizer.setThreshold(theta);
+        settingsStore.saveSubspaceThreshold(theta);
+        recognitionPanel.appendLog("Порог θ установлен: " + theta);
+    }
+
+    /**
+     * Обработчик переключения режима распознавания.
+     */
+    private void comboModeActionPerformed(java.awt.event.ActionEvent evt) {
+        String selected = (String) comboMode.getSelectedItem();
+        RecognitionMode newMode = "Subspace".equals(selected)
+                ? RecognitionMode.SUBSPACE
+                : RecognitionMode.SIGMA_VECTOR;
+
+        if (newMode == RecognitionMode.SUBSPACE) {
+            stores = repository.loadAll();
+            boolean allTrained = true;
+            for (ShapeClass sc : ShapeClass.values()) {
+                TemplateStore store = stores.get(sc);
+                if (store == null || !store.isTrained()) {
+                    allTrained = false;
+                    break;
+                }
+            }
+            if (!allTrained) {
+                JOptionPane.showMessageDialog(this,
+                        "Subspace-режим недоступен: не все классы обучены.\n" +
+                                "Нажмите кнопку «Обучение» для построения подпространств.",
+                        "Режим недоступен",
+                        JOptionPane.WARNING_MESSAGE);
+                comboMode.setSelectedItem("Sigma-vector");
+                return;
+            }
+        }
+
+        currentMode = newMode;
+        settingsStore.saveRecognitionMode(newMode);
+        recognitionPanel.appendLog("Режим распознавания: " + selected);
+    }
+
+    /**
+     * Обновляет индикацию обученности классов.
+     */
+    private void updateTrainingStatus() {
+        stores = repository.loadAll();
+        StringBuilder status = new StringBuilder("Обучено: ");
+        for (ShapeClass sc : ShapeClass.values()) {
+            TemplateStore store = stores.get(sc);
+            if (store != null && store.isTrained()) {
+                status.append(sc.getDisplayName()).append(" ✓ ");
+            } else {
+                status.append(sc.getDisplayName()).append(" — ");
+            }
+        }
+        lblTrainStatus.setText(status.toString());
+    }
+
+    // Variables declaration
     private javax.swing.JButton btnExit;
     private javax.swing.JButton btnLoadImage;
     private javax.swing.JButton btnMul10;
@@ -463,13 +699,18 @@ public class MainFrame extends javax.swing.JFrame {
     private javax.swing.JButton btnMul20;
     private javax.swing.JButton btnRecognize;
     private javax.swing.JButton btnTemplates;
+    private javax.swing.JButton btnTrain;
+    private javax.swing.JComboBox<String> comboMode;
     private javax.swing.JLabel lblCircle;
     private javax.swing.JLabel lblRectangle;
+    private javax.swing.JLabel lblTheta;
     private javax.swing.JLabel lblTitle;
+    private javax.swing.JLabel lblTrainStatus;
     private javax.swing.JLabel lblTriangle;
     private RecognitionPanel recognitionPanel;
     private javax.swing.JSpinner spinnerCircle;
     private javax.swing.JSpinner spinnerRectangle;
+    private javax.swing.JSpinner spinnerTheta;
     private javax.swing.JSpinner spinnerTriangle;
-    // End of variables declaration//GEN-END:variables
+    // End of variables declaration
 }
