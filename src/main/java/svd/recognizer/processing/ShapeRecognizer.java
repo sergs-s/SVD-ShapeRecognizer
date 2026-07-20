@@ -2,29 +2,23 @@ package svd.recognizer.processing;
 
 import java.util.EnumMap;
 import java.util.Map;
+import svd.recognizer.model.RecognitionMode;
 import svd.recognizer.model.RecognitionResult;
 import svd.recognizer.model.ShapeClass;
+import svd.recognizer.model.SubspaceModel;
 import svd.recognizer.model.Template;
 import svd.recognizer.model.TemplateStore;
 
 /**
- * Классификатор фигур по SVD-сигнатурам (σ-векторам).
+ * Классификатор фигур по SVD-сигнатурам (σ-векторам) и по подпространствам.
  *
  * Распознавание по схеме «Путь B»: тестовая фигура прогоняется через ВСЕ три
  * ветки обработки (как круг, как треугольник, как прямоугольник), и для каждой
- * гипотезы вычисляется σ-вектор именно той ветки. Затем:
- *   1. для каждого класса берётся расстояние гипотезы этого класса до его
- *      усреднённого эталонного σ-вектора;
- *   2. гипотеза «проходит», если её расстояние не превышает порог СВОЕГО класса
- *      (у каждого класса свой порог — масштаб расстояний у классов разный);
- *   3. среди прошедших гипотез выбирается класс с минимальным расстоянием;
- *   4. если ни одна гипотеза не прошла свой порог — «фигура не распознана».
+ * гипотезы вычисляется признак (σ-вектор или 4096-вектор) именно той ветки.
  *
- * Почему гипотеза каждого класса считается в своей ветке: эталоны класса
- * хранятся обработанными своей веткой (квадраты повёрнуты на широкое основание,
- * треугольники — вершиной вверх и т.д.). Чтобы сравнение было корректным,
- * неизвестную фигуру нужно обработать так же — поэтому она гоняется через
- * каждую ветку и сравнивается с «родным» классом в его системе координат.
+ * Режимы работы:
+ * 1. SIGMA_VECTOR: сравнение σ-векторов с усреднённым эталоном класса
+ * 2. SUBSPACE: ошибка реконструкции в подпространстве класса
  *
  * @author ssv
  */
@@ -32,6 +26,10 @@ public class ShapeRecognizer {
 
     public static final double DEFAULT_THRESHOLD = 0.35;
     public static final double DEFAULT_AUTO_MULTIPLIER = 2.0;
+
+    public static final double DEFAULT_SUBSPACE_THRESHOLD = 13.0;
+    public static final int DEFAULT_SUBSPACE_K = 4;
+    public static final int VECTOR_LENGTH = 4096;
 
     private final Map<ShapeClass, Double> thresholds = new EnumMap<>(ShapeClass.class);
 
@@ -109,10 +107,12 @@ public class ShapeRecognizer {
         }
 
         if (bestClass != null) {
-            return new RecognitionResult(bestClass, bestDistance, bestThreshold, true);
+            return new RecognitionResult(bestClass, bestDistance, bestThreshold, true,
+                    RecognitionMode.SIGMA_VECTOR, null);
         }
         // Ничего не прошло порог — возвращаем ближайший класс для лога, но recognized=false.
-        return new RecognitionResult(null, nearestDistance, nearestThreshold, false);
+        return new RecognitionResult(null, nearestDistance, nearestThreshold, false,
+                RecognitionMode.SIGMA_VECTOR, null);
     }
 
     /**
@@ -160,5 +160,159 @@ public class ShapeRecognizer {
             sum += d * d;
         }
         return Math.sqrt(sum);
+    }
+
+
+    /**
+     * Вычисляет ошибку реконструкции вектора в подпространстве класса.
+     *
+     * Формула: ε = ||x' - B·Bᵀ·x'||, где x' = x - meanVector
+     *
+     * Алгоритм:
+     * 1. Центрировать вектор: centered = x - mean
+     * 2. Спроецировать на подпространство: coords = Bᵀ * centered
+     * 3. Восстановить: reconstructed = B * coords
+     * 4. Ошибка = ||centered - reconstructed||
+     *
+     * @param x     входной вектор (длина 4096)
+     * @param model обученная модель подпространства класса
+     * @return евклидова норма остатка проекции (reconstruction error)
+     * @throws IllegalArgumentException если размеры не совпадают
+     */
+    public double reconstructionError(double[] x, SubspaceModel model) {
+        if (x == null || model == null) {
+            throw new IllegalArgumentException("Вектор и модель не могут быть null");
+        }
+
+        double[] mean = model.getMeanVector();
+        double[][] basis = model.getBasisMatrix();
+        int k = model.getK();
+        int dim = x.length;
+
+        // Проверка размеров
+        if (dim != mean.length) {
+            throw new IllegalArgumentException(
+                    "Размер вектора (" + dim + ") не совпадает с размером среднего (" + mean.length + ")"
+            );
+        }
+        if (basis.length != dim) {
+            throw new IllegalArgumentException(
+                    "Количество строк базиса (" + basis.length + ") не совпадает с размерностью (" + dim + ")"
+            );
+        }
+        if (basis[0].length < k) {
+            throw new IllegalArgumentException(
+                    "Базис имеет " + basis[0].length + " столбцов, ожидается как минимум " + k
+            );
+        }
+
+        // Шаг 1: Центрирование вектора
+        double[] centered = new double[dim];
+        for (int i = 0; i < dim; i++) {
+            centered[i] = x[i] - mean[i];
+        }
+
+        // Шаг 2: Проекция на подпространство (координаты в базисе)
+        // coords = Bᵀ * centered
+        double[] coords = new double[k];
+        for (int j = 0; j < k; j++) {
+            double sum = 0.0;
+            for (int i = 0; i < dim; i++) {
+                sum += basis[i][j] * centered[i];
+            }
+            coords[j] = sum;
+        }
+
+        // Шаг 3: Восстановление и вычисление ошибки
+        // reconstructed = B * coords
+        // error = ||centered - reconstructed||
+        double sumSq = 0.0;
+        for (int i = 0; i < dim; i++) {
+            double reconstructed = 0.0;
+            for (int j = 0; j < k; j++) {
+                reconstructed += basis[i][j] * coords[j];
+            }
+            double residual = centered[i] - reconstructed;
+            sumSq += residual * residual;
+        }
+
+        return Math.sqrt(sumSq);
+    }
+
+    /**
+     * Распознавание по подпространствам (Путь B).
+     *
+     * Сохраняет «Путь B»: на входе — уже готовые 4096-векторы трёх гипотез
+     * (фигура, обработанная как круг / треугольник / прямоугольник).
+     *
+     * @param hypothesisVectors 4096-векторы трёх гипотез (длина 4096)
+     * @param stores            хранилища классов; все должны быть обучены (isTrained()==true)
+     * @param theta             единый порог отвержения
+     * @return результат распознавания (mode = SUBSPACE)
+     * @throws IllegalStateException если хотя бы один класс не обучен
+     */
+    public RecognitionResult recognizeBySubspaces(
+            Map<ShapeClass, double[]> hypothesisVectors,
+            Map<ShapeClass, TemplateStore> stores,
+            double theta) {
+
+        // Проверка: все классы должны быть обучены
+        for (ShapeClass sc : ShapeClass.values()) {
+            TemplateStore store = stores.get(sc);
+            if (store == null) {
+                throw new IllegalStateException("Хранилище для класса " + sc + " не найдено");
+            }
+            if (!store.isTrained()) {
+                throw new IllegalStateException(
+                        "Класс " + sc + " не обучен — выполните «Обучение» в интерфейсе"
+                );
+            }
+        }
+
+        ShapeClass bestClass = null;
+        double bestError = Double.MAX_VALUE;
+        Map<ShapeClass, Double> classScores = new EnumMap<>(ShapeClass.class);
+
+        // Вычисляем ошибку реконструкции для каждой гипотезы
+        for (ShapeClass sc : ShapeClass.values()) {
+            double[] x = hypothesisVectors.get(sc);
+            if (x == null) {
+                throw new IllegalArgumentException(
+                        "Нет вектора для гипотезы класса " + sc
+                );
+            }
+            if (x.length != VECTOR_LENGTH) {
+                throw new IllegalArgumentException(
+                        "Вектор для класса " + sc + " имеет длину " + x.length +
+                                ", ожидается " + VECTOR_LENGTH
+                );
+            }
+
+            SubspaceModel model = stores.get(sc).getSubspaceModel();
+            double error = reconstructionError(x, model);
+            classScores.put(sc, error);
+
+            if (error < bestError) {
+                bestError = error;
+                bestClass = sc;
+            }
+        }
+
+        // Принятие решения: проверка порога
+        if (bestError <= theta) {
+            return new RecognitionResult(bestClass, bestError, theta, true,
+                    RecognitionMode.SUBSPACE, classScores);
+        }
+        return new RecognitionResult(null, bestError, theta, false,
+                RecognitionMode.SUBSPACE, classScores);
+    }
+
+    /**
+     * Распознавание по подпространствам с порогом по умолчанию.
+     */
+    public RecognitionResult recognizeBySubspaces(
+            Map<ShapeClass, double[]> hypothesisVectors,
+            Map<ShapeClass, TemplateStore> stores) {
+        return recognizeBySubspaces(hypothesisVectors, stores, DEFAULT_SUBSPACE_THRESHOLD);
     }
 }
