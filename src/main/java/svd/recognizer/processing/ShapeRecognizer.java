@@ -61,7 +61,7 @@ public class ShapeRecognizer {
     }
 
     /**
-     * Распознавание по Пути B.
+     * Распознавание по Пути B (σ-векторы).
      *
      * @param hypothesisSignatures σ-вектор тестовой фигуры для каждой гипотезы
      *                             класса (фигура, обработанная веткой этого класса)
@@ -75,8 +75,6 @@ public class ShapeRecognizer {
         double bestDistance = Double.MAX_VALUE;
         double bestThreshold = 0.0;
 
-        // Для информативного лога фиксируем также абсолютный минимум (даже если
-        // он не прошёл порог), чтобы показать пользователю ближайший класс.
         ShapeClass nearestClass = null;
         double nearestDistance = Double.MAX_VALUE;
         double nearestThreshold = 0.0;
@@ -110,7 +108,6 @@ public class ShapeRecognizer {
             return new RecognitionResult(bestClass, bestDistance, bestThreshold, true,
                     RecognitionMode.SIGMA_VECTOR, null);
         }
-        // Ничего не прошло порог — возвращаем ближайший класс для лога, но recognized=false.
         return new RecognitionResult(null, nearestDistance, nearestThreshold, false,
                 RecognitionMode.SIGMA_VECTOR, null);
     }

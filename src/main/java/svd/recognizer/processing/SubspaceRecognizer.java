@@ -56,6 +56,7 @@ public class SubspaceRecognizer {
      * @param x     входной вектор (длина 4096)
      * @param model обученная модель подпространства класса
      * @return евклидова норма остатка проекции (reconstruction error)
+     * @throws IllegalArgumentException если размеры не совпадают
      */
     public double reconstructionError(double[] x, SubspaceModel model) {
         if (x == null || model == null) {
@@ -73,6 +74,16 @@ public class SubspaceRecognizer {
                     "Размер вектора (" + dim + ") не совпадает с размером среднего (" + mean.length + ")"
             );
         }
+        if (basis.length != dim) {
+            throw new IllegalArgumentException(
+                    "Количество строк базиса (" + basis.length + ") не совпадает с размерностью (" + dim + ")"
+            );
+        }
+        if (basis[0].length < k) {
+            throw new IllegalArgumentException(
+                    "Базис имеет " + basis[0].length + " столбцов, ожидается как минимум " + k
+            );
+        }
 
         // Шаг 1: Центрирование вектора
         double[] centered = new double[dim];
@@ -81,6 +92,7 @@ public class SubspaceRecognizer {
         }
 
         // Шаг 2: Проекция на подпространство (координаты в базисе)
+        // coords = Bᵀ * centered
         double[] coords = new double[k];
         for (int j = 0; j < k; j++) {
             double sum = 0.0;
@@ -91,6 +103,8 @@ public class SubspaceRecognizer {
         }
 
         // Шаг 3: Восстановление и вычисление ошибки
+        // reconstructed = B * coords
+        // error = ||centered - reconstructed||
         double sumSq = 0.0;
         for (int i = 0; i < dim; i++) {
             double reconstructed = 0.0;

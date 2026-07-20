@@ -1,5 +1,7 @@
 package svd.recognizer.model;
 
+import java.io.Serializable;
+import java.util.Collections;
 import java.util.Map;
 
 /**
@@ -9,7 +11,10 @@ import java.util.Map;
  *
  * @author ssv
  */
-public class RecognitionResult {
+public class RecognitionResult implements Serializable {
+
+    private static final long serialVersionUID = 1L;
+
     private final ShapeClass shapeClass;
     private final double score;
     private final double threshold;
@@ -37,7 +42,10 @@ public class RecognitionResult {
         this.threshold = threshold;
         this.recognized = recognized;
         this.mode = mode;
-        this.classScores = classScores;
+        // Защита от изменений извне
+        this.classScores = classScores != null
+                ? Collections.unmodifiableMap(classScores)
+                : null;
     }
 
     public ShapeClass getShapeClass() {
@@ -75,21 +83,36 @@ public class RecognitionResult {
         return classScores;
     }
 
+    /**
+     * @return название режима для UI
+     */
+    public String getModeDisplayName() {
+        return mode == RecognitionMode.SUBSPACE ? "Subspace" : "Sigma-vector";
+    }
+
+    /**
+     * @return название метрики для UI
+     */
+    public String getMetricName() {
+        return mode == RecognitionMode.SUBSPACE ? "Ошибка реконструкции" : "Расстояние";
+    }
+
     @Override
     public String toString() {
-        String result = "RecognitionResult{" +
-                "mode=" + mode +
-                ", recognized=" + recognized +
-                ", score=" + String.format("%.4f", score) +
-                ", threshold=" + String.format("%.4f", threshold);
+        StringBuilder sb = new StringBuilder("RecognitionResult{");
+        sb.append("mode=").append(mode);
+        sb.append(", recognized=").append(recognized);
+        sb.append(", score=").append(String.format("%.4f", score));
+        sb.append(", threshold=").append(String.format("%.4f", threshold));
         if (shapeClass != null) {
-            result += ", class=" + shapeClass.getDisplayName();
+            sb.append(", class=").append(shapeClass.getDisplayName());
         } else {
-            result += ", class=null";
+            sb.append(", class=null");
         }
         if (mode == RecognitionMode.SUBSPACE && classScores != null) {
-            result += ", scores=" + classScores;
+            sb.append(", scores=").append(classScores);
         }
-        return result + "}";
+        sb.append("}");
+        return sb.toString();
     }
 }
