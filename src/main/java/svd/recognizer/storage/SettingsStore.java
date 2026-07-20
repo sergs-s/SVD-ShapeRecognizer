@@ -16,9 +16,15 @@ import svd.recognizer.model.ShapeClass;
  * Хранилище пользовательских настроек в файле settings.properties в корне
  * проекта (рядом с каталогами templates и learningData).
  *
- * Сейчас хранит три порога распознавания — по одному на класс фигур. Пороги
- * не обнуляются между запусками: загружаются при старте, сохраняются при
- * каждом изменении (классический подход через java.util.Properties).
+ * Хранит:
+ * 1. Три порога распознавания для σ-режима (по одному на класс)
+ * 2. Единый порог отвержения θ для subspace-режима
+ * 3. Размерность подпространства k
+ * 4. Текущий режим распознавания (SIGMA_VECTOR / SUBSPACE)
+ *
+ * Пороги не обнуляются между запусками: загружаются при старте,
+ * сохраняются при каждом изменении (классический подход через
+ * java.util.Properties).
  *
  * @author ssv
  */
@@ -41,13 +47,12 @@ public class SettingsStore {
     }
 
     /**
-     * Загружает пороги всех классов из settings.properties. Для отсутствующих
-     * или некорректных значений подставляется порог по умолчанию.
+     * Загружает Properties из файла. Если файл не существует,
+     * возвращает пустой Properties.
      *
-     * @return карта «класс → порог»
+     * @return объект Properties
      */
-    public Map<ShapeClass, Double> loadThresholds() {
-        Map<ShapeClass, Double> map = new EnumMap<>(ShapeClass.class);
+    private Properties loadProperties() {
         Properties props = new Properties();
         Path path = getPath();
         if (Files.exists(path)) {
@@ -56,6 +61,30 @@ public class SettingsStore {
             } catch (IOException ignored) {
             }
         }
+        return props;
+    }
+
+    /**
+     * Сохраняет Properties в файл.
+     *
+     * @param props объект Properties для сохранения
+     */
+    private void saveProperties(Properties props) {
+        try (FileOutputStream out = new FileOutputStream(getPath().toFile())) {
+            props.store(out, "SVD Shape Recognizer settings");
+        } catch (IOException ignored) {
+        }
+    }
+
+    /**
+     * Загружает пороги всех классов из settings.properties. Для отсутствующих
+     * или некорректных значений подставляется порог по умолчанию.
+     *
+     * @return карта «класс → порог»
+     */
+    public Map<ShapeClass, Double> loadThresholds() {
+        Map<ShapeClass, Double> map = new EnumMap<>(ShapeClass.class);
+        Properties props = loadProperties();
         for (ShapeClass sc : ShapeClass.values()) {
             double value = DEFAULT_THRESHOLD;
             String raw = props.getProperty(KEY_PREFIX + sc.name());
@@ -76,19 +105,16 @@ public class SettingsStore {
      * @param thresholds карта «класс → порог»
      */
     public void saveThresholds(Map<ShapeClass, Double> thresholds) {
-        Properties props = new Properties();
+        Properties props = loadProperties();
         for (Map.Entry<ShapeClass, Double> e : thresholds.entrySet()) {
             props.setProperty(KEY_PREFIX + e.getKey().name(),
                     Double.toString(e.getValue()));
         }
-        try (FileOutputStream out = new FileOutputStream(getPath().toFile())) {
-            props.store(out, "SVD Shape Recognizer settings");
-        } catch (IOException ignored) {
-        }
+        saveProperties(props);
     }
 
     // ========================================================================
-    // НОВЫЕ МЕТОДЫ ДЛЯ SUBSPACE
+    // МЕТОДЫ ДЛЯ SUBSPACE-РЕЖИМА
     // ========================================================================
 
     /**
@@ -97,15 +123,7 @@ public class SettingsStore {
      * @return значение порога (по умолчанию 13.0)
      */
     public double loadSubspaceThreshold() {
-        Properties props = new Properties();
-        Path path = getPath();
-        if (Files.exists(path)) {
-            try (FileInputStream in = new FileInputStream(path.toFile())) {
-                props.load(in);
-            } catch (IOException ignored) {
-            }
-        }
-        String raw = props.getProperty(KEY_SUBSPACE_THRESHOLD);
+        String raw = loadProperties().getProperty(KEY_SUBSPACE_THRESHOLD);
         if (raw != null) {
             try {
                 return Double.parseDouble(raw);
@@ -121,19 +139,9 @@ public class SettingsStore {
      * @param theta значение порога
      */
     public void saveSubspaceThreshold(double theta) {
-        Properties props = new Properties();
-        Path path = getPath();
-        if (Files.exists(path)) {
-            try (FileInputStream in = new FileInputStream(path.toFile())) {
-                props.load(in);
-            } catch (IOException ignored) {
-            }
-        }
+        Properties props = loadProperties();
         props.setProperty(KEY_SUBSPACE_THRESHOLD, Double.toString(theta));
-        try (FileOutputStream out = new FileOutputStream(path.toFile())) {
-            props.store(out, "SVD Shape Recognizer settings");
-        } catch (IOException ignored) {
-        }
+        saveProperties(props);
     }
 
     /**
@@ -142,15 +150,7 @@ public class SettingsStore {
      * @return значение k (по умолчанию 4)
      */
     public int loadSubspaceK() {
-        Properties props = new Properties();
-        Path path = getPath();
-        if (Files.exists(path)) {
-            try (FileInputStream in = new FileInputStream(path.toFile())) {
-                props.load(in);
-            } catch (IOException ignored) {
-            }
-        }
-        String raw = props.getProperty(KEY_SUBSPACE_K);
+        String raw = loadProperties().getProperty(KEY_SUBSPACE_K);
         if (raw != null) {
             try {
                 return Integer.parseInt(raw);
@@ -166,19 +166,9 @@ public class SettingsStore {
      * @param k значение размерности
      */
     public void saveSubspaceK(int k) {
-        Properties props = new Properties();
-        Path path = getPath();
-        if (Files.exists(path)) {
-            try (FileInputStream in = new FileInputStream(path.toFile())) {
-                props.load(in);
-            } catch (IOException ignored) {
-            }
-        }
+        Properties props = loadProperties();
         props.setProperty(KEY_SUBSPACE_K, Integer.toString(k));
-        try (FileOutputStream out = new FileOutputStream(path.toFile())) {
-            props.store(out, "SVD Shape Recognizer settings");
-        } catch (IOException ignored) {
-        }
+        saveProperties(props);
     }
 
     /**
@@ -187,15 +177,7 @@ public class SettingsStore {
      * @return режим распознавания (по умолчанию SIGMA_VECTOR)
      */
     public RecognitionMode loadRecognitionMode() {
-        Properties props = new Properties();
-        Path path = getPath();
-        if (Files.exists(path)) {
-            try (FileInputStream in = new FileInputStream(path.toFile())) {
-                props.load(in);
-            } catch (IOException ignored) {
-            }
-        }
-        String raw = props.getProperty(KEY_RECOGNITION_MODE);
+        String raw = loadProperties().getProperty(KEY_RECOGNITION_MODE);
         if (raw != null) {
             try {
                 return RecognitionMode.valueOf(raw);
@@ -211,18 +193,8 @@ public class SettingsStore {
      * @param mode режим распознавания
      */
     public void saveRecognitionMode(RecognitionMode mode) {
-        Properties props = new Properties();
-        Path path = getPath();
-        if (Files.exists(path)) {
-            try (FileInputStream in = new FileInputStream(path.toFile())) {
-                props.load(in);
-            } catch (IOException ignored) {
-            }
-        }
+        Properties props = loadProperties();
         props.setProperty(KEY_RECOGNITION_MODE, mode.name());
-        try (FileOutputStream out = new FileOutputStream(path.toFile())) {
-            props.store(out, "SVD Shape Recognizer settings");
-        } catch (IOException ignored) {
-        }
+        saveProperties(props);
     }
 }
