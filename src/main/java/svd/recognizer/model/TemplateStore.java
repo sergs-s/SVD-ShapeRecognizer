@@ -21,7 +21,7 @@ import java.util.List;
  */
 public class TemplateStore implements Serializable {
 
-    private static final long serialVersionUID = 1L;
+    private static final long serialVersionUID = 2L;  // Увеличено с 1L до 2L
     public static final int MIN_TEMPLATES = 5;
 
     private final ShapeClass shapeClass;
@@ -58,6 +58,7 @@ public class TemplateStore implements Serializable {
     /**
      * При десериализации хранилища кэш усреднённого σ-вектора не пишется в
      * поток, поэтому пересчитывается заново после чтения списка эталонов.
+     * Поле subspaceModel сериализуется стандартно (не transient).
      */
     private void readObject(ObjectInputStream in) throws IOException, ClassNotFoundException {
         in.defaultReadObject();
