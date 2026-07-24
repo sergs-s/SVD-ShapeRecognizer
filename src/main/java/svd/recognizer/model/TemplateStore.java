@@ -21,14 +21,14 @@ import java.util.List;
  */
 public class TemplateStore implements Serializable {
 
-    private static final long serialVersionUID = 2L;  // Увеличено с 1L до 2L
+    private static final long serialVersionUID = 2L;
     public static final int MIN_TEMPLATES = 5;
 
     private final ShapeClass shapeClass;
     private final List<Template> templates = new ArrayList<>();
     private double[] averageSingularValues;
 
-    // НОВОЕ ПОЛЕ: модель подпространства класса (null, если класс не обучен)
+    // модель подпространства класса (null, если класс не обучен)
     private SubspaceModel subspaceModel;
 
     public TemplateStore(ShapeClass shapeClass) {

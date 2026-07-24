@@ -203,13 +203,13 @@ public class ShapeRecognizer {
             );
         }
 
-        // Шаг 1: Центрирование вектора
+        // Центрирование вектора
         double[] centered = new double[dim];
         for (int i = 0; i < dim; i++) {
             centered[i] = x[i] - mean[i];
         }
 
-        // Шаг 2: Проекция на подпространство (координаты в базисе)
+        // Проекция на подпространство
         // coords = Bᵀ * centered
         double[] coords = new double[k];
         for (int j = 0; j < k; j++) {
@@ -220,7 +220,7 @@ public class ShapeRecognizer {
             coords[j] = sum;
         }
 
-        // Шаг 3: Восстановление и вычисление ошибки
+        // Восстановление и вычисление ошибки
         // reconstructed = B * coords
         // error = ||centered - reconstructed||
         double sumSq = 0.0;

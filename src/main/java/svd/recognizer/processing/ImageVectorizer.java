@@ -12,9 +12,7 @@ public final class ImageVectorizer {
     public static final int VECTOR_LENGTH = 64 * 64; // 4096
     private static final int IMAGE_SIZE = 64;
 
-    private ImageVectorizer() {
-        // Приватный конструктор для утилитного класса
-    }
+    private ImageVectorizer() {}
 
     /**
      * Преобразует матрицу яркостей в вектор построчной укладкой.

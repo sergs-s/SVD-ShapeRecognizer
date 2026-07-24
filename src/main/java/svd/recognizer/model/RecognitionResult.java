@@ -42,7 +42,6 @@ public class RecognitionResult implements Serializable {
         this.threshold = threshold;
         this.recognized = recognized;
         this.mode = mode;
-        // Защита от изменений извне
         this.classScores = classScores != null
                 ? Collections.unmodifiableMap(classScores)
                 : null;

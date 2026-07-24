@@ -34,11 +34,11 @@ public class SettingsStore {
     private static final String KEY_PREFIX = "threshold.";
     private static final double DEFAULT_THRESHOLD = 0.35;
 
-    // НОВЫЕ КОНСТАНТЫ ДЛЯ SUBSPACE
+    // Константы для подпространств
     private static final String KEY_SUBSPACE_THRESHOLD = "subspace.threshold";
     private static final String KEY_SUBSPACE_K = "subspace.k";
     private static final String KEY_RECOGNITION_MODE = "recognition.mode";
-    private static final double DEFAULT_SUBSPACE_THRESHOLD = 13.0;
+    private static final double DEFAULT_SUBSPACE_THRESHOLD = 15.0;
     private static final int DEFAULT_SUBSPACE_K = 4;
 
     /** @return путь к файлу settings.properties в корне проекта */

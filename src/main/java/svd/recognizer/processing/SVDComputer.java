@@ -61,7 +61,7 @@ public class SVDComputer {
         if (singularValues.length == 0) {
             return singularValues;
         }
-        // Нормировка по σ₁: делаем подпись инвариантной к общему масштабу энергии.
+        // Нормировка по σ₁
         double first = singularValues[0] == 0.0 ? 1.0 : singularValues[0];
         double[] normalized = new double[singularValues.length];
         for (int i = 0; i < singularValues.length; i++) {

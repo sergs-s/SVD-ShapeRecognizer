@@ -61,21 +61,21 @@ public class SubspaceTrainer {
         System.out.println("SubspaceTrainer: обучение класса " + store.getShapeClass() +
                 " с " + n + " эталонами, k=" + k);
 
-        // Шаг 1: Векторизация всех эталонов
+        // Векторизация всех эталонов
         double[][] vectors = vectorizeTemplates(templates, store.getShapeClass());
 
-        // Шаг 2: Вычисление среднего вектора
+        // Вычисление среднего вектора
         double[] mean = computeMeanVector(vectors, n);
 
-        // Шаг 3: Центрирование и формирование матрицы X (4096 x n)
+        // Центрирование и формирование матрицы X (4096 x n)
         double[][] x = buildCenteredMatrix(vectors, mean, n);
 
-        // Шаг 4: Сингулярное разложение матрицы X
+        // Сингулярное разложение матрицы X
         System.out.println("SubspaceTrainer: выполнение SVD для " + store.getShapeClass());
         SvdResult svd = svdEngine.decompose(x);
         double[][] u = svd.getU();
 
-        // Шаг 5: Отбор первых k столбцов U как базис
+        // Отбор первых k столбцов U как базис
         double[][] basis = extractBasis(u, k);
 
         // Создание и возврат модели
