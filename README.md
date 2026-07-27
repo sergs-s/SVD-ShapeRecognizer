@@ -37,26 +37,41 @@ mvn test                 # модульные тесты
 
 ```
 svd.recognizer
-├── Main                  — точка входа, инициализация OpenCV
-├── math                  — ядро SVD
-│   ├── SvdEngine             интерфейс вычислителя SVD
-│   ├── CommonsMathSvdEngine  реализация на Apache Commons Math
-│   └── SvdResult             контейнер результата (значения, U, V)
-├── processing            — обработка и вычисления
-│   ├── ImagePreprocessor     конвейер предобработки изображения
-│   ├── SVDComputer           вычисление σ-вектора
-│   └── ShapeRecognizer       классификатор (метод «Путь B»)
-├── model                 — структуры данных
-│   ├── ShapeClass            классы фигур (круг/треугольник/прямоугольник)
-│   ├── Template              один эталон
-│   └── TemplateStore         хранилище эталонов класса + средний вектор
-├── storage               — сохранение на диск
-│   ├── TemplateRepository    эталоны (templates/*.dat)
-│   └── SettingsStore         настройки (settings.properties)
-├── ui                    — графический интерфейс
-│   ├── MainFrame, RecognitionPanel
-│   ├── TemplatesFrame, TemplatesPanel
-│   └── ImageView, ShapeIconFactory
+├── Main                       — точка входа, инициализация OpenCV
+│
+├── math                       — ядро SVD
+│   ├── SvdEngine                  интерфейс вычислителя SVD
+│   ├── CommonsMathSvdEngine       реализация на Apache Commons Math
+│   └── SvdResult                  контейнер результата (σ, U, V)
+│
+├── processing                 — обработка и вычисления
+│   ├── ImagePreprocessor          конвейер предобработки изображения
+│   ├── ImageVectorizer            векторизация 64×64 → 4096 (для subspace)
+│   ├── SVDComputer                вычисление σ-вектора
+│   ├── ShapeRecognizer            классификатор σ-векторов (режим SIGMA_VECTOR)
+│   ├── SubspaceTrainer            обучение подпространств (режим SUBSPACE)
+│   └── SubspaceRecognizer         классификатор по подпространствам
+│
+├── model                      — структуры данных
+│   ├── ShapeClass                 классы фигур (CIRCLE/TRIANGLE/RECTANGLE)
+│   ├── RecognitionMode            режимы распознавания (SIGMA_VECTOR/SUBSPACE)
+│   ├── SubspaceModel              модель подпространства (meanVector + basisMatrix)
+│   ├── RecognitionResult          универсальный результат распознавания
+│   ├── Template                   один эталон (изображение + σ-вектор + матрица)
+│   └── TemplateStore              хранилище эталонов класса + средний вектор + модель
+│
+├── storage                    — сохранение на диск
+│   ├── TemplateRepository         эталоны и модели (templates/*.dat)
+│   └── SettingsStore              настройки (settings.properties)
+│
+├── ui                         — графический интерфейс
+│   ├── MainFrame                  главное окно (режимы, обучение, распознавание)
+│   ├── TemplatesFrame             управление эталонами
+│   ├── RecognitionPanel           панель отображения результатов
+│   ├── TemplatesPanel             панель списка эталонов
+│   ├── ImageView                  компонент отображения изображений
+│   └── ShapeIconFactory           создание иконок фигур
+│
 └── core
     └── ContourFeatureExtractor — вспомогательное извлечение контурных признаков
 ```
