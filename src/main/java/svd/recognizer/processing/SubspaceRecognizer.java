@@ -183,6 +183,9 @@ public class SubspaceRecognizer {
 
     /**
      * Распознавание по подпространствам с порогом по умолчанию.
+     * @param hypothesisVectors
+     * @param stores
+     * @return 
      */
     public RecognitionResult recognize(
             Map<ShapeClass, double[]> hypothesisVectors,
