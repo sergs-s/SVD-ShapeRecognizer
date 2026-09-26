@@ -57,7 +57,7 @@ public class MainFrame extends javax.swing.JFrame {
         this.svdComputer = svdComputer;
         this.repository = repository;
 
-        this.subspaceRecognizer = new SubspaceRecognizer();
+        this.subspaceRecognizer = new SubspaceRecognizer(settingsStore.loadSubspaceThreshold());
         this.subspaceTrainer = new SubspaceTrainer(svdComputer.getSvdEngine());
 
         this.stores = repository.loadAll();
@@ -163,7 +163,7 @@ public class MainFrame extends javax.swing.JFrame {
 
         lblTheta.setText("Порог θ:");
 
-        spinnerTheta.setModel(new SpinnerNumberModel(13.0d, 1.0d, 50.0d, 0.5d));
+        spinnerTheta.setModel(new SpinnerNumberModel(settingsStore.loadSubspaceThreshold(), 1.0d, 50.0d, 0.5d));
         spinnerTheta.setPreferredSize(new java.awt.Dimension(60, 20));
 
         comboMode.setModel(new javax.swing.DefaultComboBoxModel<>(
@@ -694,7 +694,7 @@ public class MainFrame extends javax.swing.JFrame {
         for (ShapeClass sc : ShapeClass.values()) {
             TemplateStore store = stores.get(sc);
             if (store != null && store.isTrained()) {
-                status.append(sc.getDisplayName()).append(" ✓ ");
+                status.append(sc.getDisplayName()).append(" + ");
             } else {
                 status.append(sc.getDisplayName()).append(" — ");
             }

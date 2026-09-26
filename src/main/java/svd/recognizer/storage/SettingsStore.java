@@ -116,7 +116,8 @@ public class SettingsStore {
     /**
      * Загружает порог отвержения для subspace-режима.
      *
-     * @return значение порога (по умолчанию 13.0)
+     * @return значение порога (по умолчанию 15.0); единственный источник
+     *         порога θ по умолчанию в проекте
      */
     public double loadSubspaceThreshold() {
         String raw = loadProperties().getProperty(KEY_SUBSPACE_THRESHOLD);
@@ -143,7 +144,8 @@ public class SettingsStore {
     /**
      * Загружает размерность подпространства k для subspace-режима.
      *
-     * @return значение k (по умолчанию 4)
+     * @return значение k (по умолчанию 4); единственный источник k по
+     *         умолчанию в проекте
      */
     public int loadSubspaceK() {
         String raw = loadProperties().getProperty(KEY_SUBSPACE_K);

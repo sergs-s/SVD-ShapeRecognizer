@@ -25,7 +25,6 @@ import java.util.List;
  */
 public class SubspaceTrainer {
 
-    public static final int DEFAULT_K = 4;
     private static final int VECTOR_LENGTH = 64 * 64; // 4096
     private static final int IMAGE_SIZE = 64;
 
@@ -36,18 +35,12 @@ public class SubspaceTrainer {
     }
 
     /**
-     * Строит подпространство класса с размерностью по умолчанию (DEFAULT_K = 4).
-     */
-    public SubspaceModel train(TemplateStore store) {
-        return train(store, DEFAULT_K);
-    }
-
-    /**
      * Строит подпространство класса по хранилищу эталонов.
      *
      * @param store хранилище эталонов класса (непустое, у всех эталонов
      *              должно быть заполнено normalizedMatrix)
-     * @param k желаемая размерность подпространства
+     * @param k желаемая размерность подпространства (значение по умолчанию —
+     *          {@link svd.recognizer.storage.SettingsStore#loadSubspaceK()})
      * @return обученная модель подпространства класса
      * @throws IllegalArgumentException если хранилище пусто или у эталона
      *         нет normalizedMatrix
@@ -189,13 +182,22 @@ public class SubspaceTrainer {
     /**
      * Извлекает первые k столбцов матрицы U как базис подпространства.
      *
+     * Ранг центрированной матрицы из n эталонов не больше n − 1 (столбцы в
+     * сумме дают ноль), поэтому осмысленных сингулярных векторов не больше
+     * n − 1: actualK = min(k, n − 1).
+     *
      * @param u матрица левых сингулярных векторов (размер 4096 x n)
      * @param k желаемая размерность подпространства
      * @return матрица базиса размера 4096 x actualK
+     * @throws IllegalArgumentException если эталон один (ранг равен нулю)
      */
     private double[][] extractBasis(double[][] u, int k) {
         int availableVectors = u[0].length;
-        int actualK = Math.min(k, availableVectors);
+        if (availableVectors < 2) {
+            throw new IllegalArgumentException(
+                    "Для построения подпространства нужно минимум 2 эталона, есть " + availableVectors);
+        }
+        int actualK = Math.min(k, availableVectors - 1);
 
         System.out.println("SubspaceTrainer: доступно " + availableVectors +
                 " сингулярных векторов, используем " + actualK);

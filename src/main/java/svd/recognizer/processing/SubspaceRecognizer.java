@@ -25,17 +25,22 @@ import java.util.Map;
  */
 public class SubspaceRecognizer {
 
-    public static final double DEFAULT_THRESHOLD = 13.0;
     private static final int VECTOR_LENGTH = 4096;
 
-    private double theta = DEFAULT_THRESHOLD;
+    private double theta;
 
-    public SubspaceRecognizer() {}
+    /**
+     * @param theta единый порог отвержения θ; единственный источник значения
+     *              по умолчанию — {@link svd.recognizer.storage.SettingsStore#loadSubspaceThreshold()}
+     */
+    public SubspaceRecognizer(double theta) {
+        this.theta = theta;
+    }
 
     /**
      * Устанавливает единый порог отвержения θ.
      *
-     * @param theta порог отвержения (рекомендуемое значение 13.0)
+     * @param theta порог отвержения
      */
     public void setThreshold(double theta) {
         this.theta = theta;
