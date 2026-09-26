@@ -29,7 +29,8 @@ import org.opencv.objdetect.FaceRecognizerSF;
  *   <li>{@code ALIGN_CROP} — FaceRecognizerSF.alignCrop: кадр 112×112 (вход SFace).
  *       Режим заполнения задан внутри OpenCV: warpAffine с BORDER_CONSTANT = 0;</li>
  *   <li>{@code OWN_AFFINE} — estimateAffinePartial2D (подобие) 5 точек YuNet на шаблон
- *       ArcFace, сдвинутый в кадр 92×112 (как ORL), warpAffine с BORDER_REPLICATE.</li>
+ *       ArcFace, приведённый к кадру faces.frame.width × faces.frame.height (по умолчанию
+ *       92×112, как ORL: сдвиг на −10 по x), warpAffine с BORDER_REPLICATE.</li>
  * </ol>
  * Поля перед детекцией — copyMakeBorder с BORDER_REPLICATE. Для каждого кадра
  * считается доля пикселей, взятых вне исходного снимка (поля или заполнение).
@@ -50,23 +51,17 @@ public final class FaceAlignment {
     static final double[][] ARCFACE_112 = {
         {38.2946, 51.6963}, {73.5318, 51.5014}, {56.0252, 71.7366}, {41.5493, 92.3655}, {70.7299, 92.2041}
     };
-    static final int OWN_WIDTH = 92;
-    static final int OWN_HEIGHT = 112;
-    /** Сдвиг шаблона ArcFace по горизонтали для кадра 92×112. */
-    static final double OWN_SHIFT_X = (112 - OWN_WIDTH) / 2.0;
+    /** Сторона кадра шаблона ArcFace. */
+    static final int ARCFACE_SIZE = 112;
 
     /** Способ выравнивания. */
     public enum Method {
-        ALIGN_CROP("align_crop", 112, 112), OWN_AFFINE("own_affine", OWN_WIDTH, OWN_HEIGHT);
+        ALIGN_CROP("align_crop"), OWN_AFFINE("own_affine");
 
         public final String label;
-        public final int width;
-        public final int height;
 
-        Method(String label, int width, int height) {
+        Method(String label) {
             this.label = label;
-            this.width = width;
-            this.height = height;
         }
     }
 
@@ -82,11 +77,25 @@ public final class FaceAlignment {
 
     private final FaceDetectorYN detector;
     private final FaceRecognizerSF recognizer;
+    private final int frameWidth;
+    private final int frameHeight;
+    private final double[][] ownTemplate;
 
-    public FaceAlignment(Path modelsDir) {
+    /**
+     * @param modelsDir   папка моделей opencv_zoo
+     * @param frameWidth  ширина кадра своего аффинного выравнивания (SettingsStore, по умолчанию 92)
+     * @param frameHeight высота кадра своего аффинного выравнивания (SettingsStore, по умолчанию 112)
+     */
+    public FaceAlignment(Path modelsDir, int frameWidth, int frameHeight) {
+        if (frameWidth <= 0 || frameHeight <= 0) {
+            throw new IllegalArgumentException("Размер кадра должен быть положительным: " + frameWidth + "×" + frameHeight);
+        }
         this.detector = FaceDetectorYN.create(modelsDir.resolve(YUNET_FILE).toString(), "",
                 new Size(320, 320), SCORE_THRESHOLD, NMS_THRESHOLD, TOP_K);
         this.recognizer = FaceRecognizerSF.create(modelsDir.resolve(SFACE_FILE).toString(), "");
+        this.frameWidth = frameWidth;
+        this.frameHeight = frameHeight;
+        this.ownTemplate = ownTemplate(frameWidth, frameHeight);
     }
 
     /** Читает снимок в оттенках серого через imdecode (пути с не-ASCII символами). */
@@ -155,13 +164,13 @@ public final class FaceAlignment {
         feature64.get(0, 0, sface);
 
         // Способ 2: собственное аффинное выравнивание по исходному снимку (без полей).
-        Mat transform = similarity(landmarks, ownTemplate());
+        Mat transform = similarity(landmarks, ownTemplate);
         Mat own = new Mat();
-        Imgproc.warpAffine(gray, own, transform, new Size(OWN_WIDTH, OWN_HEIGHT),
+        Imgproc.warpAffine(gray, own, transform, new Size(frameWidth, frameHeight),
                 Imgproc.INTER_LINEAR, Core.BORDER_REPLICATE);
         Mat ownMask = new Mat();
         Mat ones = new Mat(gray.size(), CvType.CV_8UC1, new Scalar(255));
-        Imgproc.warpAffine(ones, ownMask, transform, new Size(OWN_WIDTH, OWN_HEIGHT),
+        Imgproc.warpAffine(ones, ownMask, transform, new Size(frameWidth, frameHeight),
                 Imgproc.INTER_LINEAR, Core.BORDER_CONSTANT, new Scalar(0));
 
         return new Result(true, score, landmarks, roll,
@@ -169,12 +178,18 @@ public final class FaceAlignment {
                 sface, cropGray, own, gray);
     }
 
-    /** Шаблон 5 точек для кадра 92×112: ArcFace, сдвинутый влево на (112 − 92)/2. */
-    static double[][] ownTemplate() {
+    /**
+     * Шаблон 5 точек для кадра width×height: ArcFace (112×112), масштабированный
+     * по высоте кадра (s = height/112) и центрированный по ширине. При 92×112 —
+     * ArcFace, сдвинутый на −10 по x.
+     */
+    static double[][] ownTemplate(int width, int height) {
+        double s = height / (double) ARCFACE_SIZE;
+        double shiftX = (width - ARCFACE_SIZE * s) / 2;
         double[][] t = new double[5][2];
         for (int i = 0; i < 5; i++) {
-            t[i][0] = ARCFACE_112[i][0] - OWN_SHIFT_X;
-            t[i][1] = ARCFACE_112[i][1];
+            t[i][0] = ARCFACE_112[i][0] * s + shiftX;
+            t[i][1] = ARCFACE_112[i][1] * s;
         }
         return t;
     }

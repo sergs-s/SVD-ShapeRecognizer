@@ -221,7 +221,16 @@ mvn compile exec:java@faces-eval   # оценка на лицах ORL -> reports
 - `FaceDetectorYN`, `FaceRecognizerSF`, `Calib3d.estimateAffinePartial2D`
   есть в `org.openpnp:opencv:4.9.0-0`; файлов каскадов Хаара в jar нет.
 - Выравнивание и эталон SFace на ORL: `mvn compile exec:java@faces-align`
-  (отчёт `reports/faces/alignment.txt`, мозаики `reports/faces/aligned/`).
+  (отчёты `reports/faces/alignment.txt`, `alignment_subset.txt`,
+  `sface_alpha.txt`, мозаики `reports/faces/aligned/`); разбор отказов
+  YuNet: `mvn compile exec:java@faces-yunet` (`reports/faces/yunet.txt`,
+  листы `reports/faces/yunet/`).
+- Размер кадра лица: ключи `faces.frame.width` и `faces.frame.height`
+  (по умолчанию 92×112 — родной ORL, без масштабирования); задаёт загрузку
+  ORL и кадр своего аффинного выравнивания. Кадр alignCrop для SFace —
+  всегда 112×112.
+- Подписи на картинках OpenCV (`putText`) — только латиницей: шрифты
+  Hershey не рисуют кириллицу.
 
 ## Оформление документов Word
 

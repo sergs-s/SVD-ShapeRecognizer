@@ -5,6 +5,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import org.opencv.core.Mat;
 import org.opencv.core.MatOfByte;
+import org.opencv.core.Size;
 import org.opencv.imgcodecs.Imgcodecs;
 import org.opencv.imgproc.Imgproc;
 import svd.recognizer.processing.ImageVectorizer;
@@ -29,10 +30,11 @@ public final class OrlDataset {
 
     public static final int PERSONS = 40;
     public static final int IMAGES_PER_PERSON = 10;
+    /** Родной размер снимков ORL (размер кадра задаётся отдельно, SettingsStore). */
     public static final int WIDTH = 92;
     public static final int HEIGHT = 112;
 
-    /** vectors[person][image] — вектор длины WIDTH·HEIGHT (построчно). */
+    /** vectors[person][image] — вектор длины width·height кадра (построчно). */
     private final double[][][] vectors;
 
     private OrlDataset(double[][][] vectors) {
@@ -45,22 +47,28 @@ public final class OrlDataset {
      *
      * @param dir           корневая папка базы (с подпапками s1…s40)
      * @param equalizeHist  применять ли эквализацию гистограммы к каждому снимку
+     * @param width         ширина кадра (SettingsStore.loadFacesFrameWidth(); при 92 — без масштабирования)
+     * @param height        высота кадра (SettingsStore.loadFacesFrameHeight(); при 112 — без масштабирования)
      * @return загруженная база
      * @throws IOException              если файл не читается
-     * @throws IllegalArgumentException если файл не декодируется или размер не 92×112
+     * @throws IllegalArgumentException если файл не декодируется, исходный размер не 92×112
+     *                                  или размер кадра не положительный
      */
-    public static OrlDataset load(Path dir, boolean equalizeHist) throws IOException {
+    public static OrlDataset load(Path dir, boolean equalizeHist, int width, int height) throws IOException {
+        if (width <= 0 || height <= 0) {
+            throw new IllegalArgumentException("Размер кадра должен быть положительным: " + width + "×" + height);
+        }
         double[][][] vectors = new double[PERSONS][IMAGES_PER_PERSON][];
         for (int p = 0; p < PERSONS; p++) {
             for (int i = 0; i < IMAGES_PER_PERSON; i++) {
                 Path file = dir.resolve("s" + (p + 1)).resolve((i + 1) + ".pgm");
-                vectors[p][i] = readVector(file, equalizeHist);
+                vectors[p][i] = readVector(file, equalizeHist, width, height);
             }
         }
         return new OrlDataset(vectors);
     }
 
-    private static double[] readVector(Path file, boolean equalizeHist) throws IOException {
+    private static double[] readVector(Path file, boolean equalizeHist, int width, int height) throws IOException {
         if (!Files.isRegularFile(file)) {
             throw new IOException("Нет файла базы ORL: " + file);
         }
@@ -73,15 +81,20 @@ public final class OrlDataset {
             throw new IllegalArgumentException("Размер " + file + ": " + gray.cols() + "×"
                     + gray.rows() + ", ожидается " + WIDTH + "×" + HEIGHT);
         }
+        if (width != WIDTH || height != HEIGHT) {
+            Mat resized = new Mat();
+            Imgproc.resize(gray, resized, new Size(width, height), 0, 0, Imgproc.INTER_AREA);
+            gray = resized;
+        }
         if (equalizeHist) {
             Imgproc.equalizeHist(gray, gray);
         }
-        byte[] pixels = new byte[WIDTH * HEIGHT];
+        byte[] pixels = new byte[width * height];
         gray.get(0, 0, pixels);
-        double[][] matrix = new double[HEIGHT][WIDTH];
-        for (int r = 0; r < HEIGHT; r++) {
-            for (int c = 0; c < WIDTH; c++) {
-                matrix[r][c] = (pixels[r * WIDTH + c] & 0xFF) / 255.0;
+        double[][] matrix = new double[height][width];
+        for (int r = 0; r < height; r++) {
+            for (int c = 0; c < width; c++) {
+                matrix[r][c] = (pixels[r * width + c] & 0xFF) / 255.0;
             }
         }
         return ImageVectorizer.toVector(matrix);

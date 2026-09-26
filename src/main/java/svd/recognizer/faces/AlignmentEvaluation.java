@@ -80,8 +80,12 @@ public final class AlignmentEvaluation {
     /** Скоринг: лучший или отношение лучший/второй. */
     enum Score { BEST, RATIO }
 
-    /** Сравнение одного снимка с галереей. group — ротация (0 для основного протокола). */
-    record Probe(int group, Role role, int person, boolean detected, double best, double second, int predicted) {
+    /**
+     * Сравнение одного снимка с галереей. group — ротация (0 для основного протокола);
+     * ownModel — у своего человека есть модель в этой галерее (для чужих всегда true).
+     */
+    record Probe(int group, Role role, int person, boolean detected, double best, double second, int predicted,
+                 boolean ownModel) {
         double value(Score s) {
             if (!detected) {
                 return Double.POSITIVE_INFINITY;
@@ -127,7 +131,9 @@ public final class AlignmentEvaluation {
         EvaluationProtocol protocol = new EvaluationProtocol(seed, settings.loadFacesTrainPerPerson());
         Path outDir = Paths.get(System.getProperty("user.dir"), "reports", "faces");
         Files.createDirectories(outDir);
-        FaceAlignment alignment = new FaceAlignment(modelsDir);
+        int frameWidth = settings.loadFacesFrameWidth();
+        int frameHeight = settings.loadFacesFrameHeight();
+        FaceAlignment alignment = new FaceAlignment(modelsDir, frameWidth, frameHeight);
 
         // Детекция при разных полях; выбор полей по числу удачных детекций (метки людей не используются).
         Mat[][] originals = new Mat[OrlDataset.PERSONS][OrlDataset.IMAGES_PER_PERSON];
@@ -153,7 +159,8 @@ public final class AlignmentEvaluation {
         }
         FaceAlignment.Result[][] results = byPadding[chosen];
 
-        OrlDataset raw = OrlDataset.load(datasetDir, false);
+        OrlDataset raw = OrlDataset.load(datasetDir, false,
+                settings.loadFacesFrameWidth(), settings.loadFacesFrameHeight());
         double[][][][] features = new double[Source.values().length][OrlDataset.PERSONS][OrlDataset.IMAGES_PER_PERSON][];
         for (int p = 0; p < OrlDataset.PERSONS; p++) {
             for (int i = 0; i < OrlDataset.IMAGES_PER_PERSON; i++) {
@@ -172,6 +179,15 @@ public final class AlignmentEvaluation {
         StringBuilder text = new StringBuilder();
         List<String> csv = new ArrayList<>();
         appendDetection(text, detectedByPadding, chosen, results);
+        // База, ограниченная снимками с успешной детекцией (задача 1).
+        double[][][] maskedBase = new double[OrlDataset.PERSONS][OrlDataset.IMAGES_PER_PERSON][];
+        for (int p = 0; p < OrlDataset.PERSONS; p++) {
+            for (int i = 0; i < OrlDataset.IMAGES_PER_PERSON; i++) {
+                maskedBase[p][i] = results[p][i].detected() ? raw.vector(p, i) : null;
+            }
+        }
+        StringBuilder subsetText = new StringBuilder();
+        StringBuilder alphaText = new StringBuilder();
         for (boolean curve : new boolean[] {false, true}) {
             String name = curve ? "кривая, N = " + PpcaEvaluation.CURVE_N : "основной, N = " + protocol.getTrainPerPerson();
             String id = curve ? "curve_n" + PpcaEvaluation.CURVE_N : "main_n5";
@@ -181,8 +197,13 @@ public final class AlignmentEvaluation {
                 bySource[s.ordinal()] = run(features[s.ordinal()], s.sface, protocol, trainer, curve);
             }
             report(text, csv, name, id, bySource, boot);
+            Result baseSubset = run(maskedBase, false, protocol, trainer, curve);
+            reportSubset(subsetText, name, baseSubset, bySource[Source.OWN_AFFINE.ordinal()], boot);
+            reportSfaceAlpha(alphaText, name, bySource[Source.SFACE.ordinal()], curve);
         }
-        writeFiles(outDir, text, csv, protocol, datasetDir, modelsDir, PADDINGS[chosen]);
+        writeFiles(outDir, text, csv, protocol, datasetDir, modelsDir, PADDINGS[chosen], frameWidth, frameHeight);
+        writeExtra(outDir.resolve("alignment_subset.txt"), subsetHeader(protocol), subsetText);
+        writeExtra(outDir.resolve("sface_alpha.txt"), alphaHeader(protocol), alphaText);
         System.out.printf(Locale.ROOT, "Готово: %s (%.0f с)%n", outDir, (System.currentTimeMillis() - start) / 1000.0);
     }
 
@@ -283,7 +304,7 @@ public final class AlignmentEvaluation {
             Role role = Role.values()[s[0]];
             double[] x = feat[s[1]][s[2]];
             if (x == null) {
-                probes.add(new Probe(group, role, s[1], false, Double.NaN, Double.NaN, -1));
+                probes.add(new Probe(group, role, s[1], false, Double.NaN, Double.NaN, -1, hasModel(role, s[1], persons)));
                 continue;
             }
             double best = Double.MAX_VALUE;
@@ -307,7 +328,7 @@ public final class AlignmentEvaluation {
                     second = d;
                 }
             }
-            probes.add(new Probe(group, role, s[1], true, best, second, predicted));
+            probes.add(new Probe(group, role, s[1], true, best, second, predicted, hasModel(role, s[1], persons)));
         }
         return new Result(probes, missing);
     }
@@ -559,12 +580,180 @@ public final class AlignmentEvaluation {
         }
     }
 
+    static boolean hasModel(Role role, int person, List<Integer> persons) {
+        return (role != Role.KNOWN_VAL && role != Role.KNOWN_TEST) || persons.contains(person);
+    }
+
+    /**
+     * Подмножество задачи 1: только снимки с успешной детекцией; попытки своих,
+     * у которых в этой галерее нет модели, исключаются (не считаются отказом).
+     */
+    static List<Probe> subset(List<Probe> probes) {
+        return probes.stream().filter(p -> p.detected() && p.ownModel()).toList();
+    }
+
+    /** Число исключённых контрольных попыток своих без модели (с успешной детекцией). */
+    static long excludedWithoutModel(List<Probe> probes) {
+        return probes.stream().filter(p -> p.role() == Role.KNOWN_TEST && p.detected() && !p.ownModel()).count();
+    }
+
+    private static long count(List<Probe> probes, Role role) {
+        return probes.stream().filter(p -> p.role() == role).count();
+    }
+
+    /** Строка FAR: сумма x/n, среднее и худшая группа, ↑95 худшей; люди — хоть раз / худшая группа, ↑95. */
+    private static String farText(Counts c) {
+        int x = c.sum(c.falseAccept);
+        int n = c.sum(c.impostorAttempts);
+        int worst = 0;
+        int worstN = 0;
+        double mean = 0;
+        for (int g = 0; g < c.groups; g++) {
+            mean += c.falseAccept[g] / (double) c.impostorAttempts[g];
+            if (c.falseAccept[g] >= worst) {
+                worst = c.falseAccept[g];
+                worstN = c.impostorAttempts[g];
+            }
+        }
+        mean /= c.groups;
+        int peopleWorst = Arrays.stream(c.peopleAccepted).max().orElse(0);
+        return String.format(Locale.ROOT, "FAR %d/%d (ср. %s, худш. %d/%d, ↑95 %s); люди %d/%d (худш. %d/%d, ↑95 %s)",
+                x, n, pct(mean), worst, worstN,
+                pct(FaceEvaluation.binomialUpperBound(worst, worstN, FaceEvaluation.CONFIDENCE)),
+                c.peopleAny, c.impostorPeople, peopleWorst, c.impostorPeople,
+                pct(FaceEvaluation.binomialUpperBound(peopleWorst, c.impostorPeople, FaceEvaluation.CONFIDENCE)));
+    }
+
+    /** Задача 1: база и (2) на одном подмножестве снимков с успешной детекцией. */
+    private static void reportSubset(StringBuilder text, String name, Result base, Result own, int[][] boot) {
+        List<Probe> baseProbes = subset(base.probes());
+        List<Probe> ownProbes = subset(own.probes());
+        text.append(String.format(Locale.ROOT, "%n==================== Протокол: %s ====================%n", name));
+        text.append(String.format(Locale.ROOT,
+                "Попыток: свои контроля %d, чужие контроля %d, чужие валидации %d (у базы и (2) одинаково: %b).%n",
+                count(ownProbes, Role.KNOWN_TEST), count(ownProbes, Role.IMPOSTOR_TEST), count(ownProbes, Role.IMPOSTOR_VAL),
+                count(baseProbes, Role.KNOWN_TEST) == count(ownProbes, Role.KNOWN_TEST)
+                        && count(baseProbes, Role.IMPOSTOR_TEST) == count(ownProbes, Role.IMPOSTOR_TEST)
+                        && count(baseProbes, Role.IMPOSTOR_VAL) == count(ownProbes, Role.IMPOSTOR_VAL)));
+        text.append(String.format(Locale.ROOT,
+                "Исключено контрольных попыток своих без модели (галерея × человек, меньше 2 обучающих снимков с детекцией): "
+                        + "база %d, (2) %d; моделей не построено: база %d, (2) %d.%n",
+                excludedWithoutModel(base.probes()), excludedWithoutModel(own.probes()),
+                base.modelsMissing(), own.modelsMissing()));
+        for (double alpha : ALPHAS) {
+            Counts b = evaluate(baseProbes, Score.RATIO, alpha);
+            Counts o = evaluate(ownProbes, Score.RATIO, alpha);
+            double[] bCi = frrCi(b, boot);
+            double[] oCi = frrCi(o, boot);
+            double[] d = diffCi(o, b, boot);
+            String mark = d[1] < 0 ? " * (значимо лучше)" : d[0] > 0 ? " ! (значимо хуже)" : " (незначимо)";
+            text.append(String.format(Locale.ROOT, "%n--- α = %.2f ---%n", alpha));
+            text.append(String.format(Locale.ROOT, "  база, ε₁/ε₂:              FRR %s %% [%s; %s] (%d/%d), argmin %s %%; %s%n",
+                    pct(b.frr()), pct(bCi[0]), pct(bCi[1]), b.sum(b.rejects), b.sum(b.attempts),
+                    pct(b.sum(b.correct) / (double) b.sum(b.attempts)), farText(b)));
+            text.append(String.format(Locale.ROOT, "  (2) своё аффинное, ε₁/ε₂: FRR %s %% [%s; %s] (%d/%d), argmin %s %%; %s%n",
+                    pct(o.frr()), pct(oCi[0]), pct(oCi[1]), o.sum(o.rejects), o.sum(o.attempts),
+                    pct(o.sum(o.correct) / (double) o.sum(o.attempts)), farText(o)));
+            text.append(String.format(Locale.ROOT, "  Δ FRR (2) − база: %+.1f п.п. [%+.1f; %+.1f]%s%n",
+                    100 * (o.frr() - b.frr()), 100 * d[0], 100 * d[1], mark));
+        }
+    }
+
+    /** Задача 2: SFace, 1 − cos₁, при α ∈ {0,05; 0,02; 0,01; 0,005; 0}; запас разделимости на валидации. */
+    private static void reportSfaceAlpha(StringBuilder text, String name, Result sface, boolean curve) {
+        List<Probe> probes = sface.probes();
+        long n = probes.stream().filter(p -> p.role() == Role.IMPOSTOR_VAL && p.detected()).count();
+        text.append(String.format(Locale.ROOT, "%n==================== Протокол: %s ====================%n", name));
+        text.append(String.format(Locale.ROOT,
+                "Попыток чужих с детекцией в объединённой валидации n = %d (разрешающая способность α = 1/n = %.4f %%).%n",
+                n, 100.0 / n));
+        appendMargin(text, probes, -1, "объединённая валидация");
+        if (curve) {
+            double worst = Double.POSITIVE_INFINITY;
+            int worstGroup = -1;
+            for (int g = 0; g < TrainingSizeCurve.ROTATIONS; g++) {
+                double m = margin(probes, g)[2];
+                appendMargin(text, probes, g, "ротация " + g);
+                if (m < worst) {
+                    worst = m;
+                    worstGroup = g;
+                }
+            }
+            text.append(String.format(Locale.ROOT, "  Худшая ротация по запасу: %d (разность %.4f).%n", worstGroup, worst));
+        }
+        text.append("  α       ⌊α·n⌋  θ          FRR общий (детектор + порог)   FRR по порогу (свои с детекцией)   FAR все попытки / с детекцией; люди\n");
+        for (double alpha : new double[] {0.05, 0.02, 0.01, 0.005, 0.0}) {
+            Counts c = evaluate(probes, Score.BEST, alpha);
+            int allowed = (int) Math.floor(alpha * n + 1e-9);
+            int detectedOwn = c.sum(c.attempts) - c.sum(c.detectorRejects);
+            int thresholdRejects = c.sum(c.rejects) - c.sum(c.detectorRejects);
+            int detectedImp = c.sum(c.impostorDetected);
+            String note = alpha > 0 && allowed == 0 ? "  [⌊α·n⌋ = 0, совпадает с α = 0]" : "";
+            text.append(String.format(Locale.ROOT,
+                    "  %-6s  %-5d  %.6f   %s %% (%d/%d = %d + %d)          %s %% (%d/%d)                  %s; с детекцией %d/%d%s%n",
+                    String.format(Locale.ROOT, "%.3f", alpha), allowed, c.theta,
+                    pct(c.frr()), c.sum(c.rejects), c.sum(c.attempts), c.sum(c.detectorRejects), thresholdRejects,
+                    pct(thresholdRejects / (double) detectedOwn), thresholdRejects, detectedOwn,
+                    farText(c), c.sum(c.falseAccept), detectedImp, note));
+        }
+    }
+
+    /** {наибольшая оценка своих, наименьшая оценка чужих, разность} на валидации; group = −1 — все группы. */
+    static double[] margin(List<Probe> probes, int group) {
+        double maxOwn = Double.NEGATIVE_INFINITY;
+        double minImp = Double.POSITIVE_INFINITY;
+        for (Probe p : probes) {
+            if (!p.detected() || (group >= 0 && p.group() != group)) {
+                continue;
+            }
+            if (p.role() == Role.KNOWN_VAL && p.ownModel()) {
+                maxOwn = Math.max(maxOwn, p.value(Score.BEST));
+            } else if (p.role() == Role.IMPOSTOR_VAL) {
+                minImp = Math.min(minImp, p.value(Score.BEST));
+            }
+        }
+        return new double[] {maxOwn, minImp, minImp - maxOwn};
+    }
+
+    private static void appendMargin(StringBuilder text, List<Probe> probes, int group, String label) {
+        double[] m = margin(probes, group);
+        text.append(String.format(Locale.ROOT,
+                "  Запас разделимости (%s): наибольшая 1 − cos₁ своих %.4f, наименьшая чужих %.4f, разность %+.4f (%s).%n",
+                label, m[0], m[1], m[2], m[2] > 0 ? "зазор есть" : "зазора нет"));
+    }
+
+    private static String subsetHeader(EvaluationProtocol protocol) {
+        return "Задача 1: база и (2) своё аффинное на одном подмножестве (подготовка к шагу 5)\n"
+                + "Только снимки с успешной детекцией YuNet (порог 0,9, без полей): неудачные исключены из обучения,\n"
+                + "валидации и контроля у обоих вариантов. Попытки своих, у которых в галерее нет модели (меньше 2\n"
+                + "обучающих снимков с детекцией), исключены из знаменателя FRR у обоих вариантов (не считаются отказом).\n"
+                + "Скоринг ε₁/ε₂, k = n − 1, порог — Нейман – Пирсон на объединённой валидации; seed = " + protocol.getSeed() + ".\n"
+                + "ДИ — бутстреп по людям; Δ — парная разность на тех же выборках.\n";
+    }
+
+    private static String alphaHeader(EvaluationProtocol protocol) {
+        return "Задача 2: SFace, оценка 1 − cos₁ (шаблон — нормированное среднее), сетка α (подготовка к шагу 5)\n"
+                + "Неудачная детекция — отказ (свой) / не принят (чужой). Порог — Нейман – Пирсон на объединённой валидации\n"
+                + "по попыткам чужих с детекцией: допускается ⌊α·n⌋ принятых; α = 0 — порог чуть ниже наименьшей оценки\n"
+                + "чужих на валидации. Запас разделимости — на валидации: наибольшая оценка своих с детекцией против\n"
+                + "наименьшей оценки чужих. seed = " + protocol.getSeed() + ".\n"
+                + "Происхождение обучающего набора SFace — открытый вопрос (см. alignment.txt).\n";
+    }
+
+    private static void writeExtra(Path file, String header, StringBuilder text) throws IOException {
+        try (PrintWriter out = new PrintWriter(Files.newBufferedWriter(file, StandardCharsets.UTF_8))) {
+            out.print(header);
+            out.print(text);
+        }
+    }
+
     private static String pct(double v) {
         return Double.isNaN(v) ? "—" : String.format(Locale.ROOT, "%.1f", 100 * v);
     }
 
     private static void writeFiles(Path outDir, StringBuilder text, List<String> csv, EvaluationProtocol protocol,
-                                   Path datasetDir, Path modelsDir, double padding) throws IOException {
+                                   Path datasetDir, Path modelsDir, double padding, int frameWidth,
+                                   int frameHeight) throws IOException {
         try (PrintWriter out = new PrintWriter(Files.newBufferedWriter(outDir.resolve("alignment.txt"), StandardCharsets.UTF_8))) {
             out.println("Выравнивание лиц на ORL и эталон SFace (подготовка к шагу 5)");
             out.println("База: " + datasetDir + " (The Database of Faces, AT&T Laboratories Cambridge)");
@@ -576,7 +765,8 @@ public final class AlignmentEvaluation {
             out.printf(Locale.ROOT, "seed = %d; детекция YuNet: порог %.1f, лицо с наибольшей оценкой; поля — copyMakeBorder BORDER_REPLICATE, выбрано %.0f %%.%n",
                     protocol.getSeed(), FaceAlignment.SCORE_THRESHOLD, 100 * padding);
             out.println("(1) alignCrop: кадр 112×112, заполнение внутри OpenCV (warpAffine, BORDER_CONSTANT = 0);");
-            out.println("(2) своё аффинное: estimateAffinePartial2D (LMEDS) на шаблон ArcFace, сдвинутый в кадр 92×112, warpAffine BORDER_REPLICATE.");
+            out.println("(2) своё аффинное: estimateAffinePartial2D (LMEDS) на шаблон ArcFace, сдвинутый в кадр " + frameWidth + "×"
+                    + frameHeight + ", warpAffine BORDER_REPLICATE.");
             out.println("SVD: подпространство на человека, k = n − 1 (n — обучающие снимки с успешной детекцией), скоринг ε₁/ε₂.");
             out.println("SFace: признак 128 (L2), шаблон — нормированное среднее; оценка 1 − cos, лучший и отношение.");
             out.println("Неудачная детекция: обучающий снимок исключается; запрос — отказ. Порог — Нейман – Пирсон на объединённой");

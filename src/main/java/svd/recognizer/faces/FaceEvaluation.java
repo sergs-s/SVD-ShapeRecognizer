@@ -110,7 +110,8 @@ public final class FaceEvaluation {
         SubspaceTrainer trainer = new SubspaceTrainer(new CommonsMathSvdEngine());
         List<VariantResult> results = new ArrayList<>();
         for (boolean equalize : new boolean[] {false, true}) {
-            OrlDataset dataset = OrlDataset.load(datasetDir, equalize);
+            OrlDataset dataset = OrlDataset.load(datasetDir, equalize,
+                    settings.loadFacesFrameWidth(), settings.loadFacesFrameHeight());
             for (double eta : ETAS) {
                 String name = (equalize ? "eqhist" : "none") + "_"
                         + (eta == 0.0 ? "k" + (protocol.getTrainPerPerson() - 1)

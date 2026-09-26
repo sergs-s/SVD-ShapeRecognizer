@@ -112,7 +112,8 @@ public final class PpcaEvaluation {
         Path datasetDir = Paths.get(settings.loadFacesDatasetDir());
         long seed = settings.loadFacesSeed();
         EvaluationProtocol protocol = new EvaluationProtocol(seed, settings.loadFacesTrainPerPerson());
-        OrlDataset dataset = OrlDataset.load(datasetDir, false);
+        OrlDataset dataset = OrlDataset.load(datasetDir, false,
+                settings.loadFacesFrameWidth(), settings.loadFacesFrameHeight());
         Path outDir = Paths.get(System.getProperty("user.dir"), "reports", "faces");
         Files.createDirectories(outDir);
         SubspaceTrainer trainer = new SubspaceTrainer(new CommonsMathSvdEngine());

@@ -46,6 +46,10 @@ public class SettingsStore {
     private static final String KEY_FACES_SEED = "faces.seed";
     private static final String KEY_FACES_TRAIN_PER_PERSON = "faces.train.per.person";
     private static final String DEFAULT_FACES_DATASET_DIR = "D:\\data\\ORL";
+    private static final String KEY_FACES_FRAME_WIDTH = "faces.frame.width";
+    private static final String KEY_FACES_FRAME_HEIGHT = "faces.frame.height";
+    private static final int DEFAULT_FACES_FRAME_WIDTH = 92;
+    private static final int DEFAULT_FACES_FRAME_HEIGHT = 112;
     private static final String KEY_FACES_MODELS_DIR = "faces.models.dir";
     private static final String DEFAULT_FACES_MODELS_DIR = "D:\\data\\models\\opencv_zoo";
     private static final long DEFAULT_FACES_SEED = 42L;
@@ -214,6 +218,45 @@ public class SettingsStore {
     public String loadFacesDatasetDir() {
         String raw = loadProperties().getProperty(KEY_FACES_DATASET_DIR);
         return (raw != null && !raw.isBlank()) ? raw : DEFAULT_FACES_DATASET_DIR;
+    }
+
+    /**
+     * Загружает ширину кадра лица (загрузка ORL и кадр своего аффинного
+     * выравнивания).
+     *
+     * @return ширина в пикселях (по умолчанию 92 — родная ширина ORL)
+     * @throws IllegalArgumentException если значение не положительное
+     */
+    public int loadFacesFrameWidth() {
+        return positiveInt(KEY_FACES_FRAME_WIDTH, DEFAULT_FACES_FRAME_WIDTH);
+    }
+
+    /**
+     * Загружает высоту кадра лица (загрузка ORL и кадр своего аффинного
+     * выравнивания).
+     *
+     * @return высота в пикселях (по умолчанию 112 — родная высота ORL)
+     * @throws IllegalArgumentException если значение не положительное
+     */
+    public int loadFacesFrameHeight() {
+        return positiveInt(KEY_FACES_FRAME_HEIGHT, DEFAULT_FACES_FRAME_HEIGHT);
+    }
+
+    private int positiveInt(String key, int defaultValue) {
+        String raw = loadProperties().getProperty(key);
+        if (raw == null || raw.isBlank()) {
+            return defaultValue;
+        }
+        int value;
+        try {
+            value = Integer.parseInt(raw.trim());
+        } catch (NumberFormatException e) {
+            throw new IllegalArgumentException(key + " должно быть целым числом, получено «" + raw + "»", e);
+        }
+        if (value <= 0) {
+            throw new IllegalArgumentException(key + " должно быть положительным, получено " + value);
+        }
+        return value;
     }
 
     /**
