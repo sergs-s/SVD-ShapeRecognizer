@@ -46,6 +46,8 @@ public class SettingsStore {
     private static final String KEY_FACES_SEED = "faces.seed";
     private static final String KEY_FACES_TRAIN_PER_PERSON = "faces.train.per.person";
     private static final String DEFAULT_FACES_DATASET_DIR = "D:\\data\\ORL";
+    private static final String KEY_FACES_MODELS_DIR = "faces.models.dir";
+    private static final String DEFAULT_FACES_MODELS_DIR = "D:\\data\\models\\opencv_zoo";
     private static final long DEFAULT_FACES_SEED = 42L;
     private static final int DEFAULT_FACES_TRAIN_PER_PERSON = 5;
 
@@ -212,6 +214,16 @@ public class SettingsStore {
     public String loadFacesDatasetDir() {
         String raw = loadProperties().getProperty(KEY_FACES_DATASET_DIR);
         return (raw != null && !raw.isBlank()) ? raw : DEFAULT_FACES_DATASET_DIR;
+    }
+
+    /**
+     * Загружает путь к папке моделей opencv_zoo (YuNet, SFace; ONNX, вне git).
+     *
+     * @return путь к моделям (по умолчанию D:\data\models\opencv_zoo)
+     */
+    public String loadFacesModelsDir() {
+        String raw = loadProperties().getProperty(KEY_FACES_MODELS_DIR);
+        return (raw != null && !raw.isBlank()) ? raw : DEFAULT_FACES_MODELS_DIR;
     }
 
     /**

@@ -203,6 +203,26 @@ mvn compile exec:java@faces-eval   # оценка на лицах ORL -> reports
 `learningData/`: папки `circle`, `rectangle`, `triangle`. Эталоны хранятся в
 `templates/*.dat` (Java-сериализация).
 
+Лица (вне git, пути — в `settings.properties`):
+- База ORL (AT&T Laboratories Cambridge, «The Database of Faces»; условие —
+  ссылаться на AT&T Laboratories Cambridge): `D:\data\ORL`, ключ
+  `faces.dataset.dir`.
+- Модели opencv_zoo: `D:\data\models\opencv_zoo`, ключ `faces.models.dir`.
+  Скачаны один раз, в git не кладутся; проверка — по SHA-256:
+  - `face_detection_yunet_2023mar.onnx` (YuNet, 232 589 байт), лицензия MIT;
+    источник https://github.com/opencv/opencv_zoo/tree/main/models/face_detection_yunet ;
+    SHA-256 `8f2383e4dd3cfbb4553ea8718107fc0423210dc964f9f4280604804ed2552fa4`;
+  - `face_recognition_sface_2021dec.onnx` (SFace, MobileFaceNet,
+    38 696 353 байт), лицензия Apache 2.0; источник
+    https://github.com/opencv/opencv_zoo/tree/main/models/face_recognition_sface ;
+    SHA-256 `0ba9fbfa01b5270c96627c4ef784da859931e02f04419c829e83484087c34e79`.
+    Набор обучения выпущенной модели не указан (в статье и коде SFace —
+    CASIA-WebFace, VGGFace2, MS1MV2 — производная отозванной MS-Celeb-1M).
+- `FaceDetectorYN`, `FaceRecognizerSF`, `Calib3d.estimateAffinePartial2D`
+  есть в `org.openpnp:opencv:4.9.0-0`; файлов каскадов Хаара в jar нет.
+- Выравнивание и эталон SFace на ORL: `mvn compile exec:java@faces-align`
+  (отчёт `reports/faces/alignment.txt`, мозаики `reports/faces/aligned/`).
+
 ## Оформление документов Word
 
 - Times New Roman 14, красная строка 1 см, выравнивание по ширине.

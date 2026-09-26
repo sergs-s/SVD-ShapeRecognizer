@@ -91,6 +91,13 @@
                             <mainClass>svd.recognizer.faces.TwoThresholdEvaluation</mainClass>
                         </configuration>
                     </execution>
+                    <!-- Выравнивание лиц и эталон SFace: mvn compile exec:java@faces-align -->
+                    <execution>
+                        <id>faces-align</id>
+                        <configuration>
+                            <mainClass>svd.recognizer.faces.AlignmentEvaluation</mainClass>
+                        </configuration>
+                    </execution>
                 </executions>
             </plugin>
         </plugins>
