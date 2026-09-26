@@ -172,7 +172,7 @@ public final class FaceEvaluation {
         return new VariantResult(name, probes, ks);
     }
 
-    private static Probe score(int fold, Role role, int person, int image, OrlDataset dataset,
+    static Probe score(int fold, Role role, int person, int image, OrlDataset dataset,
                                int[] known, double[][] means, double[][][] bases, int[] ks) {
         double[] x = dataset.vector(person, image);
         int best = -1;

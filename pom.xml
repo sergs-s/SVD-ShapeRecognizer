@@ -70,6 +70,27 @@
                             <mainClass>svd.recognizer.faces.FaceEvaluation</mainClass>
                         </configuration>
                     </execution>
+                    <!-- Кривая FRR от N: mvn compile exec:java@faces-curve -->
+                    <execution>
+                        <id>faces-curve</id>
+                        <configuration>
+                            <mainClass>svd.recognizer.faces.TrainingSizeCurve</mainClass>
+                        </configuration>
+                    </execution>
+                    <!-- PPCA-скоринг: mvn compile exec:java@faces-ppca -->
+                    <execution>
+                        <id>faces-ppca</id>
+                        <configuration>
+                            <mainClass>svd.recognizer.faces.PpcaEvaluation</mainClass>
+                        </configuration>
+                    </execution>
+                    <!-- Двумерное правило: mvn compile exec:java@faces-2d -->
+                    <execution>
+                        <id>faces-2d</id>
+                        <configuration>
+                            <mainClass>svd.recognizer.faces.TwoThresholdEvaluation</mainClass>
+                        </configuration>
+                    </execution>
                 </executions>
             </plugin>
         </plugins>

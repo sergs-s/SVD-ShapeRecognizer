@@ -93,6 +93,11 @@ public final class EvaluationProtocol {
                 blockSize() - VALIDATION_IMPOSTORS);
     }
 
+    /** @return перемешанный порядок снимков человека (копия), общий для всех экспериментов */
+    int[] imageOrder(int person) {
+        return imageOrder[person].clone();
+    }
+
     /** @return обучающие снимки человека */
     public int[] trainImages(int person) {
         return slice(imageOrder[person], 0, trainPerPerson);
