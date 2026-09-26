@@ -50,6 +50,8 @@ public class SettingsStore {
     private static final String KEY_FACES_FRAME_HEIGHT = "faces.frame.height";
     private static final int DEFAULT_FACES_FRAME_WIDTH = 92;
     private static final int DEFAULT_FACES_FRAME_HEIGHT = 112;
+    private static final String KEY_FACES_DETECTOR_SCORE = "faces.detector.score";
+    private static final float DEFAULT_FACES_DETECTOR_SCORE = 0.8f;
     private static final String KEY_FACES_MODELS_DIR = "faces.models.dir";
     private static final String DEFAULT_FACES_MODELS_DIR = "D:\\data\\models\\opencv_zoo";
     private static final long DEFAULT_FACES_SEED = 42L;
@@ -240,6 +242,30 @@ public class SettingsStore {
      */
     public int loadFacesFrameHeight() {
         return positiveInt(KEY_FACES_FRAME_HEIGHT, DEFAULT_FACES_FRAME_HEIGHT);
+    }
+
+    /**
+     * Загружает порог уверенности детектора лиц YuNet (FaceDetectorYN).
+     * Выбран на ORL (0,8; до шага 5 было 0,9); для своих фото выбирается заново.
+     *
+     * @return порог в интервале (0, 1) (по умолчанию 0,8)
+     * @throws IllegalArgumentException если значение не число или вне (0, 1)
+     */
+    public float loadFacesDetectorScore() {
+        String raw = loadProperties().getProperty(KEY_FACES_DETECTOR_SCORE);
+        if (raw == null || raw.isBlank()) {
+            return DEFAULT_FACES_DETECTOR_SCORE;
+        }
+        float value;
+        try {
+            value = Float.parseFloat(raw.trim());
+        } catch (NumberFormatException e) {
+            throw new IllegalArgumentException(KEY_FACES_DETECTOR_SCORE + " должно быть числом, получено «" + raw + "»", e);
+        }
+        if (!(value > 0f && value < 1f)) {
+            throw new IllegalArgumentException(KEY_FACES_DETECTOR_SCORE + " должно быть в интервале (0, 1), получено " + value);
+        }
+        return value;
     }
 
     private int positiveInt(String key, int defaultValue) {

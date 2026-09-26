@@ -85,7 +85,13 @@ public final class AlignmentEvaluation {
      * ownModel — у своего человека есть модель в этой галерее (для чужих всегда true).
      */
     record Probe(int group, Role role, int person, boolean detected, double best, double second, int predicted,
-                 boolean ownModel) {
+                 boolean ownModel, int image) {
+        /** Без номера снимка (image = −1). */
+        Probe(int group, Role role, int person, boolean detected, double best, double second, int predicted,
+              boolean ownModel) {
+            this(group, role, person, detected, best, second, predicted, ownModel, -1);
+        }
+
         double value(Score s) {
             if (!detected) {
                 return Double.POSITIVE_INFINITY;
@@ -133,7 +139,7 @@ public final class AlignmentEvaluation {
         Files.createDirectories(outDir);
         int frameWidth = settings.loadFacesFrameWidth();
         int frameHeight = settings.loadFacesFrameHeight();
-        FaceAlignment alignment = new FaceAlignment(modelsDir, frameWidth, frameHeight);
+        FaceAlignment alignment = new FaceAlignment(modelsDir, frameWidth, frameHeight, settings.loadFacesDetectorScore());
 
         // Детекция при разных полях; выбор полей по числу удачных детекций (метки людей не используются).
         Mat[][] originals = new Mat[OrlDataset.PERSONS][OrlDataset.IMAGES_PER_PERSON];
@@ -201,9 +207,10 @@ public final class AlignmentEvaluation {
             reportSubset(subsetText, name, baseSubset, bySource[Source.OWN_AFFINE.ordinal()], boot);
             reportSfaceAlpha(alphaText, name, bySource[Source.SFACE.ordinal()], curve);
         }
-        writeFiles(outDir, text, csv, protocol, datasetDir, modelsDir, PADDINGS[chosen], frameWidth, frameHeight);
-        writeExtra(outDir.resolve("alignment_subset.txt"), subsetHeader(protocol), subsetText);
-        writeExtra(outDir.resolve("sface_alpha.txt"), alphaHeader(protocol), alphaText);
+        writeFiles(outDir, text, csv, protocol, datasetDir, modelsDir, PADDINGS[chosen], frameWidth, frameHeight,
+                alignment.scoreThreshold());
+        writeExtra(outDir.resolve("alignment_subset.txt"), subsetHeader(protocol, alignment.scoreThreshold()), subsetText);
+        writeExtra(outDir.resolve("sface_alpha.txt"), alphaHeader(protocol, alignment.scoreThreshold()), alphaText);
         System.out.printf(Locale.ROOT, "Готово: %s (%.0f с)%n", outDir, (System.currentTimeMillis() - start) / 1000.0);
     }
 
@@ -304,7 +311,7 @@ public final class AlignmentEvaluation {
             Role role = Role.values()[s[0]];
             double[] x = feat[s[1]][s[2]];
             if (x == null) {
-                probes.add(new Probe(group, role, s[1], false, Double.NaN, Double.NaN, -1, hasModel(role, s[1], persons)));
+                probes.add(new Probe(group, role, s[1], false, Double.NaN, Double.NaN, -1, hasModel(role, s[1], persons), s[2]));
                 continue;
             }
             double best = Double.MAX_VALUE;
@@ -328,7 +335,7 @@ public final class AlignmentEvaluation {
                     second = d;
                 }
             }
-            probes.add(new Probe(group, role, s[1], true, best, second, predicted, hasModel(role, s[1], persons)));
+            probes.add(new Probe(group, role, s[1], true, best, second, predicted, hasModel(role, s[1], persons), s[2]));
         }
         return new Result(probes, missing);
     }
@@ -696,6 +703,21 @@ public final class AlignmentEvaluation {
                     pct(thresholdRejects / (double) detectedOwn), thresholdRejects, detectedOwn,
                     farText(c), c.sum(c.falseAccept), detectedImp, note));
         }
+        Counts zero = evaluate(probes, Score.BEST, 0.0);
+        text.append(String.format(Locale.ROOT, "  Принятые чужие на контроле при α = 0 (θ = %.6f):%n", zero.theta));
+        boolean any = false;
+        for (Probe p : probes) {
+            if (p.role() == Role.IMPOSTOR_TEST && p.detected() && p.value(Score.BEST) <= zero.theta) {
+                any = true;
+                text.append(String.format(Locale.ROOT,
+                        "    группа %d: чужой s%d/%d принят как s%d; 1 − cos₁ = %.4f, 1 − cos₂ = %.4f, отношение %.4f%n",
+                        p.group(), p.person() + 1, p.image() + 1, p.predicted() + 1, p.best(), p.second(),
+                        p.value(Score.RATIO)));
+            }
+        }
+        if (!any) {
+            text.append("    нет\n");
+        }
     }
 
     /** {наибольшая оценка своих, наименьшая оценка чужих, разность} на валидации; group = −1 — все группы. */
@@ -722,22 +744,35 @@ public final class AlignmentEvaluation {
                 label, m[0], m[1], m[2], m[2] > 0 ? "зазор есть" : "зазора нет"));
     }
 
-    private static String subsetHeader(EvaluationProtocol protocol) {
+    private static String subsetHeader(EvaluationProtocol protocol, float detectorScore) {
         return "Задача 1: база и (2) своё аффинное на одном подмножестве (подготовка к шагу 5)\n"
-                + "Только снимки с успешной детекцией YuNet (порог 0,9, без полей): неудачные исключены из обучения,\n"
+                + "Только снимки с успешной детекцией YuNet (порог " + score(detectorScore) + ", без полей): неудачные исключены из обучения,\n"
                 + "валидации и контроля у обоих вариантов. Попытки своих, у которых в галерее нет модели (меньше 2\n"
                 + "обучающих снимков с детекцией), исключены из знаменателя FRR у обоих вариантов (не считаются отказом).\n"
                 + "Скоринг ε₁/ε₂, k = n − 1, порог — Нейман – Пирсон на объединённой валидации; seed = " + protocol.getSeed() + ".\n"
-                + "ДИ — бутстреп по людям; Δ — парная разность на тех же выборках.\n";
+                + "ДИ — бутстреп по людям; Δ — парная разность на тех же выборках.\n"
+                + detectorNote(detectorScore) + "\n";
     }
 
-    private static String alphaHeader(EvaluationProtocol protocol) {
+    /** Порог YuNet с запятой: 0,8. */
+    private static String score(float detectorScore) {
+        return String.format(Locale.ROOT, "%.1f", detectorScore).replace('.', ',');
+    }
+
+    /** Примечание о смене порога YuNet: прежние отчёты получены при 0,9. */
+    private static String detectorNote(float detectorScore) {
+        return "Порог YuNet " + score(detectorScore) + " (faces.detector.score). Прежние числа этого отчёта получены при пороге 0,9"
+                + " (коммит a55e379).";
+    }
+
+    private static String alphaHeader(EvaluationProtocol protocol, float detectorScore) {
         return "Задача 2: SFace, оценка 1 − cos₁ (шаблон — нормированное среднее), сетка α (подготовка к шагу 5)\n"
                 + "Неудачная детекция — отказ (свой) / не принят (чужой). Порог — Нейман – Пирсон на объединённой валидации\n"
                 + "по попыткам чужих с детекцией: допускается ⌊α·n⌋ принятых; α = 0 — порог чуть ниже наименьшей оценки\n"
                 + "чужих на валидации. Запас разделимости — на валидации: наибольшая оценка своих с детекцией против\n"
                 + "наименьшей оценки чужих. seed = " + protocol.getSeed() + ".\n"
-                + "Происхождение обучающего набора SFace — открытый вопрос (см. alignment.txt).\n";
+                + "Происхождение обучающего набора SFace — открытый вопрос (см. alignment.txt).\n"
+                + detectorNote(detectorScore) + "\n";
     }
 
     private static void writeExtra(Path file, String header, StringBuilder text) throws IOException {
@@ -753,7 +788,7 @@ public final class AlignmentEvaluation {
 
     private static void writeFiles(Path outDir, StringBuilder text, List<String> csv, EvaluationProtocol protocol,
                                    Path datasetDir, Path modelsDir, double padding, int frameWidth,
-                                   int frameHeight) throws IOException {
+                                   int frameHeight, float detectorScore) throws IOException {
         try (PrintWriter out = new PrintWriter(Files.newBufferedWriter(outDir.resolve("alignment.txt"), StandardCharsets.UTF_8))) {
             out.println("Выравнивание лиц на ORL и эталон SFace (подготовка к шагу 5)");
             out.println("База: " + datasetDir + " (The Database of Faces, AT&T Laboratories Cambridge)");
@@ -763,7 +798,8 @@ public final class AlignmentEvaluation {
             out.println("  Набор обучения выпущенной модели в карточке opencv_zoo не указан; в статье и коде SFace — CASIA-WebFace,");
             out.println("  VGGFace2 и MS1MV2 (производная MS-Celeb-1M, отозванной Microsoft в 2019 г.). Какой именно — не установлено.");
             out.printf(Locale.ROOT, "seed = %d; детекция YuNet: порог %.1f, лицо с наибольшей оценкой; поля — copyMakeBorder BORDER_REPLICATE, выбрано %.0f %%.%n",
-                    protocol.getSeed(), FaceAlignment.SCORE_THRESHOLD, 100 * padding);
+                    protocol.getSeed(), (double) detectorScore, 100 * padding);
+            out.println(detectorNote(detectorScore));
             out.println("(1) alignCrop: кадр 112×112, заполнение внутри OpenCV (warpAffine, BORDER_CONSTANT = 0);");
             out.println("(2) своё аффинное: estimateAffinePartial2D (LMEDS) на шаблон ArcFace, сдвинутый в кадр " + frameWidth + "×"
                     + frameHeight + ", warpAffine BORDER_REPLICATE.");

@@ -43,7 +43,6 @@ public final class FaceAlignment {
 
     public static final String YUNET_FILE = "face_detection_yunet_2023mar.onnx";
     public static final String SFACE_FILE = "face_recognition_sface_2021dec.onnx";
-    static final float SCORE_THRESHOLD = 0.9f;
     static final float NMS_THRESHOLD = 0.3f;
     static final int TOP_K = 5000;
 
@@ -79,23 +78,31 @@ public final class FaceAlignment {
     private final FaceRecognizerSF recognizer;
     private final int frameWidth;
     private final int frameHeight;
+    private final float scoreThreshold;
     private final double[][] ownTemplate;
 
     /**
      * @param modelsDir   папка моделей opencv_zoo
      * @param frameWidth  ширина кадра своего аффинного выравнивания (SettingsStore, по умолчанию 92)
      * @param frameHeight высота кадра своего аффинного выравнивания (SettingsStore, по умолчанию 112)
+     * @param scoreThreshold порог уверенности YuNet (SettingsStore, faces.detector.score, по умолчанию 0,8)
      */
-    public FaceAlignment(Path modelsDir, int frameWidth, int frameHeight) {
+    public FaceAlignment(Path modelsDir, int frameWidth, int frameHeight, float scoreThreshold) {
         if (frameWidth <= 0 || frameHeight <= 0) {
             throw new IllegalArgumentException("Размер кадра должен быть положительным: " + frameWidth + "×" + frameHeight);
         }
         this.detector = FaceDetectorYN.create(modelsDir.resolve(YUNET_FILE).toString(), "",
-                new Size(320, 320), SCORE_THRESHOLD, NMS_THRESHOLD, TOP_K);
+                new Size(320, 320), scoreThreshold, NMS_THRESHOLD, TOP_K);
         this.recognizer = FaceRecognizerSF.create(modelsDir.resolve(SFACE_FILE).toString(), "");
         this.frameWidth = frameWidth;
         this.frameHeight = frameHeight;
+        this.scoreThreshold = scoreThreshold;
         this.ownTemplate = ownTemplate(frameWidth, frameHeight);
+    }
+
+    /** Порог уверенности YuNet, с которым создан детектор. */
+    public float scoreThreshold() {
+        return scoreThreshold;
     }
 
     /** Читает снимок в оттенках серого через imdecode (пути с не-ASCII символами). */
