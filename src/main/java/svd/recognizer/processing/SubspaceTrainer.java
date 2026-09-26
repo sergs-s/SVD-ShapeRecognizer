@@ -10,22 +10,24 @@ import svd.recognizer.model.TemplateStore;
 import java.util.List;
 
 /**
- * Сервис построения подпространства класса по эталонам.
+ * Сервис построения подпространства класса по обучающим векторам.
  *
  * Алгоритм (согласно ТЗ "переход на подпространства", раздел 2.3):
- * 1. Для каждого эталона класса взять Template.getNormalizedMatrix()
- *    и развернуть в вектор длины 4096 через ImageVectorizer.toVector.
+ * 1. Получить векторы класса одинаковой длины d (для фигур — эталоны
+ *    Template.getNormalizedMatrix() 64×64, развёрнутые в d = 4096 через
+ *    ImageVectorizer.toVector; для лиц ORL — снимки 92×112, d = 10 304).
  * 2. Вычислить средний вектор класса — покомпонентное среднее всех векторов.
  * 3. Центрировать образцы (вычесть средний из каждого) и собрать матрицу X
- *    размера 4096 x n, где столбцы — центрированные образцы.
+ *    размера d x n, где столбцы — центрированные образцы.
  * 4. Выполнить SVD матрицы X через существующий SvdEngine.
- * 5. Взять первые k столбцов матрицы U как базис подпространства.
+ * 5. Взять первые k столбцов матрицы U как базис подпространства
+ *    (k ≤ n − 1; k задаётся явно или по доле энергии η).
  *
  * @author ssv
  */
 public class SubspaceTrainer {
 
-    private static final int VECTOR_LENGTH = 64 * 64; // 4096
+    /** Размер эталона фигуры (64×64); для лиц не используется. */
     private static final int IMAGE_SIZE = 64;
 
     private final SvdEngine svdEngine;
@@ -57,25 +59,79 @@ public class SubspaceTrainer {
         // Векторизация всех эталонов
         double[][] vectors = vectorizeTemplates(templates, store.getShapeClass());
 
-        // Вычисление среднего вектора
-        double[] mean = computeMeanVector(vectors, n);
-
-        // Центрирование и формирование матрицы X (4096 x n)
-        double[][] x = buildCenteredMatrix(vectors, mean, n);
-
-        // Сингулярное разложение матрицы X
         System.out.println("SubspaceTrainer: выполнение SVD для " + store.getShapeClass());
-        SvdResult svd = svdEngine.decompose(x);
-        double[][] u = svd.getU();
-
-        // Отбор первых k столбцов U как базис
-        double[][] basis = extractBasis(u, k);
-
-        // Создание и возврат модели
-        SubspaceModel model = new SubspaceModel(mean, basis, basis[0].length);
+        SubspaceModel model = train(vectors, k);
+        System.out.println("SubspaceTrainer: доступно " + n +
+                " сингулярных векторов, используем " + model.getK());
         System.out.println("SubspaceTrainer: обучение завершено: " + model);
 
         return model;
+    }
+
+    /**
+     * Строит подпространство по набору векторов произвольной (но одинаковой)
+     * длины d: средний вектор, центрированная матрица X (d x n), SVD, базис из
+     * первых min(k, n − 1) столбцов U.
+     *
+     * @param vectors обучающие векторы класса (n штук, n ≥ 2)
+     * @param k       желаемая размерность подпространства
+     * @return обученная модель подпространства
+     * @throws IllegalArgumentException если векторов меньше двух или их длины различаются
+     */
+    public SubspaceModel train(double[][] vectors, int k) {
+        double[] mean = computeMeanVector(vectors);
+        SvdResult svd = svdEngine.decompose(buildCenteredMatrix(vectors, mean));
+        double[][] basis = extractBasis(svd.getU(), k);
+        return new SubspaceModel(mean, basis, basis[0].length);
+    }
+
+    /**
+     * Строит подпространство, выбирая размерность по доле энергии:
+     * k_c = min{ k ≤ n − 1 : Σ_{i≤k} σᵢ² / Σ_{i≤n−1} σᵢ² ≥ η }.
+     *
+     * @param vectors обучающие векторы класса (n штук, n ≥ 2)
+     * @param eta     требуемая доля энергии, 0 &lt; η ≤ 1
+     * @return обученная модель подпространства (k_c = getK())
+     * @throws IllegalArgumentException если векторов меньше двух, их длины
+     *         различаются или η вне (0, 1]
+     */
+    public SubspaceModel trainByEnergy(double[][] vectors, double eta) {
+        if (!(eta > 0.0 && eta <= 1.0)) {
+            throw new IllegalArgumentException("Доля энергии η должна быть в (0, 1], получено " + eta);
+        }
+        double[] mean = computeMeanVector(vectors);
+        SvdResult svd = svdEngine.decompose(buildCenteredMatrix(vectors, mean));
+        int k = energyK(svd.getSingularValues(), vectors.length - 1, eta);
+        double[][] basis = extractBasis(svd.getU(), k);
+        return new SubspaceModel(mean, basis, basis[0].length);
+    }
+
+    /**
+     * Наименьшее k ≤ maxK, при котором доля энергии первых k сингулярных
+     * значений не меньше η. При нулевой энергии возвращает 1.
+     *
+     * @param sigma сингулярные значения в невозрастающем порядке
+     * @param maxK  верхняя граница k (ранг центрированной матрицы, n − 1)
+     * @param eta   требуемая доля энергии
+     * @return выбранная размерность k (1 ≤ k ≤ maxK)
+     */
+    static int energyK(double[] sigma, int maxK, double eta) {
+        int limit = Math.min(maxK, sigma.length);
+        double total = 0.0;
+        for (int i = 0; i < limit; i++) {
+            total += sigma[i] * sigma[i];
+        }
+        if (total <= 0.0) {
+            return 1;
+        }
+        double acc = 0.0;
+        for (int i = 0; i < limit; i++) {
+            acc += sigma[i] * sigma[i];
+            if (acc / total >= eta) {
+                return i + 1;
+            }
+        }
+        return limit;
     }
 
     /**
@@ -141,38 +197,50 @@ public class SubspaceTrainer {
     }
 
     /**
-     * Вычисляет средний вектор класса (покомпонентное среднее всех векторов).
+     * Вычисляет средний вектор (покомпонентное среднее всех векторов).
      *
-     * @param vectors массив векторов эталонов
-     * @param n       количество векторов
-     * @return средний вектор длины 4096
+     * @param vectors обучающие векторы одинаковой длины d, не меньше двух
+     * @return средний вектор длины d
+     * @throws IllegalArgumentException если векторов меньше двух или их длины различаются
      */
-    private double[] computeMeanVector(double[][] vectors, int n) {
-        double[] mean = new double[VECTOR_LENGTH];
+    private double[] computeMeanVector(double[][] vectors) {
+        if (vectors == null || vectors.length < 2) {
+            throw new IllegalArgumentException(
+                    "Для построения подпространства нужно минимум 2 вектора, есть " +
+                            (vectors == null ? 0 : vectors.length));
+        }
+        int dim = vectors[0].length;
+        int n = vectors.length;
+        double[] mean = new double[dim];
         for (double[] vector : vectors) {
-            for (int j = 0; j < VECTOR_LENGTH; j++) {
+            if (vector.length != dim) {
+                throw new IllegalArgumentException(
+                        "Векторы разной длины: " + dim + " и " + vector.length);
+            }
+            for (int j = 0; j < dim; j++) {
                 mean[j] += vector[j];
             }
         }
-        for (int j = 0; j < VECTOR_LENGTH; j++) {
+        for (int j = 0; j < dim; j++) {
             mean[j] /= n;
         }
         return mean;
     }
 
     /**
-     * Строит центрированную матрицу X размера 4096 x n.
-     * Каждый столбец — центрированный вектор эталона.
+     * Строит центрированную матрицу X размера d x n.
+     * Каждый столбец — центрированный обучающий вектор.
      *
-     * @param vectors массив векторов эталонов
-     * @param mean    средний вектор класса
-     * @param n       количество векторов
-     * @return матрица X размера 4096 x n
+     * @param vectors обучающие векторы
+     * @param mean    средний вектор
+     * @return матрица X размера d x n
      */
-    private double[][] buildCenteredMatrix(double[][] vectors, double[] mean, int n) {
-        double[][] x = new double[VECTOR_LENGTH][n];
+    private double[][] buildCenteredMatrix(double[][] vectors, double[] mean) {
+        int dim = mean.length;
+        int n = vectors.length;
+        double[][] x = new double[dim][n];
         for (int i = 0; i < n; i++) {
-            for (int j = 0; j < VECTOR_LENGTH; j++) {
+            for (int j = 0; j < dim; j++) {
                 x[j][i] = vectors[i][j] - mean[j];
             }
         }
@@ -182,14 +250,14 @@ public class SubspaceTrainer {
     /**
      * Извлекает первые k столбцов матрицы U как базис подпространства.
      *
-     * Ранг центрированной матрицы из n эталонов не больше n − 1 (столбцы в
+     * Ранг центрированной матрицы из n векторов не больше n − 1 (столбцы в
      * сумме дают ноль), поэтому осмысленных сингулярных векторов не больше
      * n − 1: actualK = min(k, n − 1).
      *
-     * @param u матрица левых сингулярных векторов (размер 4096 x n)
+     * @param u матрица левых сингулярных векторов (размер d x n)
      * @param k желаемая размерность подпространства
-     * @return матрица базиса размера 4096 x actualK
-     * @throws IllegalArgumentException если эталон один (ранг равен нулю)
+     * @return матрица базиса размера d x actualK
+     * @throws IllegalArgumentException если вектор один (ранг равен нулю)
      */
     private double[][] extractBasis(double[][] u, int k) {
         int availableVectors = u[0].length;
@@ -199,11 +267,9 @@ public class SubspaceTrainer {
         }
         int actualK = Math.min(k, availableVectors - 1);
 
-        System.out.println("SubspaceTrainer: доступно " + availableVectors +
-                " сингулярных векторов, используем " + actualK);
-
-        double[][] basis = new double[VECTOR_LENGTH][actualK];
-        for (int i = 0; i < VECTOR_LENGTH; i++) {
+        int dim = u.length;
+        double[][] basis = new double[dim][actualK];
+        for (int i = 0; i < dim; i++) {
             System.arraycopy(u[i], 0, basis[i], 0, actualK);
         }
         return basis;

@@ -41,6 +41,14 @@ public class SettingsStore {
     private static final double DEFAULT_SUBSPACE_THRESHOLD = 15.0;
     private static final int DEFAULT_SUBSPACE_K = 4;
 
+    // Константы для лиц (оценка на базе ORL)
+    private static final String KEY_FACES_DATASET_DIR = "faces.dataset.dir";
+    private static final String KEY_FACES_SEED = "faces.seed";
+    private static final String KEY_FACES_TRAIN_PER_PERSON = "faces.train.per.person";
+    private static final String DEFAULT_FACES_DATASET_DIR = "D:\\data\\ORL";
+    private static final long DEFAULT_FACES_SEED = 42L;
+    private static final int DEFAULT_FACES_TRAIN_PER_PERSON = 5;
+
     /** @return путь к файлу settings.properties в корне проекта */
     private Path getPath() {
         return Paths.get(System.getProperty("user.dir"), FILE_NAME);
@@ -194,5 +202,47 @@ public class SettingsStore {
         Properties props = loadProperties();
         props.setProperty(KEY_RECOGNITION_MODE, mode.name());
         saveProperties(props);
+    }
+
+    /**
+     * Загружает путь к папке базы лиц ORL (структура sX/Y.pgm).
+     *
+     * @return путь к базе (по умолчанию D:\data\ORL)
+     */
+    public String loadFacesDatasetDir() {
+        String raw = loadProperties().getProperty(KEY_FACES_DATASET_DIR);
+        return (raw != null && !raw.isBlank()) ? raw : DEFAULT_FACES_DATASET_DIR;
+    }
+
+    /**
+     * Загружает seed для воспроизводимых разбиений при оценке на лицах.
+     *
+     * @return seed (по умолчанию 42)
+     */
+    public long loadFacesSeed() {
+        String raw = loadProperties().getProperty(KEY_FACES_SEED);
+        if (raw != null) {
+            try {
+                return Long.parseLong(raw.trim());
+            } catch (NumberFormatException ignored) {
+            }
+        }
+        return DEFAULT_FACES_SEED;
+    }
+
+    /**
+     * Загружает число обучающих снимков на человека при оценке на лицах.
+     *
+     * @return число снимков (по умолчанию 5)
+     */
+    public int loadFacesTrainPerPerson() {
+        String raw = loadProperties().getProperty(KEY_FACES_TRAIN_PER_PERSON);
+        if (raw != null) {
+            try {
+                return Integer.parseInt(raw.trim());
+            } catch (NumberFormatException ignored) {
+            }
+        }
+        return DEFAULT_FACES_TRAIN_PER_PERSON;
     }
 }

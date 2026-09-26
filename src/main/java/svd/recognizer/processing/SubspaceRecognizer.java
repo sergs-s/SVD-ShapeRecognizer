@@ -21,11 +21,12 @@ import java.util.Map;
  *   3. если минимальная ошибка не превышает единый порог θ — фигура
  *      распознана, иначе — «не распознано».
  *
+ * Метод {@link #reconstructionError(double[], SubspaceModel)} не зависит от
+ * длины вектора и используется также для лиц (пакет svd.recognizer.faces).
+ *
  * @author ssv
  */
 public class SubspaceRecognizer {
-
-    private static final int VECTOR_LENGTH = 4096;
 
     private double theta;
 
@@ -56,7 +57,7 @@ public class SubspaceRecognizer {
     /**
      * Вычисляет ошибку реконструкции вектора в подпространстве класса.
      *
-     * @param x     входной вектор (длина 4096)
+     * @param x     входной вектор (длина d модели)
      * @param model обученная модель подпространства класса
      * @return евклидова норма остатка проекции (reconstruction error)
      * @throws IllegalArgumentException если размеры не совпадают
@@ -65,10 +66,22 @@ public class SubspaceRecognizer {
         if (x == null || model == null) {
             throw new IllegalArgumentException("Вектор и модель не могут быть null");
         }
+        return reconstructionError(x, model.getMeanVector(), model.getBasisMatrix(), model.getK());
+    }
 
-        double[] mean = model.getMeanVector();
-        double[][] basis = model.getBasisMatrix();
-        int k = model.getK();
+    /**
+     * Ошибка реконструкции ε = ‖x′ − B·Bᵀ·x′‖, x′ = x − mean, на готовых
+     * массивах модели — без копирования (SubspaceModel отдаёт копии). Нужна
+     * для массовой оценки на лицах, где базис 10 304 x k.
+     *
+     * @param x     входной вектор длины d
+     * @param mean  средний вектор класса длины d
+     * @param basis базис подпространства d x (≥ k)
+     * @param k     размерность подпространства
+     * @return евклидова норма остатка проекции
+     * @throws IllegalArgumentException если размеры не совпадают
+     */
+    public static double reconstructionError(double[] x, double[] mean, double[][] basis, int k) {
         int dim = x.length;
 
         // Проверка размеров
@@ -124,7 +137,7 @@ public class SubspaceRecognizer {
     /**
      * Распознавание по подпространствам (Путь B).
      *
-     * @param hypothesisVectors 4096-векторы трёх гипотез (длина 4096)
+     * @param hypothesisVectors векторы трёх гипотез (длина должна совпадать с моделью класса)
      * @param stores            хранилища классов; все должны быть обучены (isTrained()==true)
      * @param theta             единый порог отвержения
      * @return результат распознавания
@@ -160,13 +173,6 @@ public class SubspaceRecognizer {
                         "Нет вектора для гипотезы класса " + sc
                 );
             }
-            if (x.length != VECTOR_LENGTH) {
-                throw new IllegalArgumentException(
-                        "Вектор для класса " + sc + " имеет длину " + x.length +
-                                ", ожидается " + VECTOR_LENGTH
-                );
-            }
-
             SubspaceModel model = stores.get(sc).getSubspaceModel();
             double error = reconstructionError(x, model);
             classScores.put(sc, error);

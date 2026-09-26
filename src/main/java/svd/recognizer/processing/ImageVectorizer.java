@@ -3,23 +3,22 @@ package svd.recognizer.processing;
 /**
  * Утилитный класс для векторизации изображений.
  *
- * Разворачивает матрицу 64×64 в вектор длины 4096 построчной укладкой (row-major).
+ * Разворачивает прямоугольную матрицу rows×cols в вектор длины rows·cols
+ * построчной укладкой (row-major). Для фигур это 64×64 → 4096, для лиц ORL
+ * 112×92 → 10 304.
  *
  * @author ssv
  */
 public final class ImageVectorizer {
-
-    public static final int VECTOR_LENGTH = 64 * 64; // 4096
-    private static final int IMAGE_SIZE = 64;
 
     private ImageVectorizer() {}
 
     /**
      * Преобразует матрицу яркостей в вектор построчной укладкой.
      *
-     * @param matrix матрица яркостей 0..1 размера 64x64
-     * @return вектор длины 4096, построчная укладка
-     * @throws IllegalArgumentException если матрица null или имеет некорректный размер
+     * @param matrix прямоугольная матрица яркостей (все строки одной длины)
+     * @return вектор длины rows·cols, построчная укладка
+     * @throws IllegalArgumentException если матрица null, пустая или строки разной длины
      */
     public static double[] toVector(double[][] matrix) {
         validateMatrix(matrix);
@@ -27,7 +26,7 @@ public final class ImageVectorizer {
         int rows = matrix.length;
         int cols = matrix[0].length;
 
-        double[] vector = new double[VECTOR_LENGTH];
+        double[] vector = new double[rows * cols];
         for (int r = 0; r < rows; r++) {
             System.arraycopy(matrix[r], 0, vector, r * cols, cols);
         }
@@ -35,15 +34,14 @@ public final class ImageVectorizer {
     }
 
     /**
-     * Проверяет, что матрица не null и имеет корректный размер 64x64.
+     * Проверяет, что матрица не null, не пустая и прямоугольная.
      *
      * @param matrix матрица для проверки
-     * @throws IllegalArgumentException если матрица null или имеет некорректный размер
+     * @throws IllegalArgumentException если матрица некорректна
      */
     private static void validateMatrix(double[][] matrix) {
         validateNotNull(matrix);
-        validateRowCount(matrix);
-        validateColumnCount(matrix);
+        validateNotEmpty(matrix);
         validateUniformRows(matrix);
     }
 
@@ -60,35 +58,14 @@ public final class ImageVectorizer {
     }
 
     /**
-     * Проверяет, что матрица имеет правильное количество строк (64).
+     * Проверяет, что в матрице есть хотя бы одна строка и один столбец.
      *
      * @param matrix матрица для проверки
-     * @throws IllegalArgumentException если количество строк не равно 64
+     * @throws IllegalArgumentException если матрица пустая
      */
-    private static void validateRowCount(double[][] matrix) {
-        int rows = matrix.length;
-        if (rows != IMAGE_SIZE) {
-            throw new IllegalArgumentException(
-                    "Матрица должна иметь " + IMAGE_SIZE + " строк, получено: " + rows
-            );
-        }
-    }
-
-    /**
-     * Проверяет, что матрица имеет правильное количество столбцов (64).
-     *
-     * @param matrix матрица для проверки
-     * @throws IllegalArgumentException если количество столбцов не равно 64
-     */
-    private static void validateColumnCount(double[][] matrix) {
-        if (matrix.length == 0) {
-            return;
-        }
-        int cols = matrix[0].length;
-        if (cols != IMAGE_SIZE) {
-            throw new IllegalArgumentException(
-                    "Матрица должна иметь " + IMAGE_SIZE + " столбцов, получено: " + cols
-            );
+    private static void validateNotEmpty(double[][] matrix) {
+        if (matrix.length == 0 || matrix[0] == null || matrix[0].length == 0) {
+            throw new IllegalArgumentException("Матрица не может быть пустой");
         }
     }
 
@@ -100,16 +77,13 @@ public final class ImageVectorizer {
      */
     private static void validateUniformRows(double[][] matrix) {
         int rows = matrix.length;
-        if (rows == 0) {
-            return;
-        }
-
         int expectedCols = matrix[0].length;
         for (int i = 1; i < rows; i++) {
-            if (matrix[i].length != expectedCols) {
+            if (matrix[i] == null || matrix[i].length != expectedCols) {
                 throw new IllegalArgumentException(
                         "Неравномерная матрица: строка 0 имеет длину " + expectedCols +
-                                ", строка " + i + " имеет длину " + matrix[i].length
+                                ", строка " + i + " имеет длину " +
+                                (matrix[i] == null ? 0 : matrix[i].length)
                 );
             }
         }

@@ -57,6 +57,21 @@
                     </archive>
                 </configuration>
             </plugin>
+
+            <!-- Оценка на лицах ORL одной командой: mvn compile exec:java@faces-eval -->
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>exec-maven-plugin</artifactId>
+                <version>3.5.1</version>
+                <executions>
+                    <execution>
+                        <id>faces-eval</id>
+                        <configuration>
+                            <mainClass>svd.recognizer.faces.FaceEvaluation</mainClass>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
         </plugins>
     </build>
 

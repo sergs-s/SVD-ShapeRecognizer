@@ -112,6 +112,7 @@ public class MainFrame extends javax.swing.JFrame {
     }
 
     @SuppressWarnings("unchecked")
+    // <editor-fold defaultstate="collapsed" desc="Generated Code">//GEN-BEGIN:initComponents
     private void initComponents() {
         lblTitle = new javax.swing.JLabel();
         recognitionPanel = new RecognitionPanel();
@@ -327,7 +328,7 @@ public class MainFrame extends javax.swing.JFrame {
         );
 
         pack();
-    }
+    }// </editor-fold>//GEN-END:initComponents
 
     private JFileChooser createJpegChooser() {
         JFileChooser chooser = new JFileChooser();
@@ -343,7 +344,7 @@ public class MainFrame extends javax.swing.JFrame {
         return chooser;
     }
 
-    private void btnLoadImageActionPerformed(java.awt.event.ActionEvent evt) {
+    private void btnLoadImageActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_btnLoadImageActionPerformed
         JFileChooser chooser = createJpegChooser();
         if (chooser.showOpenDialog(this) == JFileChooser.APPROVE_OPTION) {
             selectedImageFile = chooser.getSelectedFile();
@@ -360,9 +361,9 @@ public class MainFrame extends javax.swing.JFrame {
                 recognitionPanel.appendLog("Ошибка загрузки: " + shortMsg);
             }
         }
-    }
+    }//GEN-LAST:event_btnLoadImageActionPerformed
 
-    private void btnRecognizeActionPerformed(java.awt.event.ActionEvent evt) {
+    private void btnRecognizeActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_btnRecognizeActionPerformed
         if (selectedImageFile == null) {
             JOptionPane.showMessageDialog(this, "Сначала загрузите изображение.", "Информация", JOptionPane.INFORMATION_MESSAGE);
             return;
@@ -469,11 +470,11 @@ public class MainFrame extends javax.swing.JFrame {
                     }
                 };
         worker.execute();
-    }
+    }//GEN-LAST:event_btnRecognizeActionPerformed
 
-    private void btnTemplatesActionPerformed(java.awt.event.ActionEvent evt) {
+    private void btnTemplatesActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_btnTemplatesActionPerformed
         new TemplatesFrame(this, svdComputer, repository).setVisible(true);
-    }
+    }//GEN-LAST:event_btnTemplatesActionPerformed
 
     private void onAutoThreshold(double multiplier) {
         stores = repository.loadAll();
@@ -487,26 +488,26 @@ public class MainFrame extends javax.swing.JFrame {
                 multiplier, doubleValue(spinnerCircle), doubleValue(spinnerTriangle), doubleValue(spinnerRectangle)));
     }
 
-    private void btnExitActionPerformed(java.awt.event.ActionEvent evt) {
+    private void btnExitActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_btnExitActionPerformed
         dispose();
-    }
+    }//GEN-LAST:event_btnExitActionPerformed
 
-    private void btnMul10ActionPerformed(java.awt.event.ActionEvent evt) {
+    private void btnMul10ActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_btnMul10ActionPerformed
         onAutoThreshold(1.0);
-    }
+    }//GEN-LAST:event_btnMul10ActionPerformed
 
-    private void btnMul15ActionPerformed(java.awt.event.ActionEvent evt) {
+    private void btnMul15ActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_btnMul15ActionPerformed
         onAutoThreshold(1.5);
-    }
+    }//GEN-LAST:event_btnMul15ActionPerformed
 
-    private void btnMul20ActionPerformed(java.awt.event.ActionEvent evt) {
+    private void btnMul20ActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_btnMul20ActionPerformed
         onAutoThreshold(2.0);
-    }
+    }//GEN-LAST:event_btnMul20ActionPerformed
 
-    private void spinnerThresholdStateChanged(javax.swing.event.ChangeEvent evt) {
+    private void spinnerThresholdStateChanged(javax.swing.event.ChangeEvent evt) {//GEN-FIRST:event_spinnerThresholdStateChanged
         applySpinnersToRecognizer();
         persistThresholds();
-    }
+    }//GEN-LAST:event_spinnerThresholdStateChanged
 
     private void setControlsEnabled(boolean enabled) {
         btnLoadImage.setEnabled(enabled);
@@ -530,7 +531,7 @@ public class MainFrame extends javax.swing.JFrame {
      * Обработчик кнопки «Обучение».
      * Строит подпространства для всех классов по текущим эталонам.
      */
-    private void btnTrainActionPerformed(java.awt.event.ActionEvent evt) {
+    private void btnTrainActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_btnTrainActionPerformed
         stores = repository.loadAll();
 
         // Проверяем, что все классы имеют эталоны с normalizedMatrix
@@ -636,22 +637,22 @@ public class MainFrame extends javax.swing.JFrame {
                     }
                 };
         worker.execute();
-    }
+    }//GEN-LAST:event_btnTrainActionPerformed
 
     /**
      * Обработчик изменения порога θ.
      */
-    private void spinnerThetaStateChanged(javax.swing.event.ChangeEvent evt) {
+    private void spinnerThetaStateChanged(javax.swing.event.ChangeEvent evt) {//GEN-FIRST:event_spinnerThetaStateChanged
         double theta = doubleValue(spinnerTheta);
         subspaceRecognizer.setThreshold(theta);
         settingsStore.saveSubspaceThreshold(theta);
         recognitionPanel.appendLog("Порог θ установлен: " + theta);
-    }
+    }//GEN-LAST:event_spinnerThetaStateChanged
 
     /**
      * Обработчик переключения режима распознавания.
      */
-    private void comboModeActionPerformed(java.awt.event.ActionEvent evt) {
+    private void comboModeActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_comboModeActionPerformed
         String selected = (String) comboMode.getSelectedItem();
         RecognitionMode newMode = "Subspace".equals(selected)
                 ? RecognitionMode.SUBSPACE
@@ -683,7 +684,7 @@ public class MainFrame extends javax.swing.JFrame {
         currentMode = newMode;
         settingsStore.saveRecognitionMode(newMode);
         recognitionPanel.appendLog("Режим распознавания: " + selected);
-    }
+    }//GEN-LAST:event_comboModeActionPerformed
 
     /**
      * Обновляет индикацию обученности классов.
@@ -702,7 +703,7 @@ public class MainFrame extends javax.swing.JFrame {
         lblTrainStatus.setText(status.toString());
     }
 
-    // Variables declaration
+    // Variables declaration - do not modify//GEN-BEGIN:variables
     private javax.swing.JButton btnExit;
     private javax.swing.JButton btnLoadImage;
     private javax.swing.JButton btnMul10;
@@ -723,5 +724,5 @@ public class MainFrame extends javax.swing.JFrame {
     private javax.swing.JSpinner spinnerRectangle;
     private javax.swing.JSpinner spinnerTheta;
     private javax.swing.JSpinner spinnerTriangle;
-    // End of variables declaration
+    // End of variables declaration//GEN-END:variables
 }
