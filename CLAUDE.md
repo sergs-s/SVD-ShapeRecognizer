@@ -27,7 +27,9 @@
 - Проект под git. `master` с тегом `v1.0-sigma` (метод σ-вектора);
   рабочая ветка `svd-subspaces` (PR #2 «Eigenshapes» смержен, коммит
   `491fe2d`). Тег `v2.0-subspaces` (коммит `736dcdf`) — состояние
-  подпространств до устранения технического долга.
+  подпространств до устранения технического долга. Лица ведутся на той же
+  ветке `svd-subspaces` (новую не заводим, этапы отмечаются тегами);
+  слияние в `master` — после этапа своей базы, по решению Хозяина.
 
 ## Команды
 
@@ -221,6 +223,11 @@ mvn compile exec:java@faces-eval   # оценка на лицах ORL -> reports
 - База ORL (AT&T Laboratories Cambridge, «The Database of Faces»; условие —
   ссылаться на AT&T Laboratories Cambridge): `D:\data\ORL`, ключ
   `faces.dataset.dir`.
+- Своя база: `D:\data\SpiiranDataSet`, ключ `faces.own.dir`. 6 человек,
+  133 JPEG 4000×3000 (RGB), одна сессия; единица учёта — момент съёмки
+  (секунда в имени файла), разбиение только по моментам. FRR на ней
+  оптимистичен — писать это в каждом отчёте. Снимки, мозаики и листы с
+  лицами в git не класть. Подробности — `TASKS.md`, раздел «Своя база».
 - Модели opencv_zoo: `D:\data\models\opencv_zoo`, ключ `faces.models.dir`.
   Скачаны один раз, в git не кладутся; проверка — по SHA-256:
   - `face_detection_yunet_2023mar.onnx` (YuNet, 232 589 байт), лицензия MIT;
