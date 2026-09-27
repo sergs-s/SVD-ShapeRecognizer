@@ -52,6 +52,8 @@ public class SettingsStore {
     private static final int DEFAULT_FACES_FRAME_HEIGHT = 112;
     private static final String KEY_FACES_DETECTOR_SCORE = "faces.detector.score";
     private static final float DEFAULT_FACES_DETECTOR_SCORE = 0.8f;
+    private static final String KEY_FACES_OWN_DETECTOR_SCORE = "faces.own.detector.score";
+    private static final float DEFAULT_FACES_OWN_DETECTOR_SCORE = 0.7f;
     private static final String KEY_FACES_OWN_DIR = "faces.own.dir";
     private static final String DEFAULT_FACES_OWN_DIR = "D:\\data\\SpiiranDataSet";
     private static final String KEY_FACES_MODELS_DIR = "faces.models.dir";
@@ -254,18 +256,33 @@ public class SettingsStore {
      * @throws IllegalArgumentException если значение не число или вне (0, 1)
      */
     public float loadFacesDetectorScore() {
-        String raw = loadProperties().getProperty(KEY_FACES_DETECTOR_SCORE);
+        return unitInterval(KEY_FACES_DETECTOR_SCORE, DEFAULT_FACES_DETECTOR_SCORE);
+    }
+
+    /**
+     * Загружает порог уверенности YuNet для своей базы (отдельно от ORL).
+     * Выбран на своей базе (сетка 0,5…0,9, шаг 5): 0,7.
+     *
+     * @return порог в интервале (0, 1) (по умолчанию 0,7)
+     * @throws IllegalArgumentException если значение не число или вне (0, 1)
+     */
+    public float loadFacesOwnDetectorScore() {
+        return unitInterval(KEY_FACES_OWN_DETECTOR_SCORE, DEFAULT_FACES_OWN_DETECTOR_SCORE);
+    }
+
+    private float unitInterval(String key, float defaultValue) {
+        String raw = loadProperties().getProperty(key);
         if (raw == null || raw.isBlank()) {
-            return DEFAULT_FACES_DETECTOR_SCORE;
+            return defaultValue;
         }
         float value;
         try {
             value = Float.parseFloat(raw.trim());
         } catch (NumberFormatException e) {
-            throw new IllegalArgumentException(KEY_FACES_DETECTOR_SCORE + " должно быть числом, получено «" + raw + "»", e);
+            throw new IllegalArgumentException(key + " должно быть числом, получено «" + raw + "»", e);
         }
         if (!(value > 0f && value < 1f)) {
-            throw new IllegalArgumentException(KEY_FACES_DETECTOR_SCORE + " должно быть в интервале (0, 1), получено " + value);
+            throw new IllegalArgumentException(key + " должно быть в интервале (0, 1), получено " + value);
         }
         return value;
     }
