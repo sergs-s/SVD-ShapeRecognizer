@@ -75,7 +75,7 @@ public final class OwnDetectorThreshold {
             for (OwnDataset.Moment m : p.moments()) {
                 for (OwnDataset.Frame f : m.frames()) {
                     frames.add(f);
-                    first.add(f == m.first());
+                    first.add(f == m.representative());
                 }
             }
         }
@@ -108,14 +108,14 @@ public final class OwnDetectorThreshold {
         text.append("Порог YuNet на своей базе (шаг 5, задание (б))\n");
         text.append("База: ").append(dataset.root()).append(" — ").append(dataset.persons().size()).append(" человек, ")
                 .append(n).append(" кадров, ").append(first.stream().filter(b -> b).count())
-                .append(" моментов (первый кадр момента — без суффикса в имени).\n");
+                .append(" представителей пригодных моментов (лучшая пометка качества в имени, при равенстве — более ранний по EXIF).\n");
         text.append("Одна сессия съёмки: результаты на этой базе оптимистичны.\n");
         text.append(String.format(Locale.ROOT, "Вход YuNet: %d×%d, цветной, INTER_AREA из 3000×4000 после поворота по EXIF "
                 + "(масштаб %.2f); NMS %.1f, topK %d; при нескольких рамках берётся рамка с наибольшей оценкой.%n",
                 INPUT_WIDTH, INPUT_HEIGHT, scale, FaceAlignment.NMS_THRESHOLD, FaceAlignment.TOP_K));
         text.append("Лишняя рамка — любая сверх одной на кадре (в кадре один человек, т. е. лишняя = ложная).\n");
         text.append("Верность лучшей рамки — проверка глазами по листам reports/faces/own/yunet/.\n\n");
-        text.append("порог  найдено (все кадры)  найдено (первые кадры)  кадров с лишними  лишних рамок  "
+        text.append("порог  найдено (все кадры)  найдено (представители)  кадров с лишними  лишних рамок  "
                 + "лучшая рамка содержит обе точки глаз (ручная разметка)\n");
         for (int t = 0; t < THRESHOLDS.length; t++) {
             int found = 0;
@@ -150,7 +150,7 @@ public final class OwnDetectorThreshold {
         for (int i = 0; i < n; i++) {
             if (boxes[0][i].isEmpty()) {
                 any = true;
-                text.append("  ").append(dataset.relative(frames.get(i).file())).append(first.get(i) ? " (первый кадр момента)" : "")
+                text.append("  ").append(dataset.relative(frames.get(i).file())).append(first.get(i) ? " (представитель момента)" : "")
                         .append(": ").append(probe[i].isEmpty() ? "кандидатов нет"
                                 : String.format(Locale.ROOT, "%.3f", DetectorDiagnostics.best(probe[i]).score()))
                         .append('\n');

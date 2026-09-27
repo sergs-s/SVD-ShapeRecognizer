@@ -51,8 +51,8 @@ import org.opencv.objdetect.FaceDetectorYN;
 import svd.recognizer.storage.SettingsStore;
 
 /**
- * Ручная разметка центров зрачков на своей базе: первый кадр каждого момента
- * (58 кадров). Эталон для оценки точности глаз у способов детекции.
+ * Ручная разметка центров зрачков на своей базе: представитель каждого пригодного момента
+ * (OwnDataset.representatives()). Эталон для оценки точности глаз у способов детекции.
  *
  * Показ: область лица крупно по рамке YuNet с полями (рамка — только для
  * навигации, эталоном не является); масштаб такой, чтобы межзрачковое
@@ -114,9 +114,14 @@ public final class EyeLabeler {
 
     private EyeLabeler(OwnDataset dataset, Path modelsDir) throws IOException {
         this.dataset = dataset;
-        this.frames = dataset.firstFrames();
+        this.frames = dataset.representatives();
         this.csv = dataset.root().resolve(CSV_NAME);
-        this.labels = readCsv(csv);
+        this.labels = migrate(dataset, frames, readCsv(csv), csv);
+        if (Files.exists(csv) && !labels.keySet().equals(readCsv(csv).keySet())) {
+            writeCsv();
+        }
+        long missing = frames.stream().filter(f -> !labels.containsKey(dataset.relative(f.file()))).count();
+        System.out.println("Представителей пригодных моментов: " + frames.size() + ", без разметки: " + missing);
         this.detector = modelsDir == null ? null : FaceDetectorYN.create(
                 modelsDir.resolve(FaceAlignment.YUNET_FILE).toString(), "", new Size(320, 320), NAV_SCORE, 0.3f, 5000);
     }
@@ -149,6 +154,44 @@ public final class EyeLabeler {
             map.put(f[0], new Label(num(f[1]), num(f[2]), num(f[3]), num(f[4]), f[5].trim()));
         }
         return map;
+    }
+
+    /**
+     * Перенос разметки на текущие имена файлов (после пометки качества в именах):
+     * строка сопоставляется кадру по человеку, моменту (секунда в имени) и номеру
+     * в имени; сохраняется, только если этот кадр — представитель пригодного
+     * момента. Остальные строки (сменившийся представитель, непригодный момент)
+     * не используются. При изменениях прежний файл копируется в eyes_before_rename.csv.
+     */
+    static Map<String, Label> migrate(OwnDataset dataset, List<OwnDataset.Frame> representatives,
+                                      Map<String, Label> old, Path csv) throws IOException {
+        Map<String, OwnDataset.Frame> byId = new LinkedHashMap<>();
+        for (OwnDataset.Frame f : representatives) {
+            byId.put(id(dataset.relative(f.file())), f);
+        }
+        Map<String, Label> result = new LinkedHashMap<>();
+        for (Map.Entry<String, Label> e : old.entrySet()) {
+            OwnDataset.Frame f = byId.get(id(e.getKey()));
+            if (f != null) {
+                result.put(dataset.relative(f.file()), e.getValue());
+            }
+        }
+        if (!result.keySet().equals(old.keySet()) && Files.exists(csv)) {
+            Path backup = csv.resolveSibling("eyes_before_rename.csv");
+            if (!Files.exists(backup)) {
+                Files.copy(csv, backup);
+            }
+            System.out.println("eyes.csv: перенесено " + result.size() + " из " + old.size() + " строк; прежний файл — " + backup);
+        }
+        return result;
+    }
+
+    /** Ключ кадра без пометки: «человек/секунда/номер». */
+    private static String id(String relative) {
+        int slash = relative.indexOf('/');
+        java.util.regex.Matcher m = OwnDataset.NAME.matcher(relative.substring(slash + 1));
+        if (!m.matches()) return relative;
+        return relative.substring(0, slash) + "/" + m.group(2) + m.group(3) + m.group(4) + "/" + (m.group(5) == null ? "-1" : m.group(5));
     }
 
     private static double num(String s) {
