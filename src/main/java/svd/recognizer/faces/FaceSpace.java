@@ -121,6 +121,14 @@ public final class FaceSpace {
      * (rows − height + 1) × (cols − width + 1), CV_64F. Плоские окна — +∞.
      */
     Mat map(Mat gray8) {
+        return map(gray8, 0);
+    }
+
+    /**
+     * То же с отбором по контрасту: окна со стандартным отклонением яркости (до нормировки)
+     * ниже minStd — +∞.
+     */
+    Mat map(Mat gray8, double minStd) {
         Mat img = new Mat();
         gray8.convertTo(img, CvType.CV_64F);
         int outW = img.cols() - width + 1;
@@ -142,7 +150,7 @@ public final class FaceSpace {
         for (int i = 0; i < s1.length; i++) {
             m[i] = s1[i] / n;
             double var = s2[i] - n * m[i] * m[i];
-            sd[i] = var > 1e-6 ? Math.sqrt(var) : 0;
+            sd[i] = var > 1e-6 && Math.sqrt(var / n) >= minStd ? Math.sqrt(var) : 0;
         }
         // ‖x̂ − μ‖² = 1 − 2⟨x̂, μ⟩ + ‖μ‖²; ⟨x̂, eⱼ⟩ − ⟨μ, eⱼ⟩ — проекция на компоненту.
         double[] res = new double[s1.length];

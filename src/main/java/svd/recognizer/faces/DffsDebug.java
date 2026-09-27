@@ -197,6 +197,12 @@ public final class DffsDebug {
      */
     static Found search(Mat gray, FaceSpace face, FaceSpace left, FaceSpace right, double[][] template, int pad,
                         double[] scales) {
+        return search(gray, face, left, right, template, pad, scales, 0);
+    }
+
+    /** То же с отбором окон по контрасту (стандартное отклонение яркости окна не ниже minStd). */
+    static Found search(Mat gray, FaceSpace face, FaceSpace left, FaceSpace right, double[][] template, int pad,
+                        double[] scales, double minStd) {
         Mat padded = new Mat();
         Core.copyMakeBorder(gray, padded, pad, pad, pad, pad, Core.BORDER_REPLICATE);
         double best = Double.POSITIVE_INFINITY;
@@ -209,7 +215,7 @@ public final class DffsDebug {
             Imgproc.resize(padded, img, new Size(Math.round(padded.cols() * s), Math.round(padded.rows() * s)), 0, 0,
                     s < 1 ? Imgproc.INTER_AREA : Imgproc.INTER_LINEAR);
             if (img.cols() < face.width + 2 * EYE_SEARCH || img.rows() < face.height + 2 * EYE_SEARCH) continue;
-            Mat map = face.map(img);
+            Mat map = face.map(img, minStd);
             // Центр окна — внутри исходного снимка (не в полях): иначе ровные поля дают ложные минимумы.
             int x0 = (int) Math.max(0, Math.ceil(pad * s - face.width / 2.0));
             int y0 = (int) Math.max(0, Math.ceil(pad * s - face.height / 2.0));

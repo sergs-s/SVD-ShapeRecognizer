@@ -69,8 +69,15 @@ public final class OwnEvaluation {
     static final double[] DFFS_SCALES = {0.15, 0.165, 0.18, 0.20, 0.22, 0.24, 0.27, 0.29, 0.32, 0.35};
 
     enum Method {
-        YUNET_OWN("(2) YuNet + своё аффинное, SVD"), HAAR("(3) Хаар + по глазам, SVD"),
-        DFFS("(4) DFFS + по глазам, SVD"), SFACE("(1) YuNet + alignCrop, SFace");
+        YUNET_OWN("(2) YuNet + своё аффинное, SVD"), YUNET2_OWN("(2′) YuNet двухпроходный + своё аффинное, SVD"),
+        HAAR("(3) Хаар + по глазам, SVD"),
+        DFFS("(4) DFFS + по глазам, SVD"), SFACE("(1) YuNet + alignCrop, SFace"),
+        SFACE2("(1′) YuNet двухпроходный + alignCrop, SFace"),
+        YUNET_HAAR("(2″) YuNet — лицо, Хаар — глаза (полное разрешение), при неудаче — точки 2′, SVD");
+
+        boolean sface() {
+            return this == SFACE || this == SFACE2;
+        }
 
         final String label;
 
@@ -106,7 +113,7 @@ public final class OwnEvaluation {
         double[][] template = FaceAlignment.ownTemplate(frameW, frameH);
 
         // DFFS: пространства лиц и глаз по всем 40 людям ORL (кадры своего аффинного выравнивания).
-        FaceSpace[] spaces = trainDffs(settings, modelsDir);
+        Dffs spaces = trainDffs(settings, modelsDir);
 
         List<OwnDataset.Person> persons = dataset.persons();
         int n = persons.size();
@@ -135,10 +142,14 @@ public final class OwnEvaluation {
         Path cacheFile = outDir.resolve(CACHE_NAME);
         String signature = signature(needed, score, frameW, frameH);
         boolean fresh = args.length > 0 && args[0].equals("fresh");
-        boolean cached = !fresh && loadCache(cacheFile, signature, det, time);
-        if (!cached) {
+        if (!fresh) loadCache(cacheFile, signature, det, time);
+        boolean computed = false;
         int done = 0;
         for (OwnDataset.Frame f : needed.values()) {
+            boolean needAll = !det.get(Method.YUNET_OWN).containsKey(f.file());
+            boolean needYh = !det.get(Method.YUNET_HAAR).containsKey(f.file());
+            if (!needAll && !needYh) continue;
+            computed = true;
             Mat color = Imgcodecs.imdecode(new MatOfByte(Files.readAllBytes(f.file())), Imgcodecs.IMREAD_COLOR);
             Mat gray = new Mat();
             Imgproc.cvtColor(color, gray, Imgproc.COLOR_BGR2GRAY);
@@ -148,29 +159,43 @@ public final class OwnEvaluation {
             Mat smallGray = new Mat();
             Imgproc.cvtColor(smallColor, smallGray, Imgproc.COLOR_BGR2GRAY);
 
-            long t0 = System.nanoTime();
-            Det[] y = yunet(yunet, sface, smallColor, smallGray, template, frameW, frameH);
-            time[Method.YUNET_OWN.ordinal()] += System.nanoTime() - t0;
-            det.get(Method.YUNET_OWN).put(f.file(), y[0]);
-            det.get(Method.SFACE).put(f.file(), y[1]);
+            if (needAll) {
+                long t0 = System.nanoTime();
+                Det[] y = yunet(yunet, sface, smallColor, smallGray, template, frameW, frameH);
+                long time1 = System.nanoTime() - t0;
+                time[Method.YUNET_OWN.ordinal()] += time1;
+                det.get(Method.YUNET_OWN).put(f.file(), y[0]);
+                det.get(Method.SFACE).put(f.file(), y[1]);
+                t0 = System.nanoTime();
+                Det[] y2 = yunet2(yunet, sface, color, smallColor, smallGray, y[0], template, frameW, frameH);
+                time[Method.YUNET2_OWN.ordinal()] += System.nanoTime() - t0 + time1;
+                det.get(Method.YUNET2_OWN).put(f.file(), y2[0]);
+                det.get(Method.SFACE2).put(f.file(), y2[1] == null ? y[1] : y2[1]);
 
-            t0 = System.nanoTime();
-            HaarDebug.Found h = HaarDebug.detectOwn(gray, INPUT_SCALE, haarFace, haarEye);
-            det.get(Method.HAAR).put(f.file(), byEyes(h.face() == null ? null
-                    : new double[] {h.face().x, h.face().y, h.face().width, h.face().height}, h.left(), h.right(),
-                    smallGray, template, frameW, frameH));
-            time[Method.HAAR.ordinal()] += System.nanoTime() - t0;
+                t0 = System.nanoTime();
+                HaarDebug.Found h = HaarDebug.detectOwn(gray, INPUT_SCALE, haarFace, haarEye);
+                det.get(Method.HAAR).put(f.file(), byEyes(h.face() == null ? null
+                        : new double[] {h.face().x, h.face().y, h.face().width, h.face().height}, h.left(), h.right(),
+                        smallGray, template, frameW, frameH));
+                time[Method.HAAR.ordinal()] += System.nanoTime() - t0;
 
-            t0 = System.nanoTime();
-            DffsDebug.Found d = DffsDebug.search(gray, spaces[0], spaces[1], spaces[2], template, DffsDebug.PAD, DFFS_SCALES);
-            det.get(Method.DFFS).put(f.file(), byEyes(new double[] {d.x(), d.y(), d.w(), d.h()}, d.left(), d.right(),
-                    smallGray, template, frameW, frameH));
-            time[Method.DFFS.ordinal()] += System.nanoTime() - t0;
+                t0 = System.nanoTime();
+                DffsDebug.Found d = DffsDebug.search(gray, spaces.face(), spaces.left(), spaces.right(), template, DffsDebug.PAD,
+                        DFFS_SCALES, spaces.minStd());
+                det.get(Method.DFFS).put(f.file(), byEyes(new double[] {d.x(), d.y(), d.w(), d.h()}, d.left(), d.right(),
+                        smallGray, template, frameW, frameH));
+                time[Method.DFFS.ordinal()] += System.nanoTime() - t0;
+            }
+            if (needYh) {
+                long t0 = System.nanoTime();
+                det.get(Method.YUNET_HAAR).put(f.file(), yunetHaar(det.get(Method.YUNET2_OWN).get(f.file()), gray, haarEye,
+                        smallGray, template, frameW, frameH));
+                time[Method.YUNET_HAAR.ordinal()] += System.nanoTime() - t0;
+            }
             done++;
             if (done % 10 == 0) System.out.println("Обработано кадров: " + done + "/" + needed.size());
         }
-            saveCache(cacheFile, signature, det, time);
-        }
+        if (computed) saveCache(cacheFile, signature, det, time);
 
         Map<String, EyeLabeler.Label> eyes = EyeLabeler.readCsv(dataset.root().resolve(EyeLabeler.CSV_NAME));
         StringBuilder text = new StringBuilder();
@@ -187,6 +212,7 @@ public final class OwnEvaluation {
             trainingCounts(text, moments, det, strict);
         }
         recognitionTable(text, moments, det, yaw, trainer);
+        writeSheets(outDir.resolve("methods"), dataset, moments, det);
 
         try (PrintWriter out = new PrintWriter(Files.newBufferedWriter(outDir.resolve("own_eval.txt"), StandardCharsets.UTF_8))) {
             out.print(text);
@@ -203,6 +229,7 @@ public final class OwnEvaluation {
      */
     static String signature(Map<Path, OwnDataset.Frame> needed, float score, int frameW, int frameH) throws IOException {
         StringBuilder s = new StringBuilder();
+        s.append("v2|").append(PASS2_MARGIN).append('|').append(PASS2_FACE).append('|').append(CONTRAST_PERCENTILE).append('|');
         s.append(score).append('|').append(frameW).append('x').append(frameH).append('|').append(INPUT_SCALE).append('|')
                 .append(Arrays.toString(DFFS_SCALES)).append('|').append(HaarDebug.OWN_MIN_FACE_FRACTION).append('|')
                 .append(HaarDebug.EYE_FACE_WIDTH).append('|').append(DffsDebug.EYE_SEARCH).append('|')
@@ -221,9 +248,13 @@ public final class OwnEvaluation {
             Map<String, Det[]> map = (Map<String, Det[]>) in.readObject();
             long[] t = (long[]) in.readObject();
             for (Map.Entry<String, Det[]> e : map.entrySet()) {
-                for (Method m : Method.values()) det.get(m).put(Paths.get(e.getKey()), e.getValue()[m.ordinal()]);
+                for (Method m : Method.values()) {
+                    if (m.ordinal() < e.getValue().length && e.getValue()[m.ordinal()] != null) {
+                        det.get(m).put(Paths.get(e.getKey()), e.getValue()[m.ordinal()]);
+                    }
+                }
             }
-            System.arraycopy(t, 0, time, 0, time.length);
+            System.arraycopy(t, 0, time, 0, Math.min(t.length, time.length));
             System.out.println("Детекции — из кэша " + file);
             return true;
         } catch (IOException | ClassNotFoundException | ClassCastException e) {
@@ -247,13 +278,20 @@ public final class OwnEvaluation {
 
     // ---------------------------------------------------------------- детекция
 
-    static FaceSpace[] trainDffs(SettingsStore settings, Path modelsDir) throws IOException {
+    /** Модель DFFS: пространства лица и глаз (ORL, 40 человек) и порог контраста окна (ORL, люди 1–20). */
+    record Dffs(FaceSpace face, FaceSpace left, FaceSpace right, double minStd) {}
+
+    /** Доля лиц ORL (люди 1–20) с контрастом ниже порога окна DFFS: 5-й перцентиль. */
+    static final double CONTRAST_PERCENTILE = 0.05;
+
+    static Dffs trainDffs(SettingsStore settings, Path modelsDir) throws IOException {
         Path orl = Paths.get(settings.loadFacesDatasetDir());
         FaceAlignment alignment = new FaceAlignment(modelsDir, OrlDataset.WIDTH, OrlDataset.HEIGHT, settings.loadFacesDetectorScore());
         double[][] t = FaceAlignment.ownTemplate(OrlDataset.WIDTH, OrlDataset.HEIGHT);
         List<Mat> faces = new ArrayList<>();
         List<Mat> left = new ArrayList<>();
         List<Mat> right = new ArrayList<>();
+        List<Double> contrast = new ArrayList<>();
         for (int p = 0; p < OrlDataset.PERSONS; p++) {
             for (int i = 0; i < OrlDataset.IMAGES_PER_PERSON; i++) {
                 FaceAlignment.Result r = alignment.process(FaceAlignment.readGray(orl.resolve("s" + (p + 1)).resolve((i + 1) + ".pgm")), 0.0);
@@ -261,10 +299,19 @@ public final class OwnEvaluation {
                 faces.add(r.ownAffineGray());
                 left.add(DffsDebug.eyePatch(r.ownAffineGray(), t[0][0], t[0][1]));
                 right.add(DffsDebug.eyePatch(r.ownAffineGray(), t[1][0], t[1][1]));
+                if (p < 20) {
+                    org.opencv.core.MatOfDouble mean = new org.opencv.core.MatOfDouble();
+                    org.opencv.core.MatOfDouble std = new org.opencv.core.MatOfDouble();
+                    Core.meanStdDev(r.ownAffineGray(), mean, std);
+                    contrast.add(std.toArray()[0]);
+                }
             }
         }
-        return new FaceSpace[] {FaceSpace.train(faces, DffsDebug.ETA, DffsDebug.K_MAX_FACE),
-            FaceSpace.train(left, DffsDebug.ETA, DffsDebug.K_MAX_EYE), FaceSpace.train(right, DffsDebug.ETA, DffsDebug.K_MAX_EYE)};
+        double[] c = contrast.stream().mapToDouble(Double::doubleValue).sorted().toArray();
+        double minStd = c[(int) Math.floor(CONTRAST_PERCENTILE * (c.length - 1))];
+        return new Dffs(FaceSpace.train(faces, DffsDebug.ETA, DffsDebug.K_MAX_FACE),
+                FaceSpace.train(left, DffsDebug.ETA, DffsDebug.K_MAX_EYE), FaceSpace.train(right, DffsDebug.ETA, DffsDebug.K_MAX_EYE),
+                minStd);
     }
 
     /** YuNet на уменьшенном кадре: {своё аффинное (SVD), alignCrop + SFace}. */
@@ -302,6 +349,90 @@ public final class OwnEvaluation {
         normalize(v);
         double[] nose = {lm[2][0] / INPUT_SCALE, lm[2][1] / INPUT_SCALE};
         return new Det[] {new Det(true, box, l, r, nose, FaceAlignment.toVector(own)), new Det(true, box, l, r, nose, v)};
+    }
+
+    /** Второй проход YuNet: поле вокруг рамки первого прохода — доля её размера с каждой стороны. */
+    static final double PASS2_MARGIN = 0.5;
+    /** Второй проход YuNet: размер лица (ширина рамки первого прохода) во входе второго прохода, px. */
+    static final double PASS2_FACE = 300;
+
+    /**
+     * Вариант (2′): второй проход YuNet по области лица из полного разрешения (рамка первого
+     * прохода с полями PASS2_MARGIN, масштаб — лицо около PASS2_FACE px), точки — в полный кадр.
+     * Если второй проход лица не нашёл — точки первого прохода. {своё аффинное (SVD), alignCrop + SFace}.
+     */
+    static Det[] yunet2(FaceDetectorYN detector, FaceRecognizerSF sface, Mat fullColor, Mat smallColor, Mat smallGray,
+                        Det first, double[][] template, int frameW, int frameH) {
+        if (!first.found()) return new Det[] {Det.NONE, Det.NONE};
+        double[] b = first.box();
+        int x0 = (int) Math.max(0, Math.floor(b[0] - PASS2_MARGIN * b[2]));
+        int y0 = (int) Math.max(0, Math.floor(b[1] - PASS2_MARGIN * b[3]));
+        int x1 = (int) Math.min(fullColor.cols(), Math.ceil(b[0] + b[2] + PASS2_MARGIN * b[2]));
+        int y1 = (int) Math.min(fullColor.rows(), Math.ceil(b[1] + b[3] + PASS2_MARGIN * b[3]));
+        double f = PASS2_FACE / b[2];
+        Mat crop = new Mat();
+        Imgproc.resize(new Mat(fullColor, new Rect(x0, y0, x1 - x0, y1 - y0)), crop,
+                new Size(Math.round((x1 - x0) * f), Math.round((y1 - y0) * f)), 0, 0, f < 1 ? Imgproc.INTER_AREA : Imgproc.INTER_LINEAR);
+        detector.setInputSize(crop.size());
+        Mat faces = new Mat();
+        detector.detect(crop, faces);
+        double[] row;
+        if (faces.rows() == 0) {
+            return new Det[] {first, null};
+        }
+        int best = 0;
+        for (int i = 1; i < faces.rows(); i++) {
+            if (faces.get(i, 14)[0] > faces.get(best, 14)[0]) best = i;
+        }
+        row = new double[15];
+        for (int j = 0; j < 15; j++) row[j] = faces.get(best, j)[0];
+        // В полный кадр: x = x0 + x_crop / f; ширина и высота — / f.
+        double[] full = new double[15];
+        for (int j = 0; j < 14; j++) {
+            boolean isX = j % 2 == 0;
+            full[j] = j == 2 || j == 3 ? row[j] / f : (isX ? x0 : y0) + row[j] / f;
+        }
+        full[14] = row[14];
+        double[][] lm = new double[5][2];
+        Mat smallRow = new Mat(1, 15, CvType.CV_32F);
+        for (int j = 0; j < 15; j++) smallRow.put(0, j, j == 14 ? full[j] : full[j] * INPUT_SCALE);
+        for (int j = 0; j < 5; j++) {
+            lm[j][0] = full[4 + 2 * j] * INPUT_SCALE;
+            lm[j][1] = full[5 + 2 * j] * INPUT_SCALE;
+        }
+        double[] box = {full[0], full[1], full[2], full[3]};
+        double[] l = {full[4], full[5]};
+        double[] r = {full[6], full[7]};
+        double[] nose = {full[8], full[9]};
+        Mat own = new Mat();
+        Imgproc.warpAffine(smallGray, own, FaceAlignment.similarity(lm, template), new Size(frameW, frameH),
+                Imgproc.INTER_LINEAR, Core.BORDER_REPLICATE);
+        Mat aligned = new Mat();
+        sface.alignCrop(smallColor, smallRow, aligned);
+        Mat feature = new Mat();
+        sface.feature(aligned, feature);
+        Mat f64 = new Mat();
+        feature.convertTo(f64, CvType.CV_64F);
+        double[] v = new double[(int) f64.total()];
+        f64.get(0, 0, v);
+        normalize(v);
+        return new Det[] {new Det(true, box, l, r, nose, FaceAlignment.toVector(own)), new Det(true, box, l, r, nose, v)};
+    }
+
+    /**
+     * Вариант (2″): рамка лица — YuNet двухпроходный (2′), глаза — каскад Хаара в этой рамке в полном
+     * разрешении, выравнивание по двум глазам; если Хаар не нашёл оба глаза — детекция (2′) без изменений.
+     */
+    static Det yunetHaar(Det yunet2, Mat fullGray, CascadeClassifier eye, Mat smallGray, double[][] template, int frameW, int frameH) {
+        if (yunet2 == null || !yunet2.found()) return Det.NONE;
+        double[] b = yunet2.box();
+        int x = (int) Math.max(0, Math.round(b[0]));
+        int y = (int) Math.max(0, Math.round(b[1]));
+        Rect face = new Rect(x, y, (int) Math.min(fullGray.cols() - x, Math.round(b[2])), (int) Math.min(fullGray.rows() - y, Math.round(b[3])));
+        HaarDebug.Found h = HaarDebug.eyes(fullGray, face, eye);
+        if (!h.eyes()) return yunet2;
+        Det d = byEyes(b, h.left(), h.right(), smallGray, template, frameW, frameH);
+        return new Det(true, b, d.left(), d.right(), yunet2.nose(), d.vector());
     }
 
     /** Выравнивание по двум глазам (координаты полного снимка) на уменьшенном кадре. */
@@ -421,7 +552,7 @@ public final class OwnEvaluation {
     // ---------------------------------------------------------------- отчёт
 
     private static void header(StringBuilder text, OwnDataset dataset, List<List<OwnDataset.Moment>> moments, int frames,
-                               float score, int frameW, int frameH, FaceSpace[] spaces) {
+                               float score, int frameW, int frameH, Dffs spaces) {
         text.append("Сравнение способов детекции и выравнивания на своей базе (шаг 5, задание (г))\n");
         text.append("База: ").append(dataset.root()).append("; кадров обработано ").append(frames)
                 .append(" (представители пригодных моментов и кадры «+», «+-»).\n");
@@ -456,8 +587,9 @@ public final class OwnEvaluation {
         text.append("Моменты с лучшим кадром «+--»:").append(poor.length() == 0 ? " нет." : poor).append('\n');
         text.append(String.format(Locale.ROOT, "Вход YuNet и Хаара (лицо) — снимок ×%.2f (750×1000); кадр SVD %d×%d из того же уменьшенного снимка;%n"
                 + "Хаар: лицо — наименьшее %.2f меньшей стороны входа, глаза — в рамке лица в полном разрешении;%n"
-                + "DFFS: ORL 40 человек, лица k = %d, глаза k = %d/%d, поиск по всему кадру, масштабы %s от полного снимка.%n",
-                INPUT_SCALE, frameW, frameH, HaarDebug.OWN_MIN_FACE_FRACTION, spaces[0].k(), spaces[1].k(), spaces[2].k(),
+                + "DFFS: ORL 40 человек, лица k = %d, глаза k = %d/%d; окна с контрастом (ст. откл. яркости до нормировки) ниже %.1f —%n"
+                + "5-й перцентиль у лиц ORL людей 1–20 — отбрасываются; поиск по всему кадру, масштабы %s от полного снимка.%n",
+                INPUT_SCALE, frameW, frameH, HaarDebug.OWN_MIN_FACE_FRACTION, spaces.face().k(), spaces.left().k(), spaces.right().k(), spaces.minStd(),
                 Arrays.toString(DFFS_SCALES)));
     }
 
@@ -503,7 +635,7 @@ public final class OwnEvaluation {
                 + "межзрачковое мало и нормированная ошибка раздувается; skipped — только в доле найденных) ===\n");
         List<OwnDataset.Frame> reps = new ArrayList<>();
         for (List<OwnDataset.Moment> ms : moments) for (OwnDataset.Moment m : ms) reps.add(m.representative());
-        for (Method m : new Method[] {Method.YUNET_OWN, Method.HAAR, Method.DFFS}) {
+        for (Method m : new Method[] {Method.YUNET_OWN, Method.YUNET2_OWN, Method.YUNET_HAAR, Method.HAAR, Method.DFFS}) {
             Map<Path, Det> d = det.get(m);
             int foundRep = 0;
             int foundAll = 0;
@@ -529,9 +661,31 @@ public final class OwnEvaluation {
                         Math.hypot(x.right()[0] - l.rx(), x.right()[1] - l.ry())) / ipd;
                 (l.flag().equals("ok") ? ok : doubtful).add(e);
             }
-            String name = m == Method.YUNET_OWN ? "(1), (2) YuNet" : m.label.substring(0, m.label.indexOf(','));
+            String name = m == Method.YUNET_OWN ? "(1), (2) YuNet" : m == Method.YUNET2_OWN ? "(1′), (2′) YuNet двухпроходный"
+                    : m == Method.YUNET_HAAR ? "(2″) YuNet — лицо, Хаар — глаза"
+                    : m.label.substring(0, m.label.indexOf(','));
             text.append(String.format(Locale.ROOT, "%s: лицо найдено — представители %d/%d, все кадры %d/%d; время %.0f мс на кадр%n",
                     name, foundRep, reps.size(), foundAll, needed.size(), time[m.ordinal()] / 1e6 / needed.size()));
+            if (m == Method.YUNET_HAAR) {
+                int fallback = 0;
+                for (OwnDataset.Frame fr : needed.values()) {
+                    Det a = det.get(Method.YUNET2_OWN).get(fr.file());
+                    Det b = d.get(fr.file());
+                    if (a.found() && Arrays.equals(a.left(), b.left()) && Arrays.equals(a.right(), b.right())) fallback++;
+                }
+                text.append(String.format(Locale.ROOT, "  время — только шаг Хаара (к нему — время 2′); Хаар не нашёл оба глаза, "
+                        + "взяты точки 2′ — %d кадров%n", fallback));
+            }
+            if (m == Method.YUNET2_OWN) {
+                int fallback = 0;
+                for (OwnDataset.Frame fr : needed.values()) {
+                    Det a = det.get(Method.YUNET_OWN).get(fr.file());
+                    Det b = d.get(fr.file());
+                    if (a.found() && Arrays.equals(a.left(), b.left()) && Arrays.equals(a.right(), b.right())) fallback++;
+                }
+                text.append(String.format(Locale.ROOT, "  второй проход: область — рамка первого прохода с полями %.0f %%, лицо около %.0f px;%n"
+                        + "  лицо не найдено вторым проходом (взяты точки первого) — %d кадров%n", 100 * PASS2_MARGIN, PASS2_FACE, fallback));
+            }
             text.append(String.format(Locale.ROOT, "  размечено %d: рамка содержит обе точки глаз %d/%d; глаза не найдены %d;%n"
                     + "  глаза ok: %s;%n  глаза doubtful: %s%n", labeled, boxHit, labeled, noEyes,
                     DffsDebug.quantiles(ok), DffsDebug.quantiles(doubtful)));
@@ -685,12 +839,18 @@ public final class OwnEvaluation {
                                          Map<Method, Map<Path, Det>> det, Map<Path, Integer> yaw, SubspaceTrainer trainer) {
         text.append("\n=== Распознавание: основной вариант | строгий (±1 с) ===\n");
         text.append("argmin — закрытая галерея из 6, контроль (один представитель на момент); FRR — исключение одного человека,\n"
-                + "α = 0, отказ детектора на пригодном кадре — отказ (рядом — FRR без отказов детектора); FAR — контрольные\n"
-                + "попытки чужого (по попыткам и по людям, ↑95 — верхняя 95 % граница Клоппера – Пирсона); запас — наименьшая\n"
-                + "оценка чужого минус наибольшая оценка своих на валидации, по парам (чужой, ротация): минимум / медиана,\n"
-                + "доля пар с зазором. Скоринг: SVD — ε₁/ε₂, SFace — 1 − cos₁.\n");
-        for (Method m : Method.values()) {
-            boolean sface = m == Method.SFACE;
+                + "α = 0, отказ детектора на пригодном кадре — отказ (рядом — FRR без отказов детектора).\n"
+                + "FAR — контрольные попытки чужого (по попыткам и по людям, ↑95 — верхняя 95 % граница Клоппера – Пирсона).\n"
+                + "  FAR в выводы не берётся: при α = 0 и n попытках одного чужого на валидации ожидаемая доля принятия его\n"
+                + "  новой попытки ≈ 1/(n + 1) (при n = 5–11 — 8–17 %) — свойство выборки, не метода. Сравнение способов —\n"
+                + "  по argmin, FRR и запасу.\n"
+                + "Запас — на валидации (не на контроле), для каждой пары (чужой q, ротация r): наименьшая оценка чужого q на\n"
+                + "его валидационных моментах этой ротации минус наибольшая оценка своих (люди галереи, их валидационные\n"
+                + "моменты ротации r); выводятся минимум / медиана по 72 парам и число пар с зазором (запас > 0).\n"
+                + "Скоринг: SVD — ε₁/ε₂, SFace — 1 − cos₁.\n");
+        for (Method m : new Method[] {Method.YUNET_OWN, Method.YUNET2_OWN, Method.YUNET_HAAR, Method.HAAR, Method.DFFS,
+            Method.SFACE, Method.SFACE2}) {
+            boolean sface = m.sface();
             for (KVariant kv : sface ? new KVariant[] {KVariant.K4} : KVariant.values()) {
                 StringBuilder line = new StringBuilder();
                 line.append(m.label).append(sface ? "" : ", " + kv.label).append('\n');
@@ -724,6 +884,57 @@ public final class OwnEvaluation {
                 }
                 text.append(line);
             }
+        }
+    }
+
+    // ---------------------------------------------------------------- листы
+
+    private static final int SHEET_W = 225;
+    private static final int SHEET_H = 300;
+    private static final int SHEET_COLS = 7;
+    private static final int SHEET_PER = 28;
+
+    /**
+     * Листы (вне git): reports/faces/own/methods/sheet_N.png — представители, уменьшенные до
+     * 225×300; рамки: YuNet (зелёная), Хаар (синяя), DFFS (красная); глаза — точки того же цвета.
+     */
+    static void writeSheets(Path dir, OwnDataset dataset, List<List<OwnDataset.Moment>> moments,
+                            Map<Method, Map<Path, Det>> det) throws IOException {
+        Files.createDirectories(dir);
+        List<OwnDataset.Frame> reps = new ArrayList<>();
+        for (List<OwnDataset.Moment> ms : moments) for (OwnDataset.Moment m : ms) reps.add(m.representative());
+        Method[] shown = {Method.YUNET2_OWN, Method.HAAR, Method.DFFS};
+        org.opencv.core.Scalar[] colors = {new org.opencv.core.Scalar(0, 200, 0), new org.opencv.core.Scalar(255, 0, 0),
+            new org.opencv.core.Scalar(0, 0, 255)};
+        for (int s = 0; s * SHEET_PER < reps.size(); s++) {
+            int n = Math.min(SHEET_PER, reps.size() - s * SHEET_PER);
+            int rows = (n + SHEET_COLS - 1) / SHEET_COLS;
+            Mat sheet = new Mat(rows * (SHEET_H + 16), SHEET_COLS * SHEET_W, CvType.CV_8UC3, new org.opencv.core.Scalar(255, 255, 255));
+            for (int k = 0; k < n; k++) {
+                OwnDataset.Frame f = reps.get(s * SHEET_PER + k);
+                Mat full = Imgcodecs.imdecode(new MatOfByte(Files.readAllBytes(f.file())), Imgcodecs.IMREAD_COLOR);
+                double sc = SHEET_W / (double) full.cols();
+                Mat tile = new Mat();
+                Imgproc.resize(full, tile, new Size(SHEET_W, SHEET_H), 0, 0, Imgproc.INTER_AREA);
+                for (int i = 0; i < shown.length; i++) {
+                    Det d = det.get(shown[i]).get(f.file());
+                    if (d == null || !d.found()) continue;
+                    double[] b = d.box();
+                    Imgproc.rectangle(tile, new org.opencv.core.Point(b[0] * sc, b[1] * sc),
+                            new org.opencv.core.Point((b[0] + b[2]) * sc, (b[1] + b[3]) * sc), colors[i], 1);
+                    for (double[] e : new double[][] {d.left(), d.right()}) {
+                        if (e != null) Imgproc.circle(tile, new org.opencv.core.Point(e[0] * sc, e[1] * sc), 2, colors[i], -1);
+                    }
+                }
+                int x0 = (k % SHEET_COLS) * SHEET_W;
+                int y0 = (k / SHEET_COLS) * (SHEET_H + 16);
+                tile.copyTo(sheet.submat(new Rect(x0, y0, SHEET_W, SHEET_H)));
+                String name = f.file().getFileName().toString();
+                Imgproc.putText(sheet, dataset.relative(f.file()).split("/")[0] + " " + name.substring(9, 15),
+                        new org.opencv.core.Point(x0 + 2, y0 + SHEET_H + 12), Imgproc.FONT_HERSHEY_PLAIN, 0.9,
+                        new org.opencv.core.Scalar(0, 0, 0), 1);
+            }
+            Imgcodecs.imwrite(dir.resolve("sheet_" + (s + 1) + ".png").toString(), sheet);
         }
     }
 
