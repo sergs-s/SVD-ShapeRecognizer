@@ -252,7 +252,8 @@ mvn compile exec:java@faces-eval   # оценка на лицах ORL -> reports
 - Отладка способов (3) и (4) на ORL (проверка глазами, без метрик):
   `mvn compile exec:java@faces-haar` (`reports/faces/haar/`),
   `mvn compile exec:java@faces-dffs` (`reports/faces/dffs/`). Своя база:
-  разметка глаз `faces-eyes`, порог YuNet `faces-own-yunet`
+  разметка глаз `faces-eyes`, порог YuNet `faces-own-yunet`, сравнение способов
+  `faces-own-eval` (кэш детекций; после правки кода детекции — `-Dexec.args=fresh`)
   (`reports/faces/own/`).
 - `FaceDetectorYN`, `FaceRecognizerSF`, `Calib3d.estimateAffinePartial2D`
   есть в `org.openpnp:opencv:4.9.0-0`; файлов каскадов Хаара в jar нет.

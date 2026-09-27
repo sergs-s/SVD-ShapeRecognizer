@@ -134,6 +134,13 @@
                             <mainClass>svd.recognizer.faces.HaarDebug</mainClass>
                         </configuration>
                     </execution>
+                    <!-- Сравнение способов детекции на своей базе: mvn compile exec:java@faces-own-eval -->
+                    <execution>
+                        <id>faces-own-eval</id>
+                        <configuration>
+                            <mainClass>svd.recognizer.faces.OwnEvaluation</mainClass>
+                        </configuration>
+                    </execution>
                 </executions>
             </plugin>
         </plugins>
