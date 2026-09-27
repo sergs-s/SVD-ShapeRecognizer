@@ -30,7 +30,7 @@ import svd.recognizer.storage.SettingsStore;
  * Лицо — haarcascade_frontalface_default (scaleFactor {@value #SCALE_FACTOR},
  * minNeighbors {@value #MIN_NEIGHBORS}, наименьший размер лица — доля
  * {@value #MIN_FACE_FRACTION} от меньшей стороны входа; для ORL 92×112 —
- * 46 пикселей), при нескольких — наибольшее. Глаза — в полосе 20–60 % высоты
+ * 46 пикселей; для своей базы — {@value #OWN_MIN_FACE_FRACTION}, см. detectOwn), при нескольких — наибольшее. Глаза — в полосе 20–60 % высоты
  * рамки лица, размер {@value #MIN_EYE}–{@value #MAX_EYE} ширины рамки; двумя
  * каскадами: haarcascade_eye и haarcascade_eye_tree_eyeglasses. Глаз «левый на
  * снимке» — кандидат левее середины рамки, ближайший к ожидаемой точке
@@ -51,6 +51,8 @@ public final class HaarDebug {
     static final double SCALE_FACTOR = 1.1;
     static final int MIN_NEIGHBORS = 3;
     static final double MIN_FACE_FRACTION = 0.5;
+    /** Своя база: 0,05 меньшей стороны входа (около 38 px при 750×1000; лицо около 110 px). */
+    static final double OWN_MIN_FACE_FRACTION = 0.05;
     static final double MIN_EYE = 0.12;
     static final double MAX_EYE = 0.40;
     static final int EYE_FACE_WIDTH = 200;
@@ -83,6 +85,7 @@ public final class HaarDebug {
         int eyesPlain = 0;
         int eyesGlasses = 0;
         List<Double> dist = new ArrayList<>();
+        List<String> shownErr = new ArrayList<>();
         List<Object[]> shown = new ArrayList<>();
         long time = 0;
         for (int p = 20; p < OrlDataset.PERSONS; p++) {
@@ -99,8 +102,13 @@ public final class HaarDebug {
                 if (b.eyes()) eyesGlasses++;
                 if (a.eyes() && y.detected()) {
                     double[][] lm = y.landmarks();
-                    dist.add(Math.max(Math.hypot(a.left()[0] - lm[0][0], a.left()[1] - lm[0][1]),
-                            Math.hypot(a.right()[0] - lm[1][0], a.right()[1] - lm[1][1])));
+                    double e = DffsDebug.eyeError(a.left(), a.right(), lm);
+                    dist.add(e);
+                    double ratio = Math.hypot(a.right()[0] - a.left()[0], a.right()[1] - a.left()[1])
+                            / Math.hypot(lm[1][0] - lm[0][0], lm[1][1] - lm[0][1]);
+                    if (i == 0 || i == 5) {
+                        shownErr.add(String.format(Locale.ROOT, "s%d/%d %.2f (IPD %.2f)", p + 1, i + 1, e, ratio));
+                    }
                 }
                 if (i == 0 || i == 5) {
                     Mat aligned = a.eyes() ? align(gray, a.left(), a.right(), template, OrlDataset.WIDTH, OrlDataset.HEIGHT) : null;
@@ -111,7 +119,6 @@ public final class HaarDebug {
         Path outDir = Paths.get(System.getProperty("user.dir"), "reports", "faces", "haar");
         Files.createDirectories(outDir);
         sheet(outDir.resolve("orl_sheet.png"), shown);
-        double[] d = dist.stream().mapToDouble(Double::doubleValue).sorted().toArray();
         StringBuilder text = new StringBuilder();
         text.append("Отладка каскадов Хаара (способ 3) на ORL — только проверка цепочки, без таблицы метрик.\n");
         text.append(String.format(Locale.ROOT, "Лицо: %s, scaleFactor %.2f, minNeighbors %d, наименьший размер лица %d px "
@@ -120,11 +127,9 @@ public final class HaarDebug {
         text.append(String.format(Locale.ROOT, "Люди 21–40, снимков %d: лицо найдено %d; оба глаза: %s — %d, %s — %d.%n",
                 n, faces, EYE_FILE, eyesPlain, EYE_GLASSES_FILE, eyesGlasses));
         text.append(String.format(Locale.ROOT, "Время (лицо + глаза %s): %.1f мс на снимок.%n", EYE_FILE, time / 1e6 / n));
-        if (d.length > 0) {
-            text.append(String.format(Locale.ROOT, "Для отладки (не метрика): max расстояния глаз Хаара (%s) до точек YuNet, "
-                    + "пиксели ORL: медиана %.1f, 90-й перцентиль %.1f, максимум %.1f (n = %d).%n",
-                    EYE_FILE, d[d.length / 2], d[(int) (0.9 * (d.length - 1))], d[d.length - 1], d.length));
-        }
+        text.append(String.format(Locale.ROOT, "Глаза Хаара (%s), ошибка max(|Δлев|, |Δправ|) / межзрачковое YuNet "
+                + "(для отладки, эталон — YuNet, не ручная разметка): %s.%n", EYE_FILE, DffsDebug.quantiles(dist)));
+        text.append("На листе — ошибка и отношение межзрачковых Хаар/YuNet:\n  ").append(String.join("; ", shownErr)).append('\n');
         text.append("Лист: reports/faces/haar/orl_sheet.png (снимки 1 и 6 людей 21–40).\n");
         try (PrintWriter out = new PrintWriter(Files.newBufferedWriter(outDir.resolve("orl_debug.txt"), StandardCharsets.UTF_8))) {
             out.print(text);
@@ -152,6 +157,39 @@ public final class HaarDebug {
             return new Found(null, null, null);
         }
         return eyes(gray, best, eye);
+    }
+
+    /**
+     * Своя база: лицо — на уменьшенном входе (inputScale от полного снимка),
+     * наименьший размер лица — OWN_MIN_FACE_FRACTION меньшей стороны входа
+     * (лицо на своей базе около 11 % ширины кадра, около 110 px при 750×1000);
+     * глаза — в рамке лица, перенесённой в полное разрешение. Координаты — в
+     * полном снимке.
+     */
+    static Found detectOwn(Mat fullGray, double inputScale, CascadeClassifier face, CascadeClassifier eye) {
+        Mat small = new Mat();
+        Imgproc.resize(fullGray, small, new Size(Math.round(fullGray.cols() * inputScale), Math.round(fullGray.rows() * inputScale)),
+                0, 0, Imgproc.INTER_AREA);
+        int minFace = ownMinFace(small);
+        MatOfRect rects = new MatOfRect();
+        face.detectMultiScale(small, rects, SCALE_FACTOR, MIN_NEIGHBORS, 0, new Size(minFace, minFace), new Size());
+        Rect best = null;
+        for (Rect r : rects.toArray()) {
+            if (best == null || r.area() > best.area()) best = r;
+        }
+        if (best == null) {
+            return new Found(null, null, null);
+        }
+        Rect full = new Rect((int) Math.round(best.x / inputScale), (int) Math.round(best.y / inputScale),
+                (int) Math.round(best.width / inputScale), (int) Math.round(best.height / inputScale));
+        full.width = Math.min(full.width, fullGray.cols() - full.x);
+        full.height = Math.min(full.height, fullGray.rows() - full.y);
+        return eyes(fullGray, full, eye);
+    }
+
+    /** Наименьший размер лица для своей базы, px входа. */
+    static int ownMinFace(Mat input) {
+        return (int) Math.round(OWN_MIN_FACE_FRACTION * Math.min(input.cols(), input.rows()));
     }
 
     /** Глаза в полосе 20–60 % высоты рамки лица. */

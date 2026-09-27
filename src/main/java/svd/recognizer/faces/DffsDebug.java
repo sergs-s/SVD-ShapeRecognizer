@@ -19,6 +19,7 @@ import org.opencv.core.Scalar;
 import org.opencv.core.Size;
 import org.opencv.imgcodecs.Imgcodecs;
 import org.opencv.imgproc.Imgproc;
+import org.opencv.objdetect.FaceDetectorYN;
 import svd.recognizer.storage.SettingsStore;
 
 /**
@@ -48,12 +49,17 @@ public final class DffsDebug {
     static final int EYE_W = 20;
     static final int EYE_H = 14;
     static final int EYE_SEARCH = 6;
+    static final double PAIR_DX = 0.15;
+    static final double PAIR_DY = 0.10;
+    /** Окно на лице: центр окна в пределах этой доли ширины рамки YuNet от её центра. */
+    static final double FACE_HIT = 0.25;
     static final int PAD = 40;
     static final double[] SCALES = {0.70, 0.77, 0.85, 0.93, 1.02, 1.12, 1.24, 1.36, 1.50};
     static final int ZOOM = 2;
 
     /** Результат поиска: окно лица и глаза в координатах исходного снимка; value — DFFS окна. */
-    record Found(double x, double y, double w, double h, double[] left, double[] right, double value, double scale) {}
+    record Found(double x, double y, double w, double h, double[] left, double[] right, double[] leftSep, double[] rightSep,
+                 double value, double scale) {}
 
     private DffsDebug() {
     }
@@ -92,30 +98,51 @@ public final class DffsDebug {
 
         List<int[]> shown = new ArrayList<>();
         List<Found> found = new ArrayList<>();
-        List<Double> dist = new ArrayList<>();
-        long t0 = System.nanoTime();
+        List<Double> errJoint = new ArrayList<>();
+        List<Double> errSep = new ArrayList<>();
+        List<String> missesShown = new ArrayList<>();
+        FaceDetectorYN yunet = OwnDetectorThreshold.create(modelsDir, settings.loadFacesDetectorScore());
+        long time = 0;
         int tested = 0;
+        int withBox = 0;
+        int hits = 0;
+        int shownHits = 0;
         for (int p = 20; p < OrlDataset.PERSONS; p++) {
             for (int i = 0; i < OrlDataset.IMAGES_PER_PERSON; i++) {
+                long t0 = System.nanoTime();
                 Found f = search(raw[p][i], faceSpace, leftSpace, rightSpace, template, PAD, SCALES);
+                time += System.nanoTime() - t0;
                 tested++;
-                if (res[p][i].detected()) {
-                    double[][] lm = res[p][i].landmarks();
-                    dist.add(Math.max(Math.hypot(f.left()[0] - lm[0][0], f.left()[1] - lm[0][1]),
-                            Math.hypot(f.right()[0] - lm[1][0], f.right()[1] - lm[1][1])));
+                Mat bgr = new Mat();
+                Imgproc.cvtColor(raw[p][i], bgr, Imgproc.COLOR_GRAY2BGR);
+                List<DetectorDiagnostics.Box> boxes = OwnDetectorThreshold.detect(yunet, bgr, 1.0);
+                boolean shownImage = i == 0 || i == 5;
+                if (!boxes.isEmpty() && res[p][i].detected()) {
+                    withBox++;
+                    DetectorDiagnostics.Box b = DetectorDiagnostics.best(boxes);
+                    boolean hit = Math.hypot(f.x() + f.w() / 2 - (b.x() + b.w() / 2), f.y() + f.h() / 2 - (b.y() + b.h() / 2))
+                            <= FACE_HIT * b.w();
+                    if (hit) {
+                        hits++;
+                        double[][] lm = res[p][i].landmarks();
+                        errJoint.add(eyeError(f.left(), f.right(), lm));
+                        errSep.add(eyeError(f.leftSep(), f.rightSep(), lm));
+                        if (shownImage) shownHits++;
+                    } else if (shownImage) {
+                        missesShown.add("s" + (p + 1) + "/" + (i + 1));
+                    }
                 }
-                if (i == 0 || i == 5) {
+                if (shownImage) {
                     shown.add(new int[] {p, i});
                     found.add(f);
                 }
             }
         }
-        double msPerImage = (System.nanoTime() - t0) / 1e6 / tested;
+        double msPerImage = time / 1e6 / tested;
 
         Path outDir = Paths.get(System.getProperty("user.dir"), "reports", "faces", "dffs");
         Files.createDirectories(outDir);
         sheet(outDir.resolve("orl_sheet.png"), shown, found, raw, res);
-        double[] d = dist.stream().mapToDouble(Double::doubleValue).sorted().toArray();
         StringBuilder text = new StringBuilder();
         text.append("Отладка DFFS (способ 4) на ORL — только проверка цепочки, без таблицы метрик.\n");
         text.append(String.format(Locale.ROOT, "Обучение: люди 1–20, кадров %d; пространство лиц k = %d (энергия %.3f, η = %.2f, kMax %d);%n",
@@ -125,15 +152,37 @@ public final class DffsDebug {
         text.append("Проверка: люди 21–40, 200 снимков; поля " + PAD + " px, масштабы " + Arrays.toString(SCALES)
                 + "; глаза — окрестность ±" + EYE_SEARCH + " px.\n");
         text.append(String.format(Locale.ROOT, "Время поиска: %.0f мс на снимок 92×112.%n", msPerImage));
-        text.append(String.format(Locale.ROOT, "Для отладки (не метрика): max расстояния глаз DFFS до точек YuNet, пиксели ORL: "
-                + "медиана %.1f, 90-й перцентиль %.1f, максимум %.1f (n = %d).%n",
-                d[d.length / 2], d[(int) (0.9 * (d.length - 1))], d[d.length - 1], d.length));
+        text.append(String.format(Locale.ROOT, "Окно на лице (центр окна в пределах %.2f ширины рамки YuNet от её центра, "
+                + "порог YuNet faces.detector.score): %d/%d снимков с рамкой YuNet; на листе %d/%d, мимо: %s.%n",
+                FACE_HIT, hits, withBox, shownHits, shown.size(), missesShown.isEmpty() ? "нет" : String.join(", ", missesShown)));
+        text.append(String.format(Locale.ROOT, "Глаза при окне на лице, ошибка max(|Δлев|, |Δправ|) / межзрачковое YuNet "
+                + "(для отладки, эталон — YuNet, не ручная разметка):%n  каждый глаз отдельно: %s;%n"
+                + "  пара совместно (Δx в [%.2f; %.2f]·T, |Δy| ≤ %.2f·T, T — межзрачковое шаблона, %.2f ширины окна): %s.%n",
+                quantiles(errSep), 1 - PAIR_DX, 1 + PAIR_DX, PAIR_DY,
+                (template[1][0] - template[0][0]) / OrlDataset.WIDTH, quantiles(errJoint)));
         text.append("Лист: reports/faces/dffs/orl_sheet.png (снимки 1 и 6 людей 21–40; синее — окно, красные — глаза DFFS, "
                 + "зелёные — YuNet).\n");
         try (PrintWriter out = new PrintWriter(Files.newBufferedWriter(outDir.resolve("orl_debug.txt"), StandardCharsets.UTF_8))) {
             out.print(text);
         }
         System.out.print(text);
+    }
+
+    /** max(|Δлев|, |Δправ|) / межзрачковое по точкам YuNet (lm[0] — левый на снимке, lm[1] — правый). */
+    static double eyeError(double[] left, double[] right, double[][] lm) {
+        double ipd = Math.hypot(lm[1][0] - lm[0][0], lm[1][1] - lm[0][1]);
+        return Math.max(Math.hypot(left[0] - lm[0][0], left[1] - lm[0][1]),
+                Math.hypot(right[0] - lm[1][0], right[1] - lm[1][1])) / ipd;
+    }
+
+    /** Медиана, 90-й перцентиль, доли ≤ 0,10 и ≤ 0,25. */
+    static String quantiles(List<Double> values) {
+        if (values.isEmpty()) return "нет данных";
+        double[] d = values.stream().mapToDouble(Double::doubleValue).sorted().toArray();
+        long le10 = values.stream().filter(v -> v <= 0.10).count();
+        long le25 = values.stream().filter(v -> v <= 0.25).count();
+        return String.format(Locale.ROOT, "медиана %.2f, 90-й перцентиль %.2f; ≤ 0,10 — %d/%d, ≤ 0,25 — %d/%d",
+                d[d.length / 2], d[(int) (0.9 * (d.length - 1))], le10, d.length, le25, d.length);
     }
 
     static Mat eyePatch(Mat frame, double cx, double cy) {
@@ -177,29 +226,58 @@ public final class DffsDebug {
                 bestImg = img;
             }
         }
-        double[] l = eye(bestImg, left, bx + template[0][0], by + template[0][1]);
-        double[] r = eye(bestImg, right, bx + template[1][0], by + template[1][1]);
+        List<double[]> lg = eyeGrid(bestImg, left, bx + template[0][0], by + template[0][1]);
+        List<double[]> rg = eyeGrid(bestImg, right, bx + template[1][0], by + template[1][1]);
+        double[] ls = min(lg);
+        double[] rs = min(rg);
+        double[][] pair = eyePair(lg, rg, template);
+        double[] l = pair == null ? ls : pair[0];
+        double[] r = pair == null ? rs : pair[1];
         return new Found(bx / bs - pad, by / bs - pad, face.width / bs, face.height / bs,
-                new double[] {l[0] / bs - pad, l[1] / bs - pad}, new double[] {r[0] / bs - pad, r[1] / bs - pad}, best, bs);
+                new double[] {l[0] / bs - pad, l[1] / bs - pad}, new double[] {r[0] / bs - pad, r[1] / bs - pad},
+                new double[] {ls[0] / bs - pad, ls[1] / bs - pad}, new double[] {rs[0] / bs - pad, rs[1] / bs - pad}, best, bs);
     }
 
-    /** Центр глаза с наименьшим DFFS в окрестности (cx, cy) ± EYE_SEARCH. */
-    static double[] eye(Mat img, FaceSpace space, double cx, double cy) {
-        double best = Double.POSITIVE_INFINITY;
-        double[] at = {cx, cy};
+    /** Сетка DFFS глаза в окрестности (cx, cy) ± EYE_SEARCH: {x центра, y центра, DFFS} по всем положениям. */
+    static List<double[]> eyeGrid(Mat img, FaceSpace space, double cx, double cy) {
+        List<double[]> grid = new ArrayList<>();
         for (int dy = -EYE_SEARCH; dy <= EYE_SEARCH; dy++) {
             for (int dx = -EYE_SEARCH; dx <= EYE_SEARCH; dx++) {
                 int x = (int) Math.round(cx + dx - EYE_W / 2.0);
                 int y = (int) Math.round(cy + dy - EYE_H / 2.0);
                 if (x < 0 || y < 0 || x + EYE_W > img.cols() || y + EYE_H > img.rows()) continue;
-                double v = space.dffs(img.submat(new Rect(x, y, EYE_W, EYE_H)));
-                if (v < best) {
-                    best = v;
-                    at = new double[] {x + EYE_W / 2.0, y + EYE_H / 2.0};
+                grid.add(new double[] {x + EYE_W / 2.0, y + EYE_H / 2.0, space.dffs(img.submat(new Rect(x, y, EYE_W, EYE_H)))});
+            }
+        }
+        return grid;
+    }
+
+    /**
+     * Пара глаз совместно: наименьшая сумма DFFS левого и правого при ограничениях
+     * по шаблону ORL — расстояние по x в [1 − PAIR_DX; 1 + PAIR_DX] межзрачкового
+     * расстояния шаблона T (T = 0,38 ширины окна), |Δy| ≤ PAIR_DY·T. Нет пары — null.
+     */
+    static double[][] eyePair(List<double[]> left, List<double[]> right, double[][] template) {
+        double t = template[1][0] - template[0][0];
+        double best = Double.POSITIVE_INFINITY;
+        double[][] pair = null;
+        for (double[] l : left) {
+            for (double[] r : right) {
+                double dx = r[0] - l[0];
+                if (dx < (1 - PAIR_DX) * t || dx > (1 + PAIR_DX) * t || Math.abs(r[1] - l[1]) > PAIR_DY * t) continue;
+                if (l[2] + r[2] < best) {
+                    best = l[2] + r[2];
+                    pair = new double[][] {l, r};
                 }
             }
         }
-        return at;
+        return pair;
+    }
+
+    private static double[] min(List<double[]> grid) {
+        double[] m = grid.get(0);
+        for (double[] g : grid) if (g[2] < m[2]) m = g;
+        return m;
     }
 
     private static void sheet(Path file, List<int[]> list, List<Found> found, Mat[][] raw, FaceAlignment.Result[][] res) {
