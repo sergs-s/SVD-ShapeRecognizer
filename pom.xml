@@ -113,6 +113,13 @@
                             <mainClass>svd.recognizer.faces.EyeLabeler</mainClass>
                         </configuration>
                     </execution>
+                    <!-- Порог YuNet на своей базе: mvn compile exec:java@faces-own-yunet -->
+                    <execution>
+                        <id>faces-own-yunet</id>
+                        <configuration>
+                            <mainClass>svd.recognizer.faces.OwnDetectorThreshold</mainClass>
+                        </configuration>
+                    </execution>
                 </executions>
             </plugin>
         </plugins>
