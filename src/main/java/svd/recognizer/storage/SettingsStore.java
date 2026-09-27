@@ -52,6 +52,8 @@ public class SettingsStore {
     private static final int DEFAULT_FACES_FRAME_HEIGHT = 112;
     private static final String KEY_FACES_DETECTOR_SCORE = "faces.detector.score";
     private static final float DEFAULT_FACES_DETECTOR_SCORE = 0.8f;
+    private static final String KEY_FACES_OWN_DIR = "faces.own.dir";
+    private static final String DEFAULT_FACES_OWN_DIR = "D:\\data\\SpiiranDataSet";
     private static final String KEY_FACES_MODELS_DIR = "faces.models.dir";
     private static final String DEFAULT_FACES_MODELS_DIR = "D:\\data\\models\\opencv_zoo";
     private static final long DEFAULT_FACES_SEED = 42L;
@@ -283,6 +285,16 @@ public class SettingsStore {
             throw new IllegalArgumentException(key + " должно быть положительным, получено " + value);
         }
         return value;
+    }
+
+    /**
+     * Загружает путь к своей базе лиц (папки людей с JPEG, вне git).
+     *
+     * @return путь к базе (по умолчанию D:\data\SpiiranDataSet)
+     */
+    public String loadFacesOwnDir() {
+        String raw = loadProperties().getProperty(KEY_FACES_OWN_DIR);
+        return (raw != null && !raw.isBlank()) ? raw : DEFAULT_FACES_OWN_DIR;
     }
 
     /**

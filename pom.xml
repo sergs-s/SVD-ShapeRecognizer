@@ -105,6 +105,14 @@
                             <mainClass>svd.recognizer.faces.DetectorDiagnostics</mainClass>
                         </configuration>
                     </execution>
+                    <!-- Ручная разметка глаз на своей базе: mvn compile exec:java@faces-eyes
+                         (листы проверки: -Dexec.args=sheet) -->
+                    <execution>
+                        <id>faces-eyes</id>
+                        <configuration>
+                            <mainClass>svd.recognizer.faces.EyeLabeler</mainClass>
+                        </configuration>
+                    </execution>
                 </executions>
             </plugin>
         </plugins>
