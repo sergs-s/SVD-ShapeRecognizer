@@ -239,6 +239,21 @@ mvn compile exec:java@faces-eval   # оценка на лицах ORL -> reports
     SHA-256 `0ba9fbfa01b5270c96627c4ef784da859931e02f04419c829e83484087c34e79`.
     Набор обучения выпущенной модели не указан (в статье и коде SFace —
     CASIA-WebFace, VGGFace2, MS1MV2 — производная отозванной MS-Celeb-1M).
+  Каскады Хаара (там же, `faces.models.dir`), источник
+  https://github.com/opencv/opencv/tree/4.9.0/data/haarcascades , лицензия
+  из заголовка файлов — «Intel License Agreement For Open Source Computer
+  Vision Library» (Copyright (C) 2000, Intel Corporation):
+  - `haarcascade_frontalface_default.xml` (930 127 байт), SHA-256
+    `0f7d4527844eb514d4a4948e822da90fbb16a34a0bbbbc6adc6498747a5aafb0`;
+  - `haarcascade_eye.xml` (341 406 байт), SHA-256
+    `71cc64fc305a355dc60067880f6fbbd43dd155bd63ee3844661a1bda34b2fd8c`;
+  - `haarcascade_eye_tree_eyeglasses.xml` (601 661 байт), SHA-256
+    `e32f9c67935c33e9d1331eb14fa58554ff17835c03742663bcb97a892e936a57`.
+- Отладка способов (3) и (4) на ORL (проверка глазами, без метрик):
+  `mvn compile exec:java@faces-haar` (`reports/faces/haar/`),
+  `mvn compile exec:java@faces-dffs` (`reports/faces/dffs/`). Своя база:
+  разметка глаз `faces-eyes`, порог YuNet `faces-own-yunet`
+  (`reports/faces/own/`).
 - `FaceDetectorYN`, `FaceRecognizerSF`, `Calib3d.estimateAffinePartial2D`
   есть в `org.openpnp:opencv:4.9.0-0`; файлов каскадов Хаара в jar нет.
 - Выравнивание и эталон SFace на ORL: `mvn compile exec:java@faces-align`

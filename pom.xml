@@ -120,6 +120,20 @@
                             <mainClass>svd.recognizer.faces.OwnDetectorThreshold</mainClass>
                         </configuration>
                     </execution>
+                    <!-- Отладка DFFS (eigenfaces, eigeneyes) на ORL: mvn compile exec:java@faces-dffs -->
+                    <execution>
+                        <id>faces-dffs</id>
+                        <configuration>
+                            <mainClass>svd.recognizer.faces.DffsDebug</mainClass>
+                        </configuration>
+                    </execution>
+                    <!-- Отладка каскадов Хаара на ORL: mvn compile exec:java@faces-haar -->
+                    <execution>
+                        <id>faces-haar</id>
+                        <configuration>
+                            <mainClass>svd.recognizer.faces.HaarDebug</mainClass>
+                        </configuration>
+                    </execution>
                 </executions>
             </plugin>
         </plugins>
