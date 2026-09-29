@@ -87,6 +87,8 @@ public final class FarMethods {
     final Map<String, Mat> frames;
     private final Map<IlluminationNorm, Map<String, double[]>> vectors = new HashMap<>();
     private final Map<String, Result> results = new LinkedHashMap<>();
+    /** Оценки конфигураций (для пересчёта порога по другому набору чужих). */
+    private final Map<String, Scores> scores = new HashMap<>();
     private final Map<String, Supplier<Method>> registry = new LinkedHashMap<>();
     final StringBuilder timeText = new StringBuilder();
     /** Заметки о выборе лучшего (в отчёт). */
@@ -116,6 +118,58 @@ public final class FarMethods {
                 registry.put(id, () -> new Method(id, "1", n, new SubspaceScorer(ratio), Threshold.VAL138, false));
             }
         }
+        // Этап 2: предобработка — лучшая из этапа 1; порог — 69 пороговых; рядом — лучший SVD этапа 1 с тем же порогом.
+        registry.put("2a-fisher", () -> {
+            rethreshold(bestSvd(), Threshold.VAL69);
+            return new Method("2a-fisher", "2", bestNorm(), new FisherScorer(), Threshold.VAL69, false);
+        });
+        registry.put("2b-fisher-bg", () -> new Method("2b-fisher-bg", "2", bestNorm(), new FisherScorer(), Threshold.VAL69, true));
+        registry.put("2c-mlda", () -> new Method("2c-mlda", "2", bestNorm(), new MldaScorer(), Threshold.VAL69, true));
+    }
+
+    /** Проверка эквивалентности MLDA (не конфигурация оценки). */
+    static final String CHECK = "2c-check";
+    /** Итог проверки эквивалентности MLDA (не выполнялась — null). */
+    MldaCheck.Outcome check;
+
+    /** MLDA идёт в сравнение (выбор лучшего, Z-norm) только после прошедшей проверки эквивалентности. */
+    boolean mldaVerified() {
+        return check != null && check.passed();
+    }
+
+    /** Строка итога проверки эквивалентности MLDA для отчёта. */
+    String checkLine() {
+        if (check == null) {
+            return "Проверка эквивалентности MLDA: НЕ выполнялась — результаты MLDA (2c-mlda) в сравнение не идут.";
+        }
+        String line = String.format(Locale.ROOT, "Проверка эквивалентности MLDA: %s — наибольший синус главного угла %.3e, наибольшее "
+                + "относительное расхождение расстояний %.3e, допуск %.0e.", check.passed() ? "прошла" : "НЕ прошла",
+                check.maxSin(), check.maxRel(), MldaCheck.TOLERANCE);
+        return check.passed() ? line : line + " Результаты MLDA (2c-mlda) в сравнение не идут, пока не разберёмся.";
+    }
+    private String bestSvd;
+
+    /** Лучший SVD этапа 1 (один выбор на прогон). */
+    String bestSvd() {
+        if (bestSvd == null) bestSvd = best("SVD этапа 1: предобработка этапа 2 и основа Z-norm", stage1Ids());
+        return bestSvd;
+    }
+
+    IlluminationNorm bestNorm() {
+        return result(bestSvd()).method.norm();
+    }
+
+    /** Те же оценки конфигурации id, порог — по другому набору чужих (результат «id@набор»). */
+    Result rethreshold(String id, Threshold th) {
+        Result base = result(id);
+        if (base.threshold == th) return base;
+        String key = id + "@" + th;
+        Result r = results.get(key);
+        if (r == null) {
+            r = metrics(base.method, scores.get(id), th);
+            results.put(key, r);
+        }
+        return r;
     }
 
     /** Идентификаторы конфигураций SVD этапа 1. */
@@ -132,21 +186,19 @@ public final class FarMethods {
         long seed = settings.loadFacesSeed();
         String exportDir = settings.loadFacesExportDir();
         FarExport.Loaded export = exportDir == null ? null : FarExport.read(Paths.get(exportDir));
-        Data data = export == null ? GalleryEvaluation.rawData(settings) : export.data();
-        Splits splits = GalleryEvaluation.splits(data.gt(), data.muct(), seed);
-        if (export != null) export.checkSplits(splits);
         Path outDir = Paths.get(System.getProperty("user.dir"), "reports", "faces", "far");
         Files.createDirectories(outDir);
+        // Сырые снимки — с детекциями faces-far (и отбором FEI при заданном faces.fei.dir); экспорт — FEI, если она в нём есть.
+        GalleryEvaluation.Raw raw = export == null ? GalleryEvaluation.raw(settings, settings.loadFacesOwnDetectorScore(),
+                Paths.get(settings.loadFacesModelsDir()), outDir, args.length > 0 && args[0].equals("fresh")) : null;
+        Data data = export == null ? raw.data() : export.data();
+        Splits splits = GalleryEvaluation.splits(data.gt(), data.muct(), seed);
+        if (export != null) export.checkSplits(splits);
 
-        // Кадры а: из PNG экспорта или из сырых снимков по кэшу детекций faces-far.
+        // Кадры а: из PNG экспорта или из сырых снимков по детекциям.
         long t0 = System.nanoTime();
         Map<String, Mat> frames = new HashMap<>();
-        Map<String, Det> dets = null;
-        if (export == null) {
-            dets = GalleryEvaluation.detections(data.samples(), settings.loadFacesOwnDetectorScore(), settings,
-                    Paths.get(settings.loadFacesModelsDir()), outDir, args.length > 0 && args[0].equals("fresh"),
-                    GalleryEvaluation.CACHE_NAME);
-        }
+        Map<String, Det> dets = export == null ? raw.dets() : null;
         for (Sample s : data.samples()) {
             String key = s.file().toString();
             Mat f;
@@ -164,14 +216,29 @@ public final class FarMethods {
             }
             if (f != null) frames.put(key, f);
         }
-        FarMethods fm = new FarMethods(settings, data, splits, frames, null);
+        FarMethods fm = new FarMethods(settings, data, splits, frames, data.fei().isEmpty() ? null : data.fei());
         fm.timeText.append(String.format(Locale.ROOT, "Кадры а (%s): %.0f с, снимков %d, с лицом %d.%n",
                 export == null ? "сырые снимки" : "экспорт " + exportDir, (System.nanoTime() - t0) / 1e9, data.samples().size(),
                 frames.size()));
 
         List<String> ids = settings.loadFacesFarMethods();
-        if (ids.isEmpty()) ids = new ArrayList<>(fm.registry.keySet());
-        for (String id : ids) fm.result(id);
+        if (ids.isEmpty()) {
+            ids = new ArrayList<>(fm.registry.keySet());
+            ids.add(ids.indexOf("2c-mlda") + 1, CHECK);
+        }
+        for (String id : ids) {
+            if (id.equals(CHECK)) {
+                long t1 = System.nanoTime();
+                try {
+                    fm.check = MldaCheck.run(fm, fm.bestNorm());
+                } catch (RuntimeException e) {
+                    fm.check = new MldaCheck.Outcome("Проверка прервана ошибкой: " + e + "\n", false, Double.NaN, Double.NaN);
+                }
+                fm.timeText.append(String.format(Locale.ROOT, "%s: %.0f с.%n", CHECK, (System.nanoTime() - t1) / 1e9));
+            } else {
+                fm.result(id);
+            }
+        }
 
         write(outDir.resolve("far_methods.txt"), fm.report(export == null ? "сырые снимки" : "экспорт"));
         write(outDir.resolve("far_methods_auc.txt"), fm.aucReport());
@@ -195,6 +262,7 @@ public final class FarMethods {
         Method method = m.get();
         long t0 = System.nanoTime();
         Scores sc = score(method);
+        scores.put(id, sc);
         r = metrics(method, sc, method.threshold());
         results.put(id, r);
         timeText.append(String.format(Locale.ROOT, "%s: %.0f с.%n", id, (System.nanoTime() - t0) / 1e9));
@@ -466,6 +534,7 @@ public final class FarMethods {
     StringBuilder report(String source) {
         StringBuilder t = new StringBuilder();
         t.append("Шаг 5, SVD: улучшение отсечения чужих (FarMethods)\n");
+        t.append("Код: коммит ").append(commit()).append('\n');
         t.append("Протокол — как в отчёте 32dc1fa (far_eval.txt): галерея 56 (6 своих + 50 Georgia Tech), 12 конфигураций, вход 2′,\n"
                 + "кадр а) 92×112 (пиксели как в own_eval; варианты а/б/в в 32dc1fa не различались). Базы: " + source + ".\n");
         t.append(String.format(Locale.ROOT, "Чужие: MUCT валидация %d человек (порог), контроль %d человек (FAR); валидация делится по людям "
@@ -486,17 +555,40 @@ public final class FarMethods {
         for (String c : choices) t.append(c).append('\n');
 
         t.append("\n=== Сводка ===\n");
+        if (results.containsKey("2c-mlda") || check != null) t.append(checkLine()).append('\n');
         t.append("конфигурация | argmin свои | argmin GT | FRR α=0,05 | FRR α=0 | FAR MUCT люди α=0,05: худш. (↑95) / мед. | "
                 + "то же α=0 | ORL α=0,05 | FEI α=0,05 | запас свои / GT (мед.)\n");
         for (Result r : results.values()) t.append(summaryRow(r)).append('\n');
+        if (check != null) t.append("\n=== ").append(CHECK).append(" ===\n").append(checkLine()).append('\n').append(check.text());
 
         for (Result r : results.values()) details(t, r);
         return t;
     }
 
+    /** Коммит, на котором сделан прогон (git rev-parse HEAD; отметка, если отслеживаемые файлы изменены). */
+    static String commit() {
+        try {
+            String head = git("rev-parse", "HEAD");
+            String dirty = git("status", "--porcelain", "--untracked-files=no");
+            return head + (dirty.isEmpty() ? "" : " (есть незакоммиченные изменения отслеживаемых файлов)");
+        } catch (IOException | InterruptedException e) {
+            return "не определён (" + e.getMessage() + ")";
+        }
+    }
+
+    private static String git(String... args) throws IOException, InterruptedException {
+        List<String> cmd = new ArrayList<>(List.of("git"));
+        cmd.addAll(List.of(args));
+        Process p = new ProcessBuilder(cmd).redirectErrorStream(true).start();
+        String out = new String(p.getInputStream().readAllBytes(), StandardCharsets.UTF_8).trim();
+        if (p.waitFor() != 0) throw new IOException(out);
+        return out;
+    }
+
     String summaryRow(Result r) {
         return String.format(Locale.ROOT, "%s%s | %d/%d | %d/%d | %d/%d = %s %% | %d/%d = %s %% | %s | %s | %s | %s | %s / %s",
-                r.method.id(), r.threshold != r.method.threshold() ? " (порог: " + r.threshold.label + ")" : "",
+                r.method.id() + (r.method.scorer() instanceof MldaScorer && !mldaVerified() ? " [не в сравнении: проверка MLDA]" : ""),
+                r.threshold != r.method.threshold() ? " (порог: " + r.threshold.label + ")" : "",
                 r.ownCorrect, r.ownAtt, r.gtCorrect, r.gtAtt,
                 r.frr(A05), r.att(), GalleryEvaluation.pct(r.frr(A05), r.att()),
                 r.frr(A0), r.att(), GalleryEvaluation.pct(r.frr(A0), r.att()),
