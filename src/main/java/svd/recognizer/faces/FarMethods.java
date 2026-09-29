@@ -54,6 +54,8 @@ public final class FarMethods {
     static final int A0 = ALPHAS.length - 1;
     /** Сдвиг seed для деления валидации MUCT на посторонних и пороговых (не совпадает с делением MUCT). */
     static final long OUTSIDER_SEED_SHIFT = 1000;
+    /** Доля энергии для числа компонент PCA Fisherfaces (2a, 2b), не больше N − C. */
+    static final double PCA_ENERGY = 0.95;
 
     /** Набор чужих для порога Неймана – Пирсона. */
     enum Threshold {
@@ -130,11 +132,13 @@ public final class FarMethods {
             }
         }
         // Этап 2: предобработка — лучшая из этапа 1; порог — 69 пороговых; рядом — лучший SVD этапа 1 с тем же порогом.
+        // Fisherfaces: PCA по доле энергии обучающих данных конфигурации (ORL в выборе числа компонент не участвует).
         registry.put("2a-fisher", () -> {
             rethreshold(bestSvd(), Threshold.VAL69);
-            return new Method("2a-fisher", "2", bestNorm(), new FisherScorer(), Threshold.VAL69, false);
+            return new Method("2a-fisher", "2", bestNorm(), FisherScorer.byEnergy(PCA_ENERGY), Threshold.VAL69, false);
         });
-        registry.put("2b-fisher-bg", () -> new Method("2b-fisher-bg", "2", bestNorm(), new FisherScorer(), Threshold.VAL69, true));
+        registry.put("2b-fisher-bg", () -> new Method("2b-fisher-bg", "2", bestNorm(), FisherScorer.byEnergy(PCA_ENERGY),
+                Threshold.VAL69, true));
         registry.put("2c-mlda", () -> new Method("2c-mlda", "2", bestNorm(), new MldaScorer(), Threshold.VAL69, true));
     }
 
@@ -674,7 +678,7 @@ public final class FarMethods {
     String summaryRow(Result r) {
         return String.format(Locale.ROOT, "%s%s | %s | %d/%d | %d/%d | %d/%d = %s %% | %d/%d = %s %% | %s | %s | %s | %s | %s / %s",
                 r.method.id() + (r.method.scorer() instanceof MldaScorer && !mldaVerified() ? " [не в сравнении: проверка MLDA]" : "")
-                        + (r.method.scorer() instanceof FisherScorer ? " [PCA до N − C вырождается, см. " + ORL_CHECK + "]" : ""),
+                        + (r.method.scorer() instanceof FisherScorer f && f.fullPca() ? " [PCA до N − C вырождается, см. " + ORL_CHECK + "]" : ""),
                 r.threshold != r.method.threshold() ? " (порог: " + r.threshold.label + ")" : "", thresholdSize(r),
                 r.ownCorrect, r.ownAtt, r.gtCorrect, r.gtAtt,
                 r.frr(A05), r.att(), GalleryEvaluation.pct(r.frr(A05), r.att()),

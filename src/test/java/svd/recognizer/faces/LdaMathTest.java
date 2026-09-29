@@ -56,6 +56,30 @@ public class LdaMathTest {
     }
 
     @Test
+    public void pcaByEnergyTakesSmallestKReachingShareAndAtMostNMinusC() {
+        // N = 4·6 = 24 < n = 60; N − C = 20.
+        List<List<double[]>> classes = synthetic(4, 6, 60, 1.0, 5);
+        LdaMath.Data d = LdaMath.Data.of(classes);
+        double[][] c = new double[d.x().length][];
+        for (int k = 0; k < c.length; k++) {
+            c[k] = d.x()[k].clone();
+            for (int i = 0; i < c[k].length; i++) c[k][i] -= d.mean()[i];
+        }
+        double[] sigma = new org.apache.commons.math3.linear.SingularValueDecomposition(
+                new org.apache.commons.math3.linear.Array2DRowRealMatrix(c, false)).getSingularValues();
+        double total = 0;
+        for (double v : sigma) total += v * v;
+        for (double share : new double[] {0.5, 0.8, 0.95, 1.0}) {
+            int expected = 0;
+            double acc = 0;
+            while (acc < share * total && expected < sigma.length) acc += sigma[expected] * sigma[expected++];
+            expected = Math.min(expected, d.x().length - d.classes());
+            String info = FisherScorer.byEnergy(share).fit(classes, 4).info();
+            assertTrue(info, info.contains("PCA " + expected + " (N − C = 20"));
+        }
+    }
+
+    @Test
     public void smallBetweenScatterDecompositionEqualsFull() {
         List<List<double[]>> classes = synthetic(4, 5, 6, 0.5, 4);
         LdaMath.Data d = LdaMath.Data.of(classes);
