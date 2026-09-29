@@ -72,7 +72,7 @@ public final class GalleryEvaluation {
     static final String CACHE_NAME = "far_detections.cache";
 
     /** База снимка. */
-    enum Base { OWN, GT, MUCT, ORL }
+    enum Base { OWN, GT, MUCT, ORL, FEI }
 
     /** Снимок: база, человек, файл, камера MUCT (иначе ' '). */
     record Sample(Base base, String person, Path file, char camera) {}
@@ -126,24 +126,24 @@ public final class GalleryEvaluation {
         // При заданном faces.export.dir все четыре базы — из экспорта (FarExport): сырые снимки не читаются.
         String exportDir = settings.loadFacesExportDir();
         FarExport.Loaded export = exportDir == null ? null : FarExport.read(Paths.get(exportDir));
-        Data data = export == null ? rawData(settings) : export.data();
+
+        // Детекция (кэш) — только по сырым снимкам; в экспорте отказы детектора уже записаны. FEI — при заданном
+        // faces.fei.dir (в экспорте — если он есть в экспорте).
+        Path outDir = Paths.get(System.getProperty("user.dir"), "reports", "faces", "far");
+        Files.createDirectories(outDir);
+        boolean fresh = args.length > 0 && args[0].equals("fresh");
+        Raw raw = export == null ? raw(settings, score, modelsDir, outDir, fresh) : null;
+        Data data = export == null ? raw.data() : export.data();
+        Map<String, Det> dets = export == null ? raw.dets() : null;
+        FeiDataset.Info feiInfo = export == null ? (raw.fei() == null ? null : raw.fei().info()) : export.feiInfo();
+        long detTime = export == null ? lastDetTime : 0;
         OwnDataset own = data.own();
         List<List<OwnDataset.Moment>> moments = data.moments();
         Map<String, List<Sample>> gt = data.gt();
         Map<String, List<Sample>> muct = data.muct();
         Map<String, List<Sample>> orl = data.orl();
+        Map<String, List<Sample>> fei = data.fei();
         List<Sample> samples = data.samples();
-
-        // Детекция (кэш) — только по сырым снимкам; в экспорте отказы детектора уже записаны.
-        Path outDir = Paths.get(System.getProperty("user.dir"), "reports", "faces", "far");
-        Files.createDirectories(outDir);
-        boolean fresh = args.length > 0 && args[0].equals("fresh");
-        Map<String, Det> dets = null;
-        long detTime = 0;
-        if (export == null) {
-            dets = detections(samples, score, settings, modelsDir, outDir, fresh);
-            detTime = lastDetTime;
-        }
         FaceRecognizerSF sface = FaceRecognizerSF.create(modelsDir.resolve(FaceAlignment.SFACE_FILE).toString(), "");
 
         // Разбиения.
@@ -155,7 +155,7 @@ public final class GalleryEvaluation {
         List<String> muctCtrl = splits.muctCtrl();
 
         StringBuilder text = new StringBuilder();
-        header(text, own, moments, gt, muct, orl, muctVal, muctCtrl, null, samples, score, seed);
+        header(text, own, moments, gt, muct, orl, fei, feiInfo, muctVal, muctCtrl, null, samples, score, seed);
         SubspaceTrainer trainer = new SubspaceTrainer(new CommonsMathSvdEngine());
         int n = samples.size();
         StringBuilder timeText = new StringBuilder();
@@ -175,7 +175,7 @@ public final class GalleryEvaluation {
             long te = 0;
             for (Score sc : v == Variant.SFACE ? new Score[] {Score.COS} : new Score[] {Score.RATIO, Score.EPS}) {
                 long t1 = System.nanoTime();
-                evaluate(text, v, sc, moments, gt, gtPersons, gtTrain, muct, muctVal, muctCtrl, orl, feats, trainer);
+                evaluate(text, v, sc, moments, gt, gtPersons, gtTrain, muct, muctVal, muctCtrl, orl, fei, feats, trainer);
                 te += System.nanoTime() - t1;
             }
             DIST.clear();
@@ -198,11 +198,40 @@ public final class GalleryEvaluation {
 
     // ---------------------------------------------------------------- базы
 
-    /** Базы оценки: своя база и её пригодные моменты, GT, MUCT, ORL (человек → снимки) и все снимки по порядку. */
+    /**
+     * Базы оценки: своя база и её пригодные моменты, GT, MUCT, ORL, FEI (человек → снимки; FEI — отобранные, пусто без
+     * faces.fei.dir) и все снимки по порядку.
+     */
     record Data(OwnDataset own, List<List<OwnDataset.Moment>> moments, Map<String, List<Sample>> gt,
-                Map<String, List<Sample>> muct, Map<String, List<Sample>> orl, List<Sample> samples) {}
+                Map<String, List<Sample>> muct, Map<String, List<Sample>> orl, Map<String, List<Sample>> fei, List<Sample> samples) {}
 
-    /** Базы из сырых снимков (пути — SettingsStore). */
+    /** Сырые данные с детекциями: базы, детекции всех снимков, отбор FEI (null — FEI не подключена). */
+    record Raw(Data data, Map<String, Det> dets, FeiDataset.Selection fei) {}
+
+    /**
+     * Базы из сырых снимков и их детекции (кэш far_detections.cache — без FEI, чтобы отчёт без FEI не менялся); при
+     * заданном faces.fei.dir — отбор FEI (кэш fei_detections.cache) и отчёт об отборе reports/faces/far/fei_selection.txt.
+     * lastDetTime — время детекции остальных баз.
+     */
+    static Raw raw(SettingsStore settings, float score, Path modelsDir, Path outDir, boolean fresh) throws IOException {
+        Data data = rawData(settings);
+        Map<String, Det> dets = detections(data.samples(), score, settings, modelsDir, outDir, fresh, CACHE_NAME);
+        long detTime = lastDetTime;
+        String feiDir = settings.loadFacesFeiDir();
+        FeiDataset.Selection fei = null;
+        if (feiDir != null) {
+            fei = FeiDataset.select(Paths.get(feiDir), data, dets, score, settings, modelsDir, outDir, fresh);
+            data = data(data.own(), data.gt(), data.muct(), data.orl(), fei.selected());
+            dets = new LinkedHashMap<>(dets);
+            dets.putAll(fei.dets());
+            Files.writeString(outDir.resolve("fei_selection.txt"), fei.report(), StandardCharsets.UTF_8);
+            System.out.print(fei.report());
+        }
+        lastDetTime = detTime;
+        return new Raw(data, dets, fei);
+    }
+
+    /** Базы из сырых снимков (пути — SettingsStore), без FEI. */
     static Data rawData(SettingsStore settings) throws IOException {
         OwnDataset own = OwnDataset.load(Paths.get(settings.loadFacesOwnDir()));
         Map<String, List<Sample>> gt = listGt(Paths.get(settings.loadFacesGtDir()));
@@ -216,11 +245,12 @@ public final class GalleryEvaluation {
             }
             orl.put(String.format(Locale.ROOT, "s%02d", p), list);
         }
-        return data(own, gt, muct, orl);
+        return data(own, gt, muct, orl, new TreeMap<>());
     }
 
-    /** Снимки всех баз: своя (пригодные моменты — представитель и кадры «+», «+-»), GT, MUCT, ORL. */
-    static Data data(OwnDataset own, Map<String, List<Sample>> gt, Map<String, List<Sample>> muct, Map<String, List<Sample>> orl) {
+    /** Снимки всех баз: своя (пригодные моменты — представитель и кадры «+», «+-»), GT, MUCT, ORL, FEI (отобранные). */
+    static Data data(OwnDataset own, Map<String, List<Sample>> gt, Map<String, List<Sample>> muct, Map<String, List<Sample>> orl,
+                     Map<String, List<Sample>> fei) {
         List<List<OwnDataset.Moment>> moments = new ArrayList<>();
         for (OwnDataset.Person p : own.persons()) moments.add(p.usableMoments());
         List<Sample> samples = new ArrayList<>();
@@ -237,7 +267,8 @@ public final class GalleryEvaluation {
         gt.values().forEach(samples::addAll);
         muct.values().forEach(samples::addAll);
         orl.values().forEach(samples::addAll);
-        return new Data(own, moments, gt, muct, orl, samples);
+        fei.values().forEach(samples::addAll);
+        return new Data(own, moments, gt, muct, orl, fei, samples);
     }
 
     /** Разбиения: GT — обучающие индексы по разбиениям и людям; MUCT — валидация и контроль по людям. */
@@ -332,10 +363,10 @@ public final class GalleryEvaluation {
     /** Время детекции последнего вызова detections (из кэша — время исходного прогона). */
     static long lastDetTime;
 
-    /** Детекции всех снимков: из кэша reports/faces/far/far_detections.cache или заново (fresh) с записью кэша. */
+    /** Детекции всех снимков: из кэша reports/faces/far/cacheName или заново (fresh) с записью кэша. */
     static Map<String, Det> detections(List<Sample> samples, float score, SettingsStore settings, Path modelsDir, Path outDir,
-                                       boolean fresh) throws IOException {
-        Path cacheFile = outDir.resolve(CACHE_NAME);
+                                       boolean fresh, String cacheName) throws IOException {
+        Path cacheFile = outDir.resolve(cacheName);
         String signature = signature(samples, score, settings);
         Map<String, Det> dets = fresh ? null : loadCache(cacheFile, signature);
         if (dets == null) {
@@ -618,8 +649,10 @@ public final class GalleryEvaluation {
     private static void evaluate(StringBuilder text, Variant v, Score sc, List<List<OwnDataset.Moment>> moments,
                                  Map<String, List<Sample>> gt, List<String> gtPersons, List<List<List<Integer>>> gtTrain,
                                  Map<String, List<Sample>> muct, List<String> muctVal, List<String> muctCtrl,
-                                 Map<String, List<Sample>> orl, Map<String, Feat> feats, SubspaceTrainer trainer) {
+                                 Map<String, List<Sample>> orl, Map<String, List<Sample>> fei, Map<String, Feat> feats,
+                                 SubspaceTrainer trainer) {
         boolean sface = v == Variant.SFACE;
+        boolean withFei = !fei.isEmpty();
         int nOwn = moments.size();
         int nGal = nOwn + gtPersons.size();
         int na = ALPHAS.length;
@@ -631,8 +664,8 @@ public final class GalleryEvaluation {
         int gtAtt = 0;
         int ownCorrect = 0;
         int gtCorrect = 0;
-        // FAR по конфигурациям: [α][конфигурация] -> {x, n, xP, nP}; строки: MUCT все камеры, MUCT камера a, ORL.
-        int[][][][] farCfg = new int[3][na][CONFIGS][];
+        // FAR по конфигурациям: [α][конфигурация] -> {x, n, xP, nP}; строки: MUCT все камеры, MUCT камера a, ORL, FEI.
+        int[][][][] farCfg = new int[4][na][CONFIGS][];
         double[][] thetas = new double[na][CONFIGS];
         List<Double> marginOwn = new ArrayList<>();
         List<Double> marginGt = new ArrayList<>();
@@ -672,10 +705,12 @@ public final class GalleryEvaluation {
             Impostors ctrl = impostors(muct, muctCtrl, feats, v, dist, sc, false);
             Impostors ctrlA = impostors(muct, muctCtrl, feats, v, dist, sc, true);
             Impostors orlCtrl = impostors(orl, new ArrayList<>(orl.keySet()), feats, v, dist, sc, false);
+            Impostors feiCtrl = withFei ? impostors(fei, new ArrayList<>(fei.keySet()), feats, v, dist, sc, false) : null;
             if (r == 0) {
                 refused[0] = val.refused();
                 refused[1] = ctrl.refused();
                 refused[2] = orlCtrl.refused();
+                if (feiCtrl != null) refused[3] = feiCtrl.refused();
             }
             double[] valScores = val.detected();
             double[] valAScores = valA.detected();
@@ -730,16 +765,21 @@ public final class GalleryEvaluation {
                 farCfg[0][a][r] = far(ctrl, theta);
                 farCfg[1][a][r] = far(ctrlA, thetaA);
                 farCfg[2][a][r] = far(orlCtrl, theta);
+                if (feiCtrl != null) farCfg[3][a][r] = far(feiCtrl, theta);
             }
         }
         text.append(String.format(Locale.ROOT, "%n=== %s, скоринг %s ===%n", v.label, sc.label));
         text.append(String.format(Locale.ROOT, "argmin (галерея из %d): свои %d/%d, Georgia Tech %d/%d; отказы детектора на контроле: "
-                + "свои %d/%d, Georgia Tech %d/%d; чужие: MUCT валидация %d, MUCT контроль %d, ORL %d попыток.%n",
-                nGal, ownCorrect, ownAtt, gtCorrect, gtAtt, ownDetRej[0], ownAtt, gtDetRej, gtAtt, refused[0], refused[1], refused[2]));
+                + "свои %d/%d, Georgia Tech %d/%d; чужие: MUCT валидация %d, MUCT контроль %d, ORL %d" + (withFei ? ", FEI %d" : "")
+                + " попыток.%n",
+                nGal, ownCorrect, ownAtt, gtCorrect, gtAtt, ownDetRej[0], ownAtt, gtDetRej, gtAtt, refused[0], refused[1], refused[2], refused[3]));
         text.append(String.format(Locale.ROOT, "Запас на контроле (наименьшая оценка чужого MUCT минус наибольшая своего): свои — "
                 + "мин %s / медиана %s (по 12 конфигурациям); Georgia Tech — мин %s / медиана %s (конфигурации 0–2).%n",
                 q(marginOwn, 0), q(marginOwn, 0.5), q(marginGt, 0), q(marginGt, 0.5)));
-        String[] rows = {"MUCT, все камеры", "MUCT, камера a (порог по валидации камеры a)", "ORL (порог MUCT все камеры)"};
+        String[] rows = {"MUCT, все камеры", "MUCT, камера a (порог по валидации камеры a)", "ORL (порог MUCT все камеры)",
+            "FEI (порог MUCT все камеры)"};
+        // Порядок строк: FEI — сразу после контроля MUCT все камеры (только если FEI подключена).
+        int[] order = withFei ? new int[] {0, 3, 1, 2} : new int[] {0, 1, 2};
         for (int a = 0; a < na; a++) {
             double[] th = thetas[a].clone();
             Arrays.sort(th);
@@ -750,7 +790,7 @@ public final class GalleryEvaluation {
                     ALPHAS[a], th[th.length / 2], ownRej[a], ownAtt, pct(ownRej[a], ownAtt), ownRej[a] - ownDetRej[0], ownDet,
                     gtRej[a], gtAtt, pct(gtRej[a], gtAtt), gtRej[a] - gtDetRej, gtDet,
                     ownRej[a] + gtRej[a], ownAtt + gtAtt, pct(ownRej[a] + gtRej[a], ownAtt + gtAtt)));
-            for (int k = 0; k < 3; k++) {
+            for (int k : order) {
                 text.append("    FAR ").append(rows[k]).append(": ").append(farText(farCfg[k][a])).append('\n');
             }
         }
@@ -800,8 +840,8 @@ public final class GalleryEvaluation {
 
     static void header(StringBuilder text, OwnDataset own, List<List<OwnDataset.Moment>> moments,
                        Map<String, List<Sample>> gt, Map<String, List<Sample>> muct, Map<String, List<Sample>> orl,
-                       List<String> muctVal, List<String> muctCtrl, Map<String, Feat> feats, List<Sample> samples,
-                       float score, long seed) {
+                       Map<String, List<Sample>> fei, FeiDataset.Info feiInfo, List<String> muctVal, List<String> muctCtrl,
+                       Map<String, Feat> feats, List<Sample> samples, float score, long seed) {
         text.append("FAR и FRR на расширенной галерее (шаг 5, задача FAR)\n");
         text.append("Оговорки:\n");
         text.append("  - чужие MUCT сняты в лаборатории (вебкамеры, 480×640), свои — телефоном (4000×3000): чужие отличаются\n"
@@ -828,6 +868,16 @@ public final class GalleryEvaluation {
         text.append(String.format(Locale.ROOT, "Чужие: MUCT %d человек по людям (seed %d): валидация %d человек, %d снимков (камера a %d); "
                 + "контроль %d человек, %d снимков (камера a %d). ORL %d × %d — только контроль.%n",
                 muct.size(), seed, muctVal.size(), valN, valA, muctCtrl.size(), ctrlN, ctrlA, orl.size(), OrlDataset.IMAGES_PER_PERSON));
+        if (!fei.isEmpty()) {
+            int[] pp = fei.values().stream().mapToInt(List::size).sorted().toArray();
+            text.append(String.format(Locale.ROOT, "Чужие FEI (второй независимый контроль, только FAR; не входят ни в обучение, ни в порог): "
+                    + "%d человек, %d исходных снимков (на человека мин %d / медиана %d / макс %d): %s — по сопоставлению со справочными\n"
+                    + "  frontalimages_manuallyaligned, всегда; остальные — поза |r| ≤ R = %.4f (r — смещение носа от середины глаз в долях "
+                    + "межглазья по точкам YuNet;\n  R — 95-й процентиль |r| своей базы, %d снимков; максимум своей базы %.4f). Условия FEI — "
+                    + "только исследовательские цели (Thomaz, Giraldi, 2010).%n",
+                    fei.size(), Arrays.stream(pp).sum(), pp[0], pp[pp.length / 2], pp[pp.length - 1], feiInfo.ab(), feiInfo.r(), feiInfo.ownN(),
+                    feiInfo.ownMax()));
+        }
         text.append(String.format(Locale.ROOT, "Детекция: двухпроходный YuNet (2′), порог %.1f для всех баз; вход первого прохода — своя "
                 + "база ×%.2f, остальные — родное разрешение; второй проход — поля %.0f %%, лицо около %.0f px; точки — второго прохода.%n",
                 score, OWN_INPUT_SCALE, 100 * PASS2_MARGIN, PASS2_FACE));

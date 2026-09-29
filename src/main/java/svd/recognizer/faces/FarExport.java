@@ -56,6 +56,8 @@ public final class FarExport {
     static final String SPLITS = "splits.tsv";
     static final String MANIFEST = "MANIFEST.txt";
     static final String README = "README.md";
+    static final String FEI_SELECTION = "fei_selection.tsv";
+    static final String REFERENCE = "reference";
 
     private FarExport() {
     }
@@ -72,17 +74,25 @@ public final class FarExport {
         long seed = settings.loadFacesSeed();
         float score = settings.loadFacesOwnDetectorScore();
         Path modelsDir = Paths.get(settings.loadFacesModelsDir());
-        Data data = GalleryEvaluation.rawData(settings);
         Path outDir = Paths.get(System.getProperty("user.dir"), "reports", "faces", "far");
         Files.createDirectories(outDir);
         boolean fresh = args.length > 0 && args[0].equals("fresh");
-        Map<String, Det> dets = GalleryEvaluation.detections(data.samples(), score, settings, modelsDir, outDir, fresh);
+        GalleryEvaluation.Raw raw = GalleryEvaluation.raw(settings, score, modelsDir, outDir, fresh);
+        Data data = raw.data();
+        Map<String, Det> dets = raw.dets();
         FaceRecognizerSF sface = FaceRecognizerSF.create(modelsDir.resolve(FaceAlignment.SFACE_FILE).toString(), "");
 
         // Каталог экспорта: прежние кадры и файлы экспорта удаляются, остальное (.git и т. п.) не трогается.
         Files.createDirectories(dir);
         for (Variant v : Variant.values()) deleteTree(dir.resolve(dirName(v)));
-        for (String f : new String[] {DETECTIONS, MOMENTS, SPLITS, MANIFEST, README}) Files.deleteIfExists(dir.resolve(f));
+        deleteTree(dir.resolve(REFERENCE));
+        for (String f : new String[] {DETECTIONS, MOMENTS, SPLITS, FEI_SELECTION, MANIFEST, README}) Files.deleteIfExists(dir.resolve(f));
+
+        // FEI: список отбора и справочные наборы как есть (в протокол не входят); исходные снимки не копируются.
+        if (raw.fei() != null) {
+            write(dir.resolve(FEI_SELECTION), raw.fei().table());
+            copyReference(Paths.get(settings.loadFacesFeiDir()), dir.resolve(REFERENCE).resolve("FEI"));
+        }
 
         // Кадры и detections.tsv.
         StringBuilder det = new StringBuilder("base\tperson\tname\tcamera\tfound\trow (15 чисел YuNet, координаты полного снимка)\n");
@@ -158,7 +168,8 @@ public final class FarExport {
     // ---------------------------------------------------------------- чтение (GalleryEvaluation)
 
     /** Экспорт в памяти: базы (снимки — относительные пути база/человек/имя), найденные лица, строки splits.tsv. */
-    record Loaded(Path dir, Data data, Map<String, Boolean> found, List<String> splitLines, long seedInFile) {
+    record Loaded(Path dir, Data data, Map<String, Boolean> found, List<String> splitLines, long seedInFile,
+                  FeiDataset.Info feiInfo) {
 
         /** Разбиения, пересчитанные по seed, должны совпасть со splits.tsv. */
         void checkSplits(Splits splits) {
@@ -230,6 +241,7 @@ public final class FarExport {
         Map<String, List<Sample>> gt = new TreeMap<>();
         Map<String, List<Sample>> muct = new TreeMap<>();
         Map<String, List<Sample>> orl = new TreeMap<>();
+        Map<String, List<Sample>> fei = new TreeMap<>();
         for (String line : body(dir.resolve(DETECTIONS))) {
             String[] c = line.split("\t", -1);
             Base base = Base.valueOf(c[0].toUpperCase(Locale.ROOT));
@@ -241,10 +253,11 @@ public final class FarExport {
                 case GT -> gt.computeIfAbsent(c[1], k -> new ArrayList<>()).add(s);
                 case MUCT -> muct.computeIfAbsent(c[1], k -> new ArrayList<>()).add(s);
                 case ORL -> orl.computeIfAbsent(c[1], k -> new ArrayList<>()).add(s);
+                case FEI -> fei.computeIfAbsent(c[1], k -> new ArrayList<>()).add(s);
                 case OWN -> { }
             }
         }
-        Data data = GalleryEvaluation.data(own, gt, muct, orl);
+        Data data = GalleryEvaluation.data(own, gt, muct, orl, fei);
         List<String> rebuilt = data.samples().stream().map(s -> s.file().toString()).toList();
         if (!rebuilt.equals(order)) {
             throw new IllegalStateException("Снимки, восстановленные по " + MOMENTS + " и " + DETECTIONS + ", не совпадают с порядком "
@@ -253,7 +266,11 @@ public final class FarExport {
         List<String> splitLines = Files.readAllLines(dir.resolve(SPLITS), StandardCharsets.UTF_8);
         long seed = Long.parseLong(splitLines.get(0).substring(splitLines.get(0).lastIndexOf(' ') + 1));
         System.out.println("Базы — из экспорта " + dir + " (снимков " + order.size() + ")");
-        return new Loaded(dir, data, found, splitLines, seed);
+        Path sel = dir.resolve(FEI_SELECTION);
+        FeiDataset.Info feiInfo = fei.isEmpty() || !Files.exists(sel) ? null
+                : FeiDataset.readInfo(Files.readAllLines(sel, StandardCharsets.UTF_8));
+        if (!fei.isEmpty() && feiInfo == null) throw new IllegalStateException("В экспорте есть FEI, но нет " + sel);
+        return new Loaded(dir, data, found, splitLines, seed, feiInfo);
     }
 
     /** Строки файла без заголовка. */
@@ -302,7 +319,12 @@ public final class FarExport {
         t.append(String.format(Locale.ROOT, "| own (своя база) | %d | %d | %d |%n", data.own().persons().size(), c.get(Base.OWN)[0], c.get(Base.OWN)[1]));
         t.append(String.format(Locale.ROOT, "| gt (Georgia Tech) | %d | %d | %d |%n", data.gt().size(), c.get(Base.GT)[0], c.get(Base.GT)[1]));
         t.append(String.format(Locale.ROOT, "| muct (MUCT) | %d | %d | %d |%n", data.muct().size(), c.get(Base.MUCT)[0], c.get(Base.MUCT)[1]));
-        t.append(String.format(Locale.ROOT, "| orl (ORL) | %d | %d | %d |%n%n", data.orl().size(), c.get(Base.ORL)[0], c.get(Base.ORL)[1]));
+        t.append(String.format(Locale.ROOT, "| orl (ORL) | %d | %d | %d |%n", data.orl().size(), c.get(Base.ORL)[0], c.get(Base.ORL)[1]));
+        if (!data.fei().isEmpty()) {
+            t.append(String.format(Locale.ROOT, "| fei (FEI, отобранные исходные снимки) | %d | %d | %d |%n", data.fei().size(),
+                    c.get(Base.FEI)[0], c.get(Base.FEI)[1]));
+        }
+        t.append('\n');
         t.append("## Структура\n\n");
         t.append("- `a/`, `b/`, `c/`, `sface/` — кадры PNG без потерь, путь `<вариант>/<база>/<человек>/<имя снимка>.png`:\n"
                 + "  - `a` — 92×112, серый, пиксели входа первого прохода детектора (своя база ×0,25);\n"
@@ -316,7 +338,15 @@ public final class FarExport {
                 + "  1 «+--», 0 без пометки), время съёмки, представитель момента; по нему восстанавливаются 12 ротаций.\n"
                 + "- `splits.tsv` — разбиения: Georgia Tech — три разбиения (seed + номер), обучающие индексы; MUCT —\n"
                 + "  валидация и контроль по людям (seed).\n"
-                + "- `MANIFEST.txt` — SHA-256 и размер каждого файла, число по базам.\n\n");
+                + "- `MANIFEST.txt` — SHA-256 и размер каждого файла, число по базам.\n");
+        if (!data.fei().isEmpty()) {
+            t.append("- `fei_selection.tsv` — отбор FEI: все 2800 исходных снимков (человек, номер, найдено ли лицо, поза r,\n"
+                    + "  справочный «a»/«b», включён ли в протокол и почему); строки «#» — порог позы R и соответствие «a»/«b».\n"
+                    + "- `reference/FEI/` — справочные наборы FEI как есть (frontalimages_manuallyaligned, spatiallynormalized,\n"
+                    + "  cropped_equalized, средние лица, разметка 46 точек). **В протокол не входят**: по manuallyaligned только\n"
+                    + "  установлено, каким исходным снимкам соответствуют «a» и «b».\n");
+        }
+        t.append('\n');
         t.append("Сырых снимков и моделей здесь нет. Ни один файл не больше 100 МБ, Git LFS не используется.\n\n");
         t.append("## Происхождение и условия\n\n");
         t.append("Базы используются на условиях их первоисточников; этот репозиторий никаких прав на них не даёт\n"
@@ -329,6 +359,13 @@ public final class FarExport {
                 + "  http://www.milbo.org/muct/ , https://github.com/StephenMilborrow/muct . Условие первоисточника — не\n"
                 + "  воспроизводить снимки MUCT в публично доступных документах (кроме людей 000, 001, 002, 200, 201, 400, 401,\n"
                 + "  402 — в академических статьях); при использовании цитировать Milborrow et al., 2010.\n");
+        if (!data.fei().isEmpty()) {
+            t.append("- **FEI Face Database** (Centro Universitário da FEI, São Bernardo do Campo, Бразилия):\n"
+                    + "  https://fei.edu.br/~cet/facedatabase.html . Условия — только исследовательские цели; ссылаться на\n"
+                    + "  C. E. Thomaz, G. A. Giraldi, A new ranking method for Principal Components Analysis and its application to\n"
+                    + "  face image analysis, Image and Vision Computing 28(6), 902–913, 2010. Исходные снимки FEI (originalimages)\n"
+                    + "  сюда не кладутся — только выровненные кадры отобранных снимков и справочные наборы в `reference/FEI`.\n");
+        }
         t.append("- **Своя база** — снимки получены с согласия снятых людей только для этого проекта. Не распространять, не\n"
                 + "  публиковать, не передавать третьим лицам. Здесь только выровненные кадры; исходные фото сюда не кладутся.\n\n");
         t.append("## Как подключить\n\n");
@@ -396,6 +433,20 @@ public final class FarExport {
 
     private static void write(Path file, CharSequence text) throws IOException {
         Files.writeString(file, text, StandardCharsets.UTF_8);
+    }
+
+    /** Справочные наборы FEI как есть: всё, кроме originalimages и SOURCE.txt. */
+    private static void copyReference(Path fei, Path target) throws IOException {
+        List<Path> files;
+        try (Stream<Path> s = Files.walk(fei)) {
+            files = s.filter(Files::isRegularFile).filter(p -> !fei.relativize(p).startsWith(FeiDataset.ORIGINALS))
+                    .filter(p -> !fei.relativize(p).toString().equals("SOURCE.txt")).sorted().toList();
+        }
+        for (Path f : files) {
+            Path t = target.resolve(fei.relativize(f).toString());
+            Files.createDirectories(t.getParent());
+            Files.copy(f, t);
+        }
     }
 
     private static void deleteTree(Path root) throws IOException {

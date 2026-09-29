@@ -144,7 +144,8 @@ public final class FarMethods {
         Map<String, Det> dets = null;
         if (export == null) {
             dets = GalleryEvaluation.detections(data.samples(), settings.loadFacesOwnDetectorScore(), settings,
-                    Paths.get(settings.loadFacesModelsDir()), outDir, args.length > 0 && args[0].equals("fresh"));
+                    Paths.get(settings.loadFacesModelsDir()), outDir, args.length > 0 && args[0].equals("fresh"),
+                    GalleryEvaluation.CACHE_NAME);
         }
         for (Sample s : data.samples()) {
             String key = s.file().toString();
