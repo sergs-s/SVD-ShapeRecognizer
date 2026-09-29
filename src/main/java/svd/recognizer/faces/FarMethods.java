@@ -56,10 +56,13 @@ public final class FarMethods {
     static final long OUTSIDER_SEED_SHIFT = 1000;
     /** Доля энергии для числа компонент PCA Fisherfaces (2a, 2b), не больше N − C. */
     static final double PCA_ENERGY = 0.95;
+    /** Сдвиг seed для деления пороговых на когорту Z-norm LDA (35) и порог (34), вариант б этапа 3. */
+    static final long COHORT_SEED_SHIFT = 2000;
 
     /** Набор чужих для порога Неймана – Пирсона. */
     enum Threshold {
-        VAL138("валидация MUCT, 138 человек"), VAL69("пороговые 69 человек валидации MUCT");
+        VAL138("валидация MUCT, 138 человек"), VAL69("пороговые 69 человек валидации MUCT"),
+        VAL34("34 из пороговых 69 (остальные 35 — когорта Z-norm LDA)");
 
         final String label;
 
@@ -84,6 +87,9 @@ public final class FarMethods {
     final Splits splits;
     final List<String> outsiders;
     final List<String> thresholdSet;
+    /** Пороговые 69, деление для Z-norm LDA (вариант б): когорта 35 и порог 34. */
+    final List<String> cohort35;
+    final List<String> threshold34;
     /** Чужие FEI (контроль) — нет в экспорте: null. */
     final Map<String, List<Sample>> fei;
     final IlluminationNorm.NormParams params;
@@ -117,6 +123,10 @@ public final class FarMethods {
                 || !java.util.Collections.disjoint(thresholdSet, splits.muctCtrl())) {
             throw new IllegalStateException("Посторонние / пороговые пересекаются между собой или с контролем MUCT");
         }
+        List<String> th = new ArrayList<>(thresholdSet);
+        Collections.shuffle(th, new Random(settings.loadFacesSeed() + COHORT_SEED_SHIFT));
+        cohort35 = List.copyOf(th.subList(0, (th.size() + 1) / 2));
+        threshold34 = List.copyOf(th.subList((th.size() + 1) / 2, th.size()));
         register();
     }
 
@@ -140,6 +150,51 @@ public final class FarMethods {
         registry.put("2b-fisher-bg", () -> new Method("2b-fisher-bg", "2", bestNorm(), FisherScorer.byEnergy(PCA_ENERGY),
                 Threshold.VAL69, true));
         registry.put("2c-mlda", () -> new Method("2c-mlda", "2", bestNorm(), new MldaScorer(), Threshold.VAL69, true));
+        // Этап 3, Z-norm. SVD: основа — ε на предобработке лучшего SVD этапа 1, когорта — 69 посторонних, порог — 69
+        // пороговых; рядом — ε и ε₁/ε₂ той же предобработки с порогом 69.
+        registry.put("3-znorm-svd", () -> {
+            IlluminationNorm n = bestNorm();
+            for (String base : new String[] {"1-" + n.id + "-eps", "1-" + n.id + "-ratio"}) rethreshold(base, Threshold.VAL69);
+            return new Method("3-znorm-svd", "3", n, new ZNormScorer(new SubspaceScorer(false), cohortVectors(n, outsiders),
+                    "69 посторонних MUCT"), Threshold.VAL69, false);
+        });
+        // LDA: основа — лучший LDA этапа 2. Вариант а (2a, обучение без посторонних): когорта — 69 посторонних, порог —
+        // 69 пороговых. Вариант б (2b, 2c — посторонние в обучении): когорта 35 / порог 34 из пороговых. Рядом — тот же
+        // LDA без нормировки с тем же порогом.
+        registry.put("3-znorm-lda", () -> {
+            Method lda = result(bestLda()).method;
+            boolean a = !lda.outsiders();
+            Threshold th = a ? Threshold.VAL69 : Threshold.VAL34;
+            rethreshold(lda.id(), th);
+            List<String> cohort = a ? outsiders : cohort35;
+            return new Method("3-znorm-lda", "3", lda.norm(), new ZNormScorer(lda.scorer(), cohortVectors(lda.norm(), cohort),
+                    a ? "69 посторонних MUCT" : "35 из пороговых MUCT"), th, lda.outsiders());
+        });
+    }
+
+    private String bestLda;
+
+    /** Лучший LDA этапа 2 (один выбор на прогон; MLDA — только после прошедшей проверки эквивалентности). */
+    String bestLda() {
+        if (bestLda == null) {
+            List<String> ids = new ArrayList<>(List.of("2a-fisher", "2b-fisher-bg"));
+            if (mldaVerified()) ids.add("2c-mlda");
+            bestLda = best("LDA этапа 2: основа Z-norm LDA", ids);
+        }
+        return bestLda;
+    }
+
+    /** Векторы всех снимков с лицом людей когорты (все камеры). */
+    List<double[]> cohortVectors(IlluminationNorm norm, List<String> persons) {
+        Map<String, double[]> vec = vectors(norm);
+        List<double[]> out = new ArrayList<>();
+        for (String p : persons) {
+            for (Sample s : data.muct().get(p)) {
+                double[] x = vec.get(s.file().toString());
+                if (x != null) out.add(x);
+            }
+        }
+        return out;
     }
 
     /** Проверка эквивалентности MLDA (не конфигурация оценки). */
@@ -279,6 +334,7 @@ public final class FarMethods {
             }
         }
 
+        fm.stage3Choices();
         write(outDir.resolve("far_methods.txt"), fm.report(fm.dataSource));
         write(outDir.resolve("far_methods_auc.txt"), fm.aucReport());
         fm.timeText.append(String.format(Locale.ROOT, "Всего %.0f с.%n", (System.nanoTime() - start) / 1e9));
@@ -423,8 +479,8 @@ public final class FarMethods {
         /** Своих принято под чужим именем (argmin ≠ он сам, оценка ≤ θ) — ошибка своего, в FRR не входит. */
         int[] ownMis = new int[ALPHAS.length];
         int[] gtMis = new int[ALPHAS.length];
-        /** [строка: MUCT, MUCT камера a, ORL, FEI][α][конфигурация] → {x, n, xP, nP}. */
-        int[][][][] far = new int[4][ALPHAS.length][CONFIGS][];
+        /** [строка: MUCT, MUCT камера a, ORL, FEI, валидация (набор порога)][α][конфигурация] → {x, n, xP, nP}. */
+        int[][][][] far = new int[5][ALPHAS.length][CONFIGS][];
         double[][] thetas = new double[ALPHAS.length][CONFIGS];
         List<Double> marginOwn = new ArrayList<>();
         List<Double> marginGt = new ArrayList<>();
@@ -458,7 +514,7 @@ public final class FarMethods {
             res.genuine.add(new ArrayList<>());
             res.impostor.add(new ArrayList<>());
         }
-        List<String> thPersons = th == Threshold.VAL138 ? splits.muctVal() : thresholdSet;
+        List<String> thPersons = thresholdPersons(th);
         for (int r = 0; r < CONFIGS; r++) {
             Map<String, double[]> s = sc.byConfig().get(r);
             Impostors val = impostors(data.muct(), thPersons, s, false);
@@ -553,6 +609,7 @@ public final class FarMethods {
                 res.far[1][a][r] = GalleryEvaluation.far(ctrlA, thetaA);
                 res.far[2][a][r] = GalleryEvaluation.far(orl, theta);
                 res.far[3][a][r] = feiCtrl == null ? null : GalleryEvaluation.far(feiCtrl, theta);
+                res.far[4][a][r] = GalleryEvaluation.far(val, theta);
             }
         }
         return res;
@@ -612,6 +669,10 @@ public final class FarMethods {
                 + "  - 2a-fisher: обучение — только галерея; порог — 69 пороговых;\n"
                 + "  - 2b-fisher-bg, 2c-mlda: обучение — галерея + 69 посторонних MUCT (все снимки с лицом, все камеры); порог — 69\n"
                 + "    пороговых;\n"
+                + "  - 3-znorm-svd: обучение — только галерея; когорта Z-norm — 69 посторонних; порог — 69 пороговых;\n"
+                + "  - 3-znorm-lda: обучение — как у лучшего LDA этапа 2; когорта и порог — вариант а (обучение без посторонних:\n"
+                + "    когорта 69 посторонних, порог 69 пороговых) или б (посторонние в обучении: когорта 35 / порог 34 из\n"
+                + "    пороговых, seed + " + COHORT_SEED_SHIFT + ");\n"
                 + "  - нигде не участвуют: контроль MUCT (138 человек), ORL (40), FEI.\n");
         t.append("  69 посторонних: ").append(String.join(", ", outsiders)).append('\n');
         t.append("  69 пороговых: ").append(String.join(", ", thresholdSet)).append('\n');
@@ -639,11 +700,67 @@ public final class FarMethods {
             t.append(r.method.id()).append(" | ").append(thresholdSize(r)).append(" | ").append(errorsText(r, A05)).append(" | ")
                     .append(errorsText(r, A0)).append('\n');
         }
+        if (results.containsKey("3-znorm-svd") || results.containsKey("3-znorm-lda")) stage3(t);
         if (orlCheck != null) t.append("\n=== ").append(ORL_CHECK).append(" ===\n").append(orlCheck);
         if (check != null) t.append("\n=== ").append(CHECK).append(" ===\n").append(checkLine()).append('\n').append(check.text());
 
         for (Result r : results.values()) details(t, r);
         return t;
+    }
+
+    /** Выбор лучшего этапа 3 — внутри групп с одним набором порога: Z-norm SVD против ε и ε₁/ε₂, Z-norm LDA против основы. */
+    void stage3Choices() {
+        if (results.containsKey("3-znorm-svd")) {
+            String n = results.get("3-znorm-svd").method.norm().id;
+            best("этап 3, SVD, порог 69", List.of("3-znorm-svd", "1-" + n + "-eps@" + Threshold.VAL69, "1-" + n + "-ratio@" + Threshold.VAL69));
+        }
+        if (results.containsKey("3-znorm-lda")) {
+            Result z = results.get("3-znorm-lda");
+            String base = z.threshold == result(bestLda).threshold ? bestLda : bestLda + "@" + z.threshold;
+            best("этап 3, LDA, порог " + thresholdSize(z), List.of("3-znorm-lda", base));
+        }
+    }
+
+    /** Раздел этапа 3: когорты поимённо, проверка непересечения, порог и FAR валидации рядом с ошибками своих. */
+    void stage3(StringBuilder t) {
+        t.append("\n=== Этап 3: Z-norm ===\n");
+        t.append("Правило: оценка каждого человека галереи zᵢ = (sᵢ − μᵢ)/σᵢ, μᵢ и σᵢ (N − 1) — по снимкам когорты на модели каждой\n"
+                + "конфигурации; решение — i* = argmin zᵢ, итог z_{i*}; порог — Нейман – Пирсон по набору порога; ε₁/ε₂ по z не\n"
+                + "используется.\n");
+        t.append("  когорта SVD (и LDA, вариант а) — 69 посторонних: ").append(String.join(", ", outsiders)).append('\n');
+        t.append("  когорта LDA, вариант б — 35 из пороговых: ").append(String.join(", ", cohort35)).append('\n');
+        t.append("  порог LDA, вариант б — 34 из пороговых: ").append(String.join(", ", threshold34)).append('\n');
+        List<String> training = new ArrayList<>(outsiders);
+        boolean ok = Collections.disjoint(cohort35, threshold34) && Collections.disjoint(cohort35, training)
+                && Collections.disjoint(threshold34, training) && Collections.disjoint(outsiders, thresholdSet)
+                && Collections.disjoint(cohort35, splits.muctCtrl()) && Collections.disjoint(threshold34, splits.muctCtrl())
+                && Collections.disjoint(outsiders, splits.muctCtrl());
+        if (!ok) throw new IllegalStateException("Когорты Z-norm пересекаются с обучением, порогом или контролем");
+        t.append("Проверка непересечения: прошла — когорта 69 посторонних не пересекается с 69 пороговыми и контролем MUCT; когорта 35\n"
+                + "не пересекается с порогом 34, с 69 посторонними (обучение 2b/2c) и контролем MUCT; порог 34 — с посторонними и\n"
+                + "контролем. Галерея (свои, Georgia Tech) — другие базы.\n");
+        if (bestLda != null) {
+            Method lda = result(bestLda).method;
+            t.append("Основа Z-norm LDA — ").append(bestLda).append(", вариант ").append(lda.outsiders() ? "б" : "а").append(".\n");
+        }
+        t.append("конфигурация | набор порога | θ α=0,05 медиана | FAR валидации люди α=0,05: худш. (↑95) / мед. | ошибки своих α=0,05 | "
+                + "θ α=0 медиана | FAR валидации люди α=0 | ошибки своих α=0\n");
+        for (Map.Entry<String, Result> e : results.entrySet()) {
+            String id = e.getValue().method.id();
+            boolean base = id.startsWith("3-") || e.getKey().contains("@") || e.getKey().equals(bestLda);
+            if (!base) continue;
+            Result r = e.getValue();
+            t.append(id).append(r.threshold != r.method.threshold() ? " (порог: " + r.threshold.label + ")" : "").append(" | ")
+                    .append(thresholdSize(r)).append(" | ").append(median(r.thetas[A05])).append(" | ").append(persons(r.far[4][A05]))
+                    .append(" | ").append(errorsText(r, A05)).append(" | ").append(median(r.thetas[A0])).append(" | ")
+                    .append(persons(r.far[4][A0])).append(" | ").append(errorsText(r, A0)).append('\n');
+        }
+    }
+
+    private static String median(double[] v) {
+        double[] c = v.clone();
+        Arrays.sort(c);
+        return String.format(Locale.ROOT, "%.6f", c[c.length / 2]);
     }
 
     /** Коммит, на котором сделан прогон (git rev-parse HEAD; отметка, если отслеживаемые файлы изменены). */
@@ -690,7 +807,16 @@ public final class FarMethods {
 
     /** Число людей набора порога. */
     int thresholdSize(Result r) {
-        return r.threshold == Threshold.VAL138 ? splits.muctVal().size() : thresholdSet.size();
+        return thresholdPersons(r.threshold).size();
+    }
+
+    /** Люди набора порога. */
+    List<String> thresholdPersons(Threshold th) {
+        return switch (th) {
+            case VAL138 -> splits.muctVal();
+            case VAL69 -> thresholdSet;
+            case VAL34 -> threshold34;
+        };
     }
 
     /** «свои a+b=c, GT a+b=c, вместе a+b=c (p %)» при α с индексом a. */
