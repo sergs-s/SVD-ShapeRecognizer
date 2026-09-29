@@ -42,7 +42,8 @@ import svd.recognizer.storage.SettingsStore;
  * Рядом: detections.tsv (все снимки по порядку оценки, отказы YuNet и строка детекции), own_moments.tsv
  * (моменты своей базы: человек, момент, кадры с отметкой качества, представитель — по ним восстанавливаются
  * 12 ротаций), splits.tsv (Georgia Tech — три разбиения, MUCT — валидация и контроль; seed), MANIFEST.txt
- * (SHA-256 и размер каждого файла, число по базам), README.md. Сырых снимков и моделей в экспорте нет.
+ * (SHA-256 и размер каждого файла, число по базам), README.md (генерируемая часть между метками, ручной текст
+ * сохраняется). Каталог reference/ экспорт не удаляет и не перезаписывает. Сырых снимков и моделей в экспорте нет.
  *
  * GalleryEvaluation при заданном faces.export.dir читает все четыре базы отсюда (read): векторы — из PNG,
  * отказы и разбиения — из файлов; разбиения пересчитываются по seed и сверяются со splits.tsv.
@@ -82,16 +83,16 @@ public final class FarExport {
         Map<String, Det> dets = raw.dets();
         FaceRecognizerSF sface = FaceRecognizerSF.create(modelsDir.resolve(FaceAlignment.SFACE_FILE).toString(), "");
 
-        // Каталог экспорта: прежние кадры и файлы экспорта удаляются, остальное (.git и т. п.) не трогается.
-        Files.createDirectories(dir);
-        for (Variant v : Variant.values()) deleteTree(dir.resolve(dirName(v)));
-        deleteTree(dir.resolve(REFERENCE));
-        for (String f : new String[] {DETECTIONS, MOMENTS, SPLITS, FEI_SELECTION, MANIFEST, README}) Files.deleteIfExists(dir.resolve(f));
+        // Каталог экспорта: прежние кадры и файлы экспорта удаляются; reference/, .git и прочее не трогается.
+        // Ручная часть README.md (вне генерируемой, в том числе строки о reference/) сохраняется.
+        String oldReadme = clean(dir);
 
-        // FEI: список отбора и справочные наборы как есть (в протокол не входят); исходные снимки не копируются.
+        // FEI: список отбора; справочные наборы как есть (в протокол не входят) — только если reference/FEI ещё нет;
+        // исходные снимки не копируются.
         if (raw.fei() != null) {
             write(dir.resolve(FEI_SELECTION), raw.fei().table());
-            copyReference(Paths.get(settings.loadFacesFeiDir()), dir.resolve(REFERENCE).resolve("FEI"));
+            Path feiRef = dir.resolve(REFERENCE).resolve("FEI");
+            if (!Files.exists(feiRef)) copyReference(Paths.get(settings.loadFacesFeiDir()), feiRef);
         }
 
         // Кадры и detections.tsv.
@@ -134,7 +135,7 @@ public final class FarExport {
         }
         write(dir.resolve(MOMENTS), mom);
         write(dir.resolve(SPLITS), splitsText(GalleryEvaluation.splits(data.gt(), data.muct(), seed), seed));
-        write(dir.resolve(README), readme(data, dets));
+        write(dir.resolve(README), mergeReadme(oldReadme, readme(data, dets).toString()));
         write(dir.resolve(MANIFEST), manifest(dir, data, dets));
         System.out.printf(Locale.ROOT, "Экспорт в %s: %.0f с%n", dir, (System.nanoTime() - start) / 1e9);
     }
@@ -437,6 +438,49 @@ public final class FarExport {
 
     private static void write(Path file, CharSequence text) throws IOException {
         Files.writeString(file, text, StandardCharsets.UTF_8);
+    }
+
+    /** Начало и конец генерируемой части README.md; текст вне них — ручной, при экспорте сохраняется. */
+    static final String README_BEGIN = "<!-- FarExport: начало генерируемой части -->";
+    static final String README_END = "<!-- FarExport: конец генерируемой части -->";
+
+    /**
+     * Очистка каталога экспорта перед записью: удаляются кадры вариантов и файлы экспорта; каталог reference/,
+     * .git и прочие файлы не трогаются.
+     *
+     * @return прежний README.md (нет — null)
+     */
+    static String clean(Path dir) throws IOException {
+        Files.createDirectories(dir);
+        Path readme = dir.resolve(README);
+        String old = Files.exists(readme) ? Files.readString(readme, StandardCharsets.UTF_8) : null;
+        for (Variant v : Variant.values()) deleteTree(dir.resolve(dirName(v)));
+        for (String f : new String[] {DETECTIONS, MOMENTS, SPLITS, FEI_SELECTION, MANIFEST, README}) Files.deleteIfExists(dir.resolve(f));
+        return old;
+    }
+
+    /**
+     * Новый README.md: генерируемая часть между метками, ручной текст прежнего README — как был. Прежний README с
+     * метками: заменяется только часть между ними. Без меток (README до этой правки): ручными считаются абзацы, где
+     * упомянут reference/ и которых нет в генерируемой части, — они идут после неё.
+     */
+    static String mergeReadme(String old, String generated) {
+        String block = README_BEGIN + "\n" + generated + (generated.endsWith("\n") ? "" : "\n") + README_END + "\n";
+        if (old == null) return block;
+        int b = old.indexOf(README_BEGIN);
+        int e = old.indexOf(README_END);
+        if (b >= 0 && e > b) {
+            int after = e + README_END.length();
+            if (old.startsWith("\r\n", after)) after += 2;
+            else if (old.startsWith("\n", after)) after += 1;
+            return old.substring(0, b) + block + old.substring(after);
+        }
+        StringBuilder kept = new StringBuilder();
+        for (String par : old.replace("\r\n", "\n").split("\n\n+")) {
+            String p = par.strip();
+            if (p.contains(REFERENCE + "/") && !generated.contains(p)) kept.append('\n').append(p).append('\n');
+        }
+        return block + kept;
     }
 
     /** Справочные наборы FEI как есть: всё, кроме originalimages и SOURCE.txt. */
