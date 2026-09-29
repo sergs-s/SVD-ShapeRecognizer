@@ -17,6 +17,7 @@ import java.util.Map;
 import java.util.Random;
 import java.util.function.Supplier;
 import org.opencv.core.Mat;
+import org.opencv.objdetect.FaceRecognizerSF;
 import svd.recognizer.faces.GalleryEvaluation.Base;
 import svd.recognizer.faces.GalleryEvaluation.Data;
 import svd.recognizer.faces.GalleryEvaluation.Det;
@@ -68,7 +69,8 @@ public final class FarMethods {
     /** Конфигурация: идентификатор, этап, нормализация, оценщик, набор порога, обучение с посторонними. */
     record Method(String id, String stage, IlluminationNorm norm, GalleryScorer scorer, Threshold threshold, boolean outsiders) {
         String label() {
-            return String.format(Locale.ROOT, "%s — %s; %s; порог — %s%s", id, scorer.label(), norm.label, threshold.label,
+            return String.format(Locale.ROOT, "%s — %s; %s; порог — %s%s", id, scorer.label(),
+                    norm == null ? "вход SFace alignCrop 112×112" : norm.label, threshold.label,
                     outsiders ? "; обучение — галерея + 69 посторонних" : "");
         }
     }
@@ -85,12 +87,15 @@ public final class FarMethods {
     final IlluminationNorm.NormParams params;
     /** Кадры а (серый 8 бит 92×112) по ключу снимка; отказ детектора — нет ключа. */
     final Map<String, Mat> frames;
+    /** Векторы по способу нормализации кадра а; ключ null — признаки SFace. */
     private final Map<IlluminationNorm, Map<String, double[]>> vectors = new HashMap<>();
     private final Map<String, Result> results = new LinkedHashMap<>();
     /** Оценки конфигураций (для пересчёта порога по другому набору чужих). */
     private final Map<String, Scores> scores = new HashMap<>();
     private final Map<String, Supplier<Method>> registry = new LinkedHashMap<>();
     final StringBuilder timeText = new StringBuilder();
+    /** Источник баз для шапки отчёта (экспорт — с коммитом репозитория данных). */
+    String dataSource = "";
     /** Заметки о выборе лучшего (в отчёт). */
     final List<String> choices = new ArrayList<>();
 
@@ -115,6 +120,7 @@ public final class FarMethods {
 
     /** Реестр конфигураций в порядке этапов; зависимые (лучший предыдущего этапа) создаются при запросе. */
     private void register() {
+        registry.put("0-sface", () -> new Method("0-sface", "справочно", null, new SFaceScorer(), Threshold.VAL138, false));
         registry.put("1a-nn", () -> new Method("1a-nn", "1а", IlluminationNorm.NONE, new NearestVectorScorer(false), Threshold.VAL138, false));
         registry.put("1a-mean", () -> new Method("1a-mean", "1а", IlluminationNorm.NONE, new NearestVectorScorer(true), Threshold.VAL138, false));
         for (IlluminationNorm n : IlluminationNorm.values()) {
@@ -204,24 +210,38 @@ public final class FarMethods {
         long t0 = System.nanoTime();
         Map<String, Mat> frames = new HashMap<>();
         Map<String, Det> dets = export == null ? raw.dets() : null;
+        // SFace (справочная строка 0-sface): вход alignCrop 112×112 — признаки один раз при загрузке.
+        FaceRecognizerSF sface = FaceRecognizerSF.create(Paths.get(settings.loadFacesModelsDir()).resolve(FaceAlignment.SFACE_FILE)
+                .toString(), "");
+        Map<String, double[]> sfaceVectors = new HashMap<>();
         for (Sample s : data.samples()) {
             String key = s.file().toString();
             Mat f;
+            Mat c;
             if (export != null) {
                 f = export.frame(s, Variant.A);
+                c = export.frame(s, Variant.SFACE);
             } else {
                 double[] row = dets.get(key).row();
                 if (row == null) {
                     f = null;
+                    c = null;
                 } else {
                     Mat[] m = GalleryEvaluation.load(s);
                     f = GalleryEvaluation.frame(s, m, row, Variant.A, null);
+                    c = GalleryEvaluation.frame(s, m, row, Variant.SFACE, sface);
                     GalleryEvaluation.release(m);
                 }
             }
             if (f != null) frames.put(key, f);
+            if (c != null) {
+                sfaceVectors.put(key, GalleryEvaluation.vector(c, Variant.SFACE, sface));
+                c.release();
+            }
         }
         FarMethods fm = new FarMethods(settings, data, splits, frames, data.fei().isEmpty() ? null : data.fei());
+        fm.vectors.put(null, sfaceVectors);
+        fm.dataSource = export == null ? "сырые снимки" : "экспорт " + exportDir + ", коммит данных " + dataCommit(Paths.get(exportDir));
         fm.timeText.append(String.format(Locale.ROOT, "Кадры а (%s): %.0f с, снимков %d, с лицом %d.%n",
                 export == null ? "сырые снимки" : "экспорт " + exportDir, (System.nanoTime() - t0) / 1e9, data.samples().size(),
                 frames.size()));
@@ -245,7 +265,7 @@ public final class FarMethods {
             }
         }
 
-        write(outDir.resolve("far_methods.txt"), fm.report(export == null ? "сырые снимки" : "экспорт"));
+        write(outDir.resolve("far_methods.txt"), fm.report(fm.dataSource));
         write(outDir.resolve("far_methods_auc.txt"), fm.aucReport());
         fm.timeText.append(String.format(Locale.ROOT, "Всего %.0f с.%n", (System.nanoTime() - start) / 1e9));
         write(outDir.resolve("far_methods_time.txt"), fm.timeText);
@@ -552,7 +572,7 @@ public final class FarMethods {
         t.append("Обучение и порог по методам (разбиения своих — own_moments.tsv, GT и MUCT — splits.tsv экспорта):\n"
                 + "  - все методы: галерея — свои 6 (обучающие моменты ротации r, кадры «+» и «+-») и Georgia Tech 50 × 5 (разбиение\n"
                 + "    r mod 3); контроль своих и GT в обучение не входит;\n"
-                + "  - 1а, 1: обучение — только галерея; порог — валидация MUCT 138 человек;\n"
+                + "  - 0-sface (справочно), 1а, 1: обучение — только галерея; порог — валидация MUCT 138 человек;\n"
                 + "  - 2a-fisher: обучение — только галерея; порог — 69 пороговых;\n"
                 + "  - 2b-fisher-bg, 2c-mlda: обучение — галерея + 69 посторонних MUCT (все снимки с лицом, все камеры); порог — 69\n"
                 + "    пороговых;\n"
@@ -586,6 +606,15 @@ public final class FarMethods {
             String head = git("rev-parse", "HEAD");
             String dirty = git("status", "--porcelain", "--untracked-files=no");
             return head + (dirty.isEmpty() ? "" : " (есть незакоммиченные изменения отслеживаемых файлов)");
+        } catch (IOException | InterruptedException e) {
+            return "не определён (" + e.getMessage() + ")";
+        }
+    }
+
+    /** Коммит репозитория данных (каталог экспорта). */
+    static String dataCommit(Path dir) {
+        try {
+            return git("-C", dir.toString(), "rev-parse", "HEAD");
         } catch (IOException | InterruptedException e) {
             return "не определён (" + e.getMessage() + ")";
         }
