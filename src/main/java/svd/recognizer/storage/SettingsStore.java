@@ -54,6 +54,10 @@ public class SettingsStore {
     private static final float DEFAULT_FACES_DETECTOR_SCORE = 0.8f;
     private static final String KEY_FACES_OWN_DETECTOR_SCORE = "faces.own.detector.score";
     private static final float DEFAULT_FACES_OWN_DETECTOR_SCORE = 0.7f;
+    private static final String KEY_FACES_GT_DIR = "faces.gt.dir";
+    private static final String DEFAULT_FACES_GT_DIR = "D:\\data\\GeorgiaTech\\gt_db";
+    private static final String KEY_FACES_MUCT_DIR = "faces.muct.dir";
+    private static final String DEFAULT_FACES_MUCT_DIR = "D:\\data\\MUCT\\jpg";
     private static final String KEY_FACES_OWN_DIR = "faces.own.dir";
     private static final String DEFAULT_FACES_OWN_DIR = "D:\\data\\SpiiranDataSet";
     private static final String KEY_FACES_MODELS_DIR = "faces.models.dir";
@@ -302,6 +306,26 @@ public class SettingsStore {
             throw new IllegalArgumentException(key + " должно быть положительным, получено " + value);
         }
         return value;
+    }
+
+    /**
+     * Загружает путь к Georgia Tech Face Database (папки s01…s50, вне git).
+     *
+     * @return путь (по умолчанию D:\data\GeorgiaTech\gt_db)
+     */
+    public String loadFacesGtDir() {
+        String raw = loadProperties().getProperty(KEY_FACES_GT_DIR);
+        return (raw != null && !raw.isBlank()) ? raw : DEFAULT_FACES_GT_DIR;
+    }
+
+    /**
+     * Загружает путь к снимкам MUCT (папка jpg, вне git).
+     *
+     * @return путь (по умолчанию D:\data\MUCT\jpg)
+     */
+    public String loadFacesMuctDir() {
+        String raw = loadProperties().getProperty(KEY_FACES_MUCT_DIR);
+        return (raw != null && !raw.isBlank()) ? raw : DEFAULT_FACES_MUCT_DIR;
     }
 
     /**

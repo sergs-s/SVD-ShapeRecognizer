@@ -14,6 +14,7 @@
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <maven.compiler.release>17</maven.compiler.release>
+        <far.args></far.args>
     </properties>
 
     <dependencies>
@@ -139,6 +140,21 @@
                         <id>faces-own-eval</id>
                         <configuration>
                             <mainClass>svd.recognizer.faces.OwnEvaluation</mainClass>
+                        </configuration>
+                    </execution>
+                    <!-- FAR и FRR на расширенной галерее: mvn compile exec:exec@faces-far
+                         (отдельная JVM с пределом памяти -Xmx6g; пересчёт детекций: -Dfar.args=fresh) -->
+                    <execution>
+                        <id>faces-far</id>
+                        <configuration>
+                            <executable>${java.home}/bin/java</executable>
+                            <arguments>
+                                <argument>-Xmx6g</argument>
+                                <argument>-classpath</argument>
+                                <classpath/>
+                                <argument>svd.recognizer.faces.GalleryEvaluation</argument>
+                                <argument>${far.args}</argument>
+                            </arguments>
                         </configuration>
                     </execution>
                 </executions>

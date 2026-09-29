@@ -284,6 +284,14 @@ mvn compile exec:java@faces-eval   # оценка на лицах ORL -> reports
   строго между 0 и 1; до шага 5 было 0,9) — для ORL. Для своей базы —
   отдельный ключ `faces.own.detector.score` (0,7, выбран на ней же по сетке
   0,5…0,9, `faces-own-yunet`).
+- FAR и FRR на расширенной галерее (6 своих + 50 Georgia Tech, чужие MUCT и
+  ORL): `mvn compile exec:exec@faces-far` — отдельная JVM с `-Xmx6g`, отчёт
+  `reports/faces/far/far_eval.txt`, время — `far_time.txt`, кэш — только
+  детекции (пересчёт `-Dfar.args=fresh`). Пути баз — ключи `faces.gt.dir`,
+  `faces.muct.dir`. Порог YuNet здесь 0,7 для всех баз, включая ORL.
+  `faces-own-eval` с `fresh` в процессе Maven занимает до 17 ГБ (нативные Mat
+  кадров 4000×3000 не освобождаются до сборки мусора) — запускать в
+  отдельной JVM с `-Xmx2g`.
 - Подписи на картинках OpenCV (`putText`) — только латиницей: шрифты
   Hershey не рисуют кириллицу.
 

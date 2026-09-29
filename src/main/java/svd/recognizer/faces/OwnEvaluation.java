@@ -352,9 +352,9 @@ public final class OwnEvaluation {
     }
 
     /** Второй проход YuNet: поле вокруг рамки первого прохода — доля её размера с каждой стороны. */
-    static final double PASS2_MARGIN = 0.5;
+    static final double PASS2_MARGIN = YunetTwoPass.MARGIN;
     /** Второй проход YuNet: размер лица (ширина рамки первого прохода) во входе второго прохода, px. */
-    static final double PASS2_FACE = 300;
+    static final double PASS2_FACE = YunetTwoPass.FACE;
 
     /**
      * Вариант (2′): второй проход YuNet по области лица из полного разрешения (рамка первого
@@ -364,35 +364,10 @@ public final class OwnEvaluation {
     static Det[] yunet2(FaceDetectorYN detector, FaceRecognizerSF sface, Mat fullColor, Mat smallColor, Mat smallGray,
                         Det first, double[][] template, int frameW, int frameH) {
         if (!first.found()) return new Det[] {Det.NONE, Det.NONE};
-        double[] b = first.box();
-        int x0 = (int) Math.max(0, Math.floor(b[0] - PASS2_MARGIN * b[2]));
-        int y0 = (int) Math.max(0, Math.floor(b[1] - PASS2_MARGIN * b[3]));
-        int x1 = (int) Math.min(fullColor.cols(), Math.ceil(b[0] + b[2] + PASS2_MARGIN * b[2]));
-        int y1 = (int) Math.min(fullColor.rows(), Math.ceil(b[1] + b[3] + PASS2_MARGIN * b[3]));
-        double f = PASS2_FACE / b[2];
-        Mat crop = new Mat();
-        Imgproc.resize(new Mat(fullColor, new Rect(x0, y0, x1 - x0, y1 - y0)), crop,
-                new Size(Math.round((x1 - x0) * f), Math.round((y1 - y0) * f)), 0, 0, f < 1 ? Imgproc.INTER_AREA : Imgproc.INTER_LINEAR);
-        detector.setInputSize(crop.size());
-        Mat faces = new Mat();
-        detector.detect(crop, faces);
-        double[] row;
-        if (faces.rows() == 0) {
+        double[] full = YunetTwoPass.secondPass(detector, fullColor, first.box());
+        if (full == null) {
             return new Det[] {first, null};
         }
-        int best = 0;
-        for (int i = 1; i < faces.rows(); i++) {
-            if (faces.get(i, 14)[0] > faces.get(best, 14)[0]) best = i;
-        }
-        row = new double[15];
-        for (int j = 0; j < 15; j++) row[j] = faces.get(best, j)[0];
-        // В полный кадр: x = x0 + x_crop / f; ширина и высота — / f.
-        double[] full = new double[15];
-        for (int j = 0; j < 14; j++) {
-            boolean isX = j % 2 == 0;
-            full[j] = j == 2 || j == 3 ? row[j] / f : (isX ? x0 : y0) + row[j] / f;
-        }
-        full[14] = row[14];
         double[][] lm = new double[5][2];
         Mat smallRow = new Mat(1, 15, CvType.CV_32F);
         for (int j = 0; j < 15; j++) smallRow.put(0, j, j == 14 ? full[j] : full[j] * INPUT_SCALE);
