@@ -140,6 +140,11 @@ public final class FarMethods {
 
     /** Проверка эквивалентности MLDA (не конфигурация оценки). */
     static final String CHECK = "2c-check";
+    /** Проверка реализации Fisherfaces на ORL (не конфигурация оценки). */
+    static final String ORL_CHECK = "2-orl-check";
+    /** Текст проверки Fisherfaces на ORL (не выполнялась — null). */
+    String orlCheck;
+
     /** Итог проверки эквивалентности MLDA (не выполнялась — null). */
     MldaCheck.Outcome check;
 
@@ -250,9 +255,14 @@ public final class FarMethods {
         if (ids.isEmpty()) {
             ids = new ArrayList<>(fm.registry.keySet());
             ids.add(ids.indexOf("2c-mlda") + 1, CHECK);
+            ids.add(ids.indexOf(CHECK) + 1, ORL_CHECK);
         }
         for (String id : ids) {
-            if (id.equals(CHECK)) {
+            if (id.equals(ORL_CHECK)) {
+                long t1 = System.nanoTime();
+                fm.orlCheck = OrlLdaCheck.run(fm);
+                fm.timeText.append(String.format(Locale.ROOT, "%s: %.0f с.%n", ORL_CHECK, (System.nanoTime() - t1) / 1e9));
+            } else if (id.equals(CHECK)) {
                 long t1 = System.nanoTime();
                 try {
                     fm.check = MldaCheck.run(fm, fm.bestNorm());
@@ -406,6 +416,9 @@ public final class FarMethods {
         int ownCorrect, ownAtt, ownDetRej, gtCorrect, gtAtt, gtDetRej;
         int[] ownRej = new int[ALPHAS.length];
         int[] gtRej = new int[ALPHAS.length];
+        /** Своих принято под чужим именем (argmin ≠ он сам, оценка ≤ θ) — ошибка своего, в FRR не входит. */
+        int[] ownMis = new int[ALPHAS.length];
+        int[] gtMis = new int[ALPHAS.length];
         /** [строка: MUCT, MUCT камера a, ORL, FEI][α][конфигурация] → {x, n, xP, nP}. */
         int[][][][] far = new int[4][ALPHAS.length][CONFIGS][];
         double[][] thetas = new double[ALPHAS.length][CONFIGS];
@@ -418,6 +431,11 @@ public final class FarMethods {
 
         int frr(int a) {
             return ownRej[a] + gtRej[a];
+        }
+
+        /** Полная доля ошибок своих (свои + GT): FRR + принят под чужим именем. */
+        int errors(int a) {
+            return ownRej[a] + gtRej[a] + ownMis[a] + gtMis[a];
         }
 
         int att() {
@@ -463,6 +481,7 @@ public final class FarMethods {
             // Свои: контроль — представитель момента r (решение — как в GalleryEvaluation: оценка argmin).
             double maxOwn = Double.NEGATIVE_INFINITY;
             List<Double> ownScores = new ArrayList<>();
+            List<Boolean> ownOk = new ArrayList<>();
             for (int p = 0; p < nOwn; p++) {
                 List<OwnDataset.Moment> ms = data.moments().get(p);
                 if (r >= ms.size()) continue;
@@ -471,15 +490,18 @@ public final class FarMethods {
                 if (v == null) {
                     res.ownDetRej++;
                     ownScores.add(Double.POSITIVE_INFINITY);
+                    ownOk.add(false);
                     continue;
                 }
                 double[] b = best(v);
                 if ((int) b[1] == p) res.ownCorrect++;
                 ownScores.add(Double.isInfinite(v[p]) ? Double.POSITIVE_INFINITY : b[0]);
+                ownOk.add((int) b[1] == p);
                 maxOwn = Math.max(maxOwn, b[0]);
                 diag(res, p, v, valScores);
             }
             List<Double> gtScores = new ArrayList<>();
+            List<Boolean> gtOk = new ArrayList<>();
             double maxGt = Double.NEGATIVE_INFINITY;
             if (r < GT_SPLITS) {
                 for (int g = 0; g < splits.gtPersons().size(); g++) {
@@ -493,11 +515,13 @@ public final class FarMethods {
                         if (v == null) {
                             res.gtDetRej++;
                             gtScores.add(Double.POSITIVE_INFINITY);
+                            gtOk.add(false);
                             continue;
                         }
                         double[] b = best(v);
                         if ((int) b[1] == nOwn + g) res.gtCorrect++;
                         gtScores.add(Double.isInfinite(v[nOwn + g]) ? Double.POSITIVE_INFINITY : b[0]);
+                        gtOk.add((int) b[1] == nOwn + g);
                         maxGt = Math.max(maxGt, b[0]);
                         res.genuine.get(nOwn + g).add(v[nOwn + g]);
                         any = true;
@@ -513,8 +537,14 @@ public final class FarMethods {
                 double theta = FaceEvaluation.neymanPearsonThreshold(valDet, ALPHAS[a]);
                 double thetaA = FaceEvaluation.neymanPearsonThreshold(valADet, ALPHAS[a]);
                 res.thetas[a][r] = theta;
-                for (double v : ownScores) if (v > theta) res.ownRej[a]++;
-                for (double v : gtScores) if (v > theta) res.gtRej[a]++;
+                for (int i = 0; i < ownScores.size(); i++) {
+                    if (ownScores.get(i) > theta) res.ownRej[a]++;
+                    else if (!ownOk.get(i)) res.ownMis[a]++;
+                }
+                for (int i = 0; i < gtScores.size(); i++) {
+                    if (gtScores.get(i) > theta) res.gtRej[a]++;
+                    else if (!gtOk.get(i)) res.gtMis[a]++;
+                }
                 res.far[0][a][r] = GalleryEvaluation.far(ctrl, theta);
                 res.far[1][a][r] = GalleryEvaluation.far(ctrlA, thetaA);
                 res.far[2][a][r] = GalleryEvaluation.far(orl, theta);
@@ -532,16 +562,18 @@ public final class FarMethods {
     // ---------------------------------------------------------------- выбор лучшего
 
     /**
-     * Лучшая конфигурация: наименьший общий FRR (свои + Georgia Tech) на контрольных пробах при пороге с
-     * валидации, α = 0,05; при равенстве — α = 0. FAR на контроле (MUCT, ORL, FEI) в выборе не участвует.
+     * Лучшая конфигурация: наименьшая полная доля ошибок своих и Georgia Tech на контрольных пробах (FRR + принят под
+     * чужим именем) при пороге с валидации, α = 0,05; при равенстве — α = 0. FAR на контроле (MUCT, ORL, FEI) в выборе
+     * не участвует.
      */
     String best(String what, List<String> candidates) {
         String best = null;
-        StringBuilder note = new StringBuilder("Выбор лучшего (" + what + "): по общему FRR своих и Georgia Tech на контроле "
-                + "при пороге с валидации, α = 0,05, при равенстве — α = 0; FAR на контроле в выборе не участвует. Кандидаты:");
+        StringBuilder note = new StringBuilder("Выбор лучшего (" + what + "): по полной доле ошибок своих и Georgia Tech на "
+                + "контроле (FRR + принят под чужим именем) при пороге с валидации, α = 0,05, при равенстве — α = 0; FAR на контроле в "
+                + "выборе не участвует. Кандидаты (ошибок α = 0,05; α = 0):");
         for (String id : candidates) {
             Result r = result(id);
-            note.append(String.format(Locale.ROOT, " %s — %d/%d, %d/%d;", id, r.frr(A05), r.att(), r.frr(A0), r.att()));
+            note.append(String.format(Locale.ROOT, " %s — %d/%d, %d/%d;", id, r.errors(A05), r.att(), r.errors(A0), r.att()));
             if (best == null || better(r, result(best))) best = id;
         }
         note.append(" выбран ").append(best).append('.');
@@ -550,8 +582,8 @@ public final class FarMethods {
     }
 
     private static boolean better(Result a, Result b) {
-        if (a.frr(A05) != b.frr(A05)) return a.frr(A05) < b.frr(A05);
-        return a.frr(A0) < b.frr(A0);
+        if (a.errors(A05) != b.errors(A05)) return a.errors(A05) < b.errors(A05);
+        return a.errors(A0) < b.errors(A0);
     }
 
     // ---------------------------------------------------------------- отчёт
@@ -591,9 +623,19 @@ public final class FarMethods {
 
         t.append("\n=== Сводка ===\n");
         if (results.containsKey("2c-mlda") || check != null) t.append(checkLine()).append('\n');
-        t.append("конфигурация | argmin свои | argmin GT | FRR α=0,05 | FRR α=0 | FAR MUCT люди α=0,05: худш. (↑95) / мед. | "
+        t.append("Ошибка своего: отказ (FRR) или принят под чужим именем (argmin — другой человек галереи, оценка ≤ θ); по протоколу\n"
+                + "32dc1fa вторая в FRR не входит, поэтому выводится отдельно, полная доля ошибок = FRR + принят под чужим именем.\n");
+        t.append("Строки с разными наборами порога (138 / 69 / 34) напрямую не сравниваются.\n");
+        t.append("конфигурация | набор порога | argmin свои | argmin GT | FRR α=0,05 | FRR α=0 | FAR MUCT люди α=0,05: худш. (↑95) / мед. | "
                 + "то же α=0 | ORL α=0,05 | FEI α=0,05 | запас свои / GT (мед.)\n");
         for (Result r : results.values()) t.append(summaryRow(r)).append('\n');
+        t.append("\nОшибки своих: FRR + принят под чужим именем = всего (свои из 56 / GT из 1500 / вместе из 1556)\n");
+        t.append("конфигурация | набор порога | α = 0,05 | α = 0\n");
+        for (Result r : results.values()) {
+            t.append(r.method.id()).append(" | ").append(thresholdSize(r)).append(" | ").append(errorsText(r, A05)).append(" | ")
+                    .append(errorsText(r, A0)).append('\n');
+        }
+        if (orlCheck != null) t.append("\n=== ").append(ORL_CHECK).append(" ===\n").append(orlCheck);
         if (check != null) t.append("\n=== ").append(CHECK).append(" ===\n").append(checkLine()).append('\n').append(check.text());
 
         for (Result r : results.values()) details(t, r);
@@ -630,15 +672,29 @@ public final class FarMethods {
     }
 
     String summaryRow(Result r) {
-        return String.format(Locale.ROOT, "%s%s | %d/%d | %d/%d | %d/%d = %s %% | %d/%d = %s %% | %s | %s | %s | %s | %s / %s",
-                r.method.id() + (r.method.scorer() instanceof MldaScorer && !mldaVerified() ? " [не в сравнении: проверка MLDA]" : ""),
-                r.threshold != r.method.threshold() ? " (порог: " + r.threshold.label + ")" : "",
+        return String.format(Locale.ROOT, "%s%s | %s | %d/%d | %d/%d | %d/%d = %s %% | %d/%d = %s %% | %s | %s | %s | %s | %s / %s",
+                r.method.id() + (r.method.scorer() instanceof MldaScorer && !mldaVerified() ? " [не в сравнении: проверка MLDA]" : "")
+                        + (r.method.scorer() instanceof FisherScorer ? " [PCA до N − C вырождается, см. " + ORL_CHECK + "]" : ""),
+                r.threshold != r.method.threshold() ? " (порог: " + r.threshold.label + ")" : "", thresholdSize(r),
                 r.ownCorrect, r.ownAtt, r.gtCorrect, r.gtAtt,
                 r.frr(A05), r.att(), GalleryEvaluation.pct(r.frr(A05), r.att()),
                 r.frr(A0), r.att(), GalleryEvaluation.pct(r.frr(A0), r.att()),
                 persons(r.far[0][A05]), persons(r.far[0][A0]), persons(r.far[2][A05]),
                 r.far[3][A05][0] == null ? "—" : persons(r.far[3][A05]),
                 GalleryEvaluation.q(r.marginOwn, 0.5), GalleryEvaluation.q(r.marginGt, 0.5));
+    }
+
+    /** Число людей набора порога. */
+    int thresholdSize(Result r) {
+        return r.threshold == Threshold.VAL138 ? splits.muctVal().size() : thresholdSet.size();
+    }
+
+    /** «свои a+b=c, GT a+b=c, вместе a+b=c (p %)» при α с индексом a. */
+    static String errorsText(Result r, int a) {
+        int own = r.ownRej[a] + r.ownMis[a];
+        int gt = r.gtRej[a] + r.gtMis[a];
+        return String.format(Locale.ROOT, "свои %d+%d=%d, GT %d+%d=%d, вместе %d+%d=%d = %s %%", r.ownRej[a], r.ownMis[a], own,
+                r.gtRej[a], r.gtMis[a], gt, r.frr(a), r.ownMis[a] + r.gtMis[a], r.errors(a), GalleryEvaluation.pct(r.errors(a), r.att()));
     }
 
     /** FAR по людям: худшая конфигурация (↑95) / медианная. */
@@ -676,6 +732,7 @@ public final class FarMethods {
                     ALPHAS[a], th[th.length / 2], r.ownRej[a], r.ownAtt, GalleryEvaluation.pct(r.ownRej[a], r.ownAtt),
                     r.ownRej[a] - r.ownDetRej, r.ownAtt - r.ownDetRej, r.gtRej[a], r.gtAtt, GalleryEvaluation.pct(r.gtRej[a], r.gtAtt),
                     r.gtRej[a] - r.gtDetRej, r.gtAtt - r.gtDetRej, r.frr(a), r.att(), GalleryEvaluation.pct(r.frr(a), r.att())));
+            t.append("    Ошибки своих (FRR + принят под чужим именем): ").append(errorsText(r, a)).append('\n');
             for (int k = 0; k < 4; k++) {
                 if (k == 3 && fei == null) continue;
                 t.append("    FAR ").append(rows[k]).append(": ").append(GalleryEvaluation.farText(r.far[k][a])).append('\n');

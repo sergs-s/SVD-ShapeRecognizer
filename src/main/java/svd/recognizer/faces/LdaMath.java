@@ -80,7 +80,8 @@ final class LdaMath {
 
     /**
      * Ортонормированный базис линейной оболочки центрированных данных: строки basis (r × n), координаты
-     * данных в нём y (N × r) = UΣ, сингулярные числа σ (по убыванию). Ранг r — σᵢ > relTol·σ₁, не больше maxRank.
+     * данных в нём y (N × r) = UΣ, сингулярные числа σ (по убыванию). Ранг r — σᵢ > relTol·σ₁, не больше maxRank и
+     * min(N − 1, n).
      */
     record Span(double[][] basis, double[][] y, double[] sigma) {}
 
@@ -100,6 +101,8 @@ final class LdaMath {
         for (int a = 0; a < nn; a++) for (int b = a + 1; b < nn; b++) g[a][b] = g[b][a];
         Eigen e = eigen(g);
         double s1 = Math.sqrt(Math.max(e.values()[0], 0));
+        // Ранг центрированных данных не больше min(N − 1, n): сверх него — только шум округления.
+        maxRank = Math.min(maxRank, Math.min(nn - 1, n));
         int r = 0;
         while (r < nn && r < maxRank && Math.sqrt(Math.max(e.values()[r], 0)) > relTol * s1) r++;
         double[] sigma = new double[r];
