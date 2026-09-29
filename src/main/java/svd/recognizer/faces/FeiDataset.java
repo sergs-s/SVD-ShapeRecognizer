@@ -23,7 +23,7 @@ import svd.recognizer.storage.SettingsStore;
 
 /**
  * FEI Face Database (путь — faces.fei.dir / FACES_FEI_DIR; C. E. Thomaz, G. A. Giraldi, Image and Vision Computing
- * 28(6), 902–913, 2010; только исследовательские цели): второй независимый контрольный набор чужих в faces-far —
+ * 28(6), 902–913, 2010): второй независимый контрольный набор чужих в faces-far —
  * не участвует ни в обучении, ни в подборе порога.
  *
  * В протокол — только исходные снимки originalimages (200 человек × 14, имя {@code <человек>-<NN>.jpg}) через

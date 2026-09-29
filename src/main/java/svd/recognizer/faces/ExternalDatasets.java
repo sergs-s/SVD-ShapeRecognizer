@@ -11,7 +11,7 @@ import java.util.TreeMap;
 import java.util.stream.Stream;
 
 /**
- * Открытые базы лиц (вне git, пути — faces.gt.dir, faces.muct.dir; источники и условия —
+ * Открытые базы лиц (вне git, пути — faces.gt.dir, faces.muct.dir; источники —
  * SOURCE.txt рядом с каждой базой).
  * <ul>
  *   <li>Georgia Tech Face Database: 50 человек × 15 JPEG, человек = папка (s01…s50);

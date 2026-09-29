@@ -349,20 +349,16 @@ public final class FarExport {
         }
         t.append('\n');
         t.append("Сырых снимков и моделей здесь нет. Ни один файл не больше 100 МБ, Git LFS не используется.\n\n");
-        t.append("## Происхождение и условия\n\n");
-        t.append("Базы используются на условиях их первоисточников; этот репозиторий никаких прав на них не даёт\n"
-                + "(поэтому LICENSE нет).\n\n");
+        t.append("## Происхождение\n\n");
         t.append("- **ORL** (The Database of Faces, AT&T Laboratories Cambridge; Olivetti Research Laboratory, 1992–1994):\n"
-                + "  https://cam-orl.co.uk/facedatabase.html . Условие — ссылаться на AT&T Laboratories Cambridge.\n");
-        t.append("- **Georgia Tech Face Database** (A. V. Nefian): http://www.anefian.com/research/face_reco.htm .\n"
-                + "  Лицензия у первоисточника не указана.\n");
+                + "  https://cam-orl.co.uk/facedatabase.html . Ссылаться на AT&T Laboratories Cambridge.\n");
+        t.append("- **Georgia Tech Face Database** (A. V. Nefian): http://www.anefian.com/research/face_reco.htm .\n");
         t.append("- **MUCT** (S. Milborrow, J. Morkel, F. Nicolls, The MUCT Landmarked Face Database, PRASA 2010):\n"
-                + "  http://www.milbo.org/muct/ , https://github.com/StephenMilborrow/muct . Условие первоисточника — не\n"
-                + "  воспроизводить снимки MUCT в публично доступных документах (кроме людей 000, 001, 002, 200, 201, 400, 401,\n"
-                + "  402 — в академических статьях); при использовании цитировать Milborrow et al., 2010.\n");
+                + "  http://www.milbo.org/muct/ , https://github.com/StephenMilborrow/muct . Цитировать\n"
+                + "  Milborrow et al., 2010.\n");
         if (!data.fei().isEmpty()) {
             t.append("- **FEI Face Database** (Centro Universitário da FEI, São Bernardo do Campo, Бразилия):\n"
-                    + "  https://fei.edu.br/~cet/facedatabase.html . Условия — только исследовательские цели; ссылаться на\n"
+                    + "  https://fei.edu.br/~cet/facedatabase.html . Ссылаться на\n"
                     + "  C. E. Thomaz, G. A. Giraldi, A new ranking method for Principal Components Analysis and its application to\n"
                     + "  face image analysis, Image and Vision Computing 28(6), 902–913, 2010. Исходные снимки FEI (originalimages)\n"
                     + "  сюда не кладутся — только выровненные кадры отобранных снимков и справочные наборы в `reference/FEI`.\n");

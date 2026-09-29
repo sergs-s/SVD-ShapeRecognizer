@@ -900,8 +900,8 @@ public final class GalleryEvaluation {
             text.append(String.format(Locale.ROOT, "Чужие FEI (второй независимый контроль, только FAR; не входят ни в обучение, ни в порог): "
                     + "%d человек, %d исходных снимков (на человека мин %d / медиана %d / макс %d): %s (справочные\n"
                     + "  frontalimages_manuallyaligned), всегда; остальные — поза |r| ≤ R = %.4f (r — смещение носа от середины глаз в долях "
-                    + "межглазья по точкам YuNet;\n  R — 95-й процентиль |r| своей базы, %d снимков; максимум своей базы %.4f). Условия FEI — "
-                    + "только исследовательские цели (Thomaz, Giraldi, 2010).%n",
+                    + "межглазья по точкам YuNet;\n  R — 95-й процентиль |r| своей базы, %d снимков; максимум своей базы %.4f). Источник FEI — "
+                    + "Thomaz, Giraldi, 2010.%n",
                     fei.size(), Arrays.stream(pp).sum(), pp[0], pp[pp.length / 2], pp[pp.length - 1], feiInfo.ab(), feiInfo.r(), feiInfo.ownN(),
                     feiInfo.ownMax()));
         }
