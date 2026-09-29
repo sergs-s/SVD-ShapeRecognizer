@@ -29,8 +29,8 @@ import svd.recognizer.storage.SettingsStore;
  * В протокол — только исходные снимки originalimages (200 человек × 14, имя {@code <человек>-<NN>.jpg}) через
  * конвейер 2′; справочные наборы в протокол не входят. Отбор:
  * <ul>
- *   <li>«a» и «b» — номер исходного снимка, наиболее похожего (корреляция кадров а) 92×112) на справочный
- *       frontalimages_manuallyaligned {@code <человек>a.jpg} / {@code b.jpg}; включаются всегда (отказ детектора на
+ *   <li>«a» и «b» — исходные №11 (нейтральное) и №12 (улыбка): соответствие справочным
+ *       frontalimages_manuallyaligned {@code <человек>a.jpg} / {@code b.jpg} проверено глазами (VERIFIED); включаются всегда (отказ детектора на
  *       них учитывается как отказ);</li>
  *   <li>остальные — близкие к фронтальным: |r| ≤ R, r = (x носа − середина глаз по x) / межглазье по x по точкам
  *       YuNet второго прохода, R — 95-й процентиль |r| по снимкам своей базы в протоколе (с найденным лицом).</li>
@@ -44,6 +44,11 @@ public final class FeiDataset {
     static final String REFERENCE = "frontalimages_manuallyaligned";
     static final String CACHE_NAME = "fei_detections.cache";
     static final double POSE_PERCENTILE = 0.95;
+    /** Исходные снимки, соответствующие справочным «a» (нейтральное) и «b» (улыбка): проверено глазами (VERIFIED). */
+    static final int A_NUMBER = 11;
+    static final int B_NUMBER = 12;
+    /** Люди, у которых соответствие «a» = №11, «b» = №12 проверено глазами (листы справочный a, b и исходные 11–14). */
+    static final List<String> VERIFIED = List.of("001", "003", "004", "008", "012", "016", "017", "019", "020", "021", "100", "150");
     static final int IMAGES_PER_PERSON = 14;
     private static final Pattern NAME = Pattern.compile("(\\d+)-(\\d{2})\\.jpg", Pattern.CASE_INSENSITIVE);
 
@@ -165,7 +170,6 @@ public final class FeiDataset {
             }
             match.put(p, num);
         }
-        int[] mode = {argmax(hist[0]), argmax(hist[1])};
 
         // Отбор и таблица.
         Map<String, List<Sample>> selected = new TreeMap<>();
@@ -182,8 +186,8 @@ public final class FeiDataset {
         int refusedSel = 0;
         List<Integer> perPerson = new ArrayList<>();
         for (String p : orig.keySet()) {
-            int a = match.get(p)[0] >= 0 ? match.get(p)[0] : mode[0];
-            int b = match.get(p)[1] >= 0 ? match.get(p)[1] : mode[1];
+            int a = A_NUMBER;
+            int b = B_NUMBER;
             List<Sample> chosen = new ArrayList<>();
             for (Sample s : orig.get(p)) {
                 int n = number(s);
@@ -227,8 +231,7 @@ public final class FeiDataset {
             perPerson.add(chosen.size());
         }
 
-        String ab = String.format(Locale.ROOT, "«a» — исходный №%02d (у %d из %d), «b» — №%02d (у %d из %d)", mode[0], hist[0][mode[0]],
-                orig.size(), mode[1], hist[1][mode[1]], orig.size());
+        String ab = String.format(Locale.ROOT, "«a» = №%d, «b» = №%d, проверено глазами, %d человек", A_NUMBER, B_NUMBER, VERIFIED.size());
         Info info = new Info(bigR, ownMax, own.length, ab);
         StringBuilder table = new StringBuilder();
         table.append("# R\t").append(bigR).append('\n').append("# own_max\t").append(ownMax).append('\n').append("# own_n\t").append(own.length)
@@ -242,7 +245,10 @@ public final class FeiDataset {
         rep.append(String.format(Locale.ROOT, "Исходных снимков %d (людей %d), справочных frontalimages_manuallyaligned %d.%n", all.size()
                 - refs.values().stream().mapToLong(r -> Arrays.stream(r).filter(x -> x != null).count()).sum(), orig.size(),
                 refs.values().stream().mapToLong(r -> Arrays.stream(r).filter(x -> x != null).count()).sum()));
-        rep.append("\nСопоставление справочных «a»/«b» с исходными (наибольшая корреляция кадров а) 92×112):\n");
+        rep.append(String.format(Locale.ROOT, "%nВ протоколе: %s (%s).%n", ab, String.join(", ", VERIFIED)));
+        rep.append(String.format(Locale.ROOT, "%nСправочно, НЕНАДЁЖНО (зазор мин %.4f): сопоставление справочных «a»/«b» с исходными по "
+                + "наибольшей корреляции кадров а) 92×112;%nснимки 11–14 фронтальные и по кадру почти одинаковы, корреляция их не "
+                + "различает (у проверенных глазами ошиблась у 9 из 12). В протоколе не используется.%n", mg.length > 0 ? mg[0] : Double.NaN));
         for (int k = 0; k < 2; k++) {
             rep.append("  «").append("ab".charAt(k)).append("»:");
             for (int n = 1; n <= IMAGES_PER_PERSON; n++) if (hist[k][n] > 0) rep.append(String.format(Locale.ROOT, " №%02d — %d;", n, hist[k][n]));
@@ -293,12 +299,6 @@ public final class FeiDataset {
             syy += (y[i] - my) * (y[i] - my);
         }
         return sxy / Math.sqrt(sxx * syy);
-    }
-
-    private static int argmax(int[] h) {
-        int best = 0;
-        for (int i = 1; i < h.length; i++) if (h[i] > h[best]) best = i;
-        return best;
     }
 
     /** Сведения об отборе из строк «#» fei_selection.tsv (экспорт). */

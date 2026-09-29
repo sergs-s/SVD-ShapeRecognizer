@@ -670,6 +670,8 @@ public final class GalleryEvaluation {
         List<Double> marginOwn = new ArrayList<>();
         List<Double> marginGt = new ArrayList<>();
         int[] refused = new int[4];
+        int[] muctPerPerson = null;
+        int[] feiPerPerson = null;
         long evalStart = System.nanoTime();
         for (int r = 0; r < CONFIGS; r++) {
             System.out.printf(Locale.ROOT, "%s, %s: конфигурация %d/%d, %.0f с%n", v.label, sc.label, r + 1, CONFIGS,
@@ -710,7 +712,11 @@ public final class GalleryEvaluation {
                 refused[0] = val.refused();
                 refused[1] = ctrl.refused();
                 refused[2] = orlCtrl.refused();
-                if (feiCtrl != null) refused[3] = feiCtrl.refused();
+                if (feiCtrl != null) {
+                    refused[3] = feiCtrl.refused();
+                    muctPerPerson = detectedPerPerson(ctrl);
+                    feiPerPerson = detectedPerPerson(feiCtrl);
+                }
             }
             double[] valScores = val.detected();
             double[] valAScores = valA.detected();
@@ -792,6 +798,8 @@ public final class GalleryEvaluation {
                     ownRej[a] + gtRej[a], ownAtt + gtAtt, pct(ownRej[a] + gtRej[a], ownAtt + gtAtt)));
             for (int k : order) {
                 text.append("    FAR ").append(rows[k]).append(": ").append(farText(farCfg[k][a])).append('\n');
+                // С FEI — по каждой конфигурации для FEI и MUCT все камеры (для сравнения) и снимков на человека.
+                if (withFei && (k == 0 || k == 3)) text.append(perConfigText(farCfg[k][a], k == 0 ? muctPerPerson : feiPerPerson));
             }
         }
     }
@@ -820,6 +828,25 @@ public final class GalleryEvaluation {
                 + "(↑95 %s %%), медиана %d/%d (↑95 %s %%); сумма по 12 конфигурациям справочно %d/%d",
                 w[0], w[1], ub(w[0], w[1]), m[0], m[1], ub(m[0], m[1]), wp[2], wp[3], ub(wp[2], wp[3]), mp[2], mp[3], ub(mp[2], mp[3]),
                 sumX, sumN);
+    }
+
+    /** Число снимков с детекцией у каждого чужого (по возрастанию). */
+    static int[] detectedPerPerson(Impostors imp) {
+        return imp.byPerson().values().stream().mapToInt(v -> (int) Arrays.stream(v).filter(x -> !Double.isNaN(x)).count()).sorted()
+                .toArray();
+    }
+
+    /** FAR по каждой конфигурации: люди и попытки; снимков на человека (с детекцией) — мин / медиана / макс. */
+    static String perConfigText(int[][] cfg, int[] perPerson) {
+        StringBuilder p = new StringBuilder();
+        StringBuilder t = new StringBuilder();
+        for (int i = 0; i < cfg.length; i++) {
+            p.append(i == 0 ? "" : ", ").append(cfg[i][2]);
+            t.append(i == 0 ? "" : ", ").append(cfg[i][0]);
+        }
+        return String.format(Locale.ROOT, "      по конфигурациям 0–%d: люди %s (из %d); попытки %s (из %d); снимков на человека мин %d / "
+                + "медиана %d / макс %d%n", cfg.length - 1, p, cfg[0][3], t, cfg[0][1], perPerson[0], perPerson[perPerson.length / 2],
+                perPerson[perPerson.length - 1]);
     }
 
     static String ub(int x, int n) {
@@ -871,8 +898,8 @@ public final class GalleryEvaluation {
         if (!fei.isEmpty()) {
             int[] pp = fei.values().stream().mapToInt(List::size).sorted().toArray();
             text.append(String.format(Locale.ROOT, "Чужие FEI (второй независимый контроль, только FAR; не входят ни в обучение, ни в порог): "
-                    + "%d человек, %d исходных снимков (на человека мин %d / медиана %d / макс %d): %s — по сопоставлению со справочными\n"
-                    + "  frontalimages_manuallyaligned, всегда; остальные — поза |r| ≤ R = %.4f (r — смещение носа от середины глаз в долях "
+                    + "%d человек, %d исходных снимков (на человека мин %d / медиана %d / макс %d): %s (справочные\n"
+                    + "  frontalimages_manuallyaligned), всегда; остальные — поза |r| ≤ R = %.4f (r — смещение носа от середины глаз в долях "
                     + "межглазья по точкам YuNet;\n  R — 95-й процентиль |r| своей базы, %d снимков; максимум своей базы %.4f). Условия FEI — "
                     + "только исследовательские цели (Thomaz, Giraldi, 2010).%n",
                     fei.size(), Arrays.stream(pp).sum(), pp[0], pp[pp.length / 2], pp[pp.length - 1], feiInfo.ab(), feiInfo.r(), feiInfo.ownN(),
