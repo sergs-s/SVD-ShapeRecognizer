@@ -157,6 +157,21 @@
                             </arguments>
                         </configuration>
                     </execution>
+                    <!-- Экспорт выровненных кадров для облака: mvn compile exec:exec@faces-export
+                         (каталог — faces.export.dir / FACES_EXPORT_DIR; детекции — кэш faces-far, пересчёт: -Dfar.args=fresh) -->
+                    <execution>
+                        <id>faces-export</id>
+                        <configuration>
+                            <executable>${java.home}/bin/java</executable>
+                            <arguments>
+                                <argument>-Xmx6g</argument>
+                                <argument>-classpath</argument>
+                                <classpath/>
+                                <argument>svd.recognizer.faces.FarExport</argument>
+                                <argument>${far.args}</argument>
+                            </arguments>
+                        </configuration>
+                    </execution>
                 </executions>
             </plugin>
         </plugins>

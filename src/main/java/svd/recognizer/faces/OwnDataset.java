@@ -121,6 +121,11 @@ public final class OwnDataset {
         return new OwnDataset(root, List.copyOf(persons));
     }
 
+    /** Набор из готового списка людей (восстановление из экспорта, FarExport; снимки не читаются). */
+    static OwnDataset of(Path root, List<Person> persons) {
+        return new OwnDataset(root, List.copyOf(persons));
+    }
+
     public Path root() {
         return root;
     }

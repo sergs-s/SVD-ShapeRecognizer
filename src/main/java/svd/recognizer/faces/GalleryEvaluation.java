@@ -123,91 +123,53 @@ public final class GalleryEvaluation {
         long seed = settings.loadFacesSeed();
         float score = settings.loadFacesOwnDetectorScore();
         Path modelsDir = Paths.get(settings.loadFacesModelsDir());
-        OwnDataset own = OwnDataset.load(Paths.get(settings.loadFacesOwnDir()));
-        List<List<OwnDataset.Moment>> moments = new ArrayList<>();
-        for (OwnDataset.Person p : own.persons()) moments.add(p.usableMoments());
+        // При заданном faces.export.dir все четыре базы — из экспорта (FarExport): сырые снимки не читаются.
+        String exportDir = settings.loadFacesExportDir();
+        FarExport.Loaded export = exportDir == null ? null : FarExport.read(Paths.get(exportDir));
+        Data data = export == null ? rawData(settings) : export.data();
+        OwnDataset own = data.own();
+        List<List<OwnDataset.Moment>> moments = data.moments();
+        Map<String, List<Sample>> gt = data.gt();
+        Map<String, List<Sample>> muct = data.muct();
+        Map<String, List<Sample>> orl = data.orl();
+        List<Sample> samples = data.samples();
 
-        // Снимки всех баз.
-        List<Sample> samples = new ArrayList<>();
-        for (int p = 0; p < own.persons().size(); p++) {
-            Map<Path, Sample> m = new LinkedHashMap<>();
-            for (OwnDataset.Moment mo : moments.get(p)) {
-                m.put(mo.representative().file(), new Sample(Base.OWN, own.persons().get(p).name(), mo.representative().file(), ' '));
-                for (OwnDataset.Frame f : mo.frames()) {
-                    if (f.quality() >= OwnDataset.FAIR) m.put(f.file(), new Sample(Base.OWN, own.persons().get(p).name(), f.file(), ' '));
-                }
-            }
-            samples.addAll(m.values());
-        }
-        Map<String, List<Sample>> gt = listGt(Paths.get(settings.loadFacesGtDir()));
-        Map<String, List<Sample>> muct = listMuct(Paths.get(settings.loadFacesMuctDir()));
-        Map<String, List<Sample>> orl = new TreeMap<>();
-        Path orlDir = Paths.get(settings.loadFacesDatasetDir());
-        for (int p = 1; p <= OrlDataset.PERSONS; p++) {
-            List<Sample> list = new ArrayList<>();
-            for (int i = 1; i <= OrlDataset.IMAGES_PER_PERSON; i++) {
-                list.add(new Sample(Base.ORL, String.format(Locale.ROOT, "s%02d", p), orlDir.resolve("s" + p).resolve(i + ".pgm"), ' '));
-            }
-            orl.put(String.format(Locale.ROOT, "s%02d", p), list);
-        }
-        gt.values().forEach(samples::addAll);
-        muct.values().forEach(samples::addAll);
-        orl.values().forEach(samples::addAll);
-
-        // Детекция и признаки (кэш).
+        // Детекция (кэш) — только по сырым снимкам; в экспорте отказы детектора уже записаны.
         Path outDir = Paths.get(System.getProperty("user.dir"), "reports", "faces", "far");
         Files.createDirectories(outDir);
-        Path cacheFile = outDir.resolve(CACHE_NAME);
-        String signature = signature(samples, score, settings);
         boolean fresh = args.length > 0 && args[0].equals("fresh");
-        Map<String, Det> dets = fresh ? null : loadCache(cacheFile, signature);
-        long detTime;
-        if (dets == null) {
-            dets = new LinkedHashMap<>();
-            FaceDetectorYN detector = OwnDetectorThreshold.create(modelsDir, score);
-            long t0 = System.nanoTime();
-            int done = 0;
-            for (Sample s : samples) {
-                dets.put(s.file().toString(), detect(s, detector));
-                if (++done % 250 == 0) System.out.println("Детекция: " + done + "/" + samples.size());
-            }
-            detTime = System.nanoTime() - t0;
-            saveCache(cacheFile, signature, dets, detTime);
-        } else {
-            detTime = cachedDetTime;
+        Map<String, Det> dets = null;
+        long detTime = 0;
+        if (export == null) {
+            dets = detections(samples, score, settings, modelsDir, outDir, fresh);
+            detTime = lastDetTime;
         }
         FaceRecognizerSF sface = FaceRecognizerSF.create(modelsDir.resolve(FaceAlignment.SFACE_FILE).toString(), "");
 
         // Разбиения.
-        List<String> gtPersons = new ArrayList<>(gt.keySet());
-        List<List<List<Integer>>> gtTrain = new ArrayList<>();
-        for (int s = 0; s < GT_SPLITS; s++) {
-            Random rnd = new Random(seed + s);
-            List<List<Integer>> perPerson = new ArrayList<>();
-            for (String p : gtPersons) {
-                List<Integer> idx = new ArrayList<>();
-                for (int i = 0; i < gt.get(p).size(); i++) idx.add(i);
-                Collections.shuffle(idx, rnd);
-                perPerson.add(idx.subList(0, GT_TRAIN));
-            }
-            gtTrain.add(perPerson);
-        }
-        List<String> muctPersons = new ArrayList<>(muct.keySet());
-        Collections.shuffle(muctPersons, new Random(seed));
-        List<String> muctVal = muctPersons.subList(0, muctPersons.size() / 2);
-        List<String> muctCtrl = muctPersons.subList(muctPersons.size() / 2, muctPersons.size());
+        Splits splits = splits(gt, muct, seed);
+        if (export != null) export.checkSplits(splits);
+        List<String> gtPersons = splits.gtPersons();
+        List<List<List<Integer>>> gtTrain = splits.gtTrain();
+        List<String> muctVal = splits.muctVal();
+        List<String> muctCtrl = splits.muctCtrl();
 
         StringBuilder text = new StringBuilder();
         header(text, own, moments, gt, muct, orl, muctVal, muctCtrl, null, samples, score, seed);
         SubspaceTrainer trainer = new SubspaceTrainer(new CommonsMathSvdEngine());
         int n = samples.size();
         StringBuilder timeText = new StringBuilder();
-        timeText.append(String.format(Locale.ROOT, "Детекция (два прохода YuNet), на снимок: %.0f мс (снимков %d; при запуске "
-                + "из кэша — время исходного прогона).%n", detTime / 1e6 / n, n));
-        // По одному варианту: векторы строятся из детекций и освобождаются после оценки.
+        if (export == null) {
+            timeText.append(String.format(Locale.ROOT, "Детекция (два прохода YuNet), на снимок: %.0f мс (снимков %d; при запуске "
+                    + "из кэша — время исходного прогона).%n", detTime / 1e6 / n, n));
+        } else {
+            timeText.append(String.format(Locale.ROOT, "Базы — из экспорта %s (снимков %d; детекция не выполнялась, векторы — "
+                    + "из PNG).%n", exportDir, n));
+        }
+        // По одному варианту: векторы строятся из детекций (или из PNG экспорта) и освобождаются после оценки.
         for (Variant v : Variant.values()) {
             long t0 = System.nanoTime();
-            Map<String, Feat> feats = vectors(samples, dets, v, sface);
+            Map<String, Feat> feats = export == null ? vectors(samples, dets, v, sface) : export.vectors(samples, v, sface);
             long tv = System.nanoTime() - t0;
             System.out.printf(Locale.ROOT, "%s: векторы %.0f с%n", v.label, tv / 1e9);
             long te = 0;
@@ -235,6 +197,73 @@ public final class GalleryEvaluation {
     }
 
     // ---------------------------------------------------------------- базы
+
+    /** Базы оценки: своя база и её пригодные моменты, GT, MUCT, ORL (человек → снимки) и все снимки по порядку. */
+    record Data(OwnDataset own, List<List<OwnDataset.Moment>> moments, Map<String, List<Sample>> gt,
+                Map<String, List<Sample>> muct, Map<String, List<Sample>> orl, List<Sample> samples) {}
+
+    /** Базы из сырых снимков (пути — SettingsStore). */
+    static Data rawData(SettingsStore settings) throws IOException {
+        OwnDataset own = OwnDataset.load(Paths.get(settings.loadFacesOwnDir()));
+        Map<String, List<Sample>> gt = listGt(Paths.get(settings.loadFacesGtDir()));
+        Map<String, List<Sample>> muct = listMuct(Paths.get(settings.loadFacesMuctDir()));
+        Map<String, List<Sample>> orl = new TreeMap<>();
+        Path orlDir = Paths.get(settings.loadFacesDatasetDir());
+        for (int p = 1; p <= OrlDataset.PERSONS; p++) {
+            List<Sample> list = new ArrayList<>();
+            for (int i = 1; i <= OrlDataset.IMAGES_PER_PERSON; i++) {
+                list.add(new Sample(Base.ORL, String.format(Locale.ROOT, "s%02d", p), orlDir.resolve("s" + p).resolve(i + ".pgm"), ' '));
+            }
+            orl.put(String.format(Locale.ROOT, "s%02d", p), list);
+        }
+        return data(own, gt, muct, orl);
+    }
+
+    /** Снимки всех баз: своя (пригодные моменты — представитель и кадры «+», «+-»), GT, MUCT, ORL. */
+    static Data data(OwnDataset own, Map<String, List<Sample>> gt, Map<String, List<Sample>> muct, Map<String, List<Sample>> orl) {
+        List<List<OwnDataset.Moment>> moments = new ArrayList<>();
+        for (OwnDataset.Person p : own.persons()) moments.add(p.usableMoments());
+        List<Sample> samples = new ArrayList<>();
+        for (int p = 0; p < own.persons().size(); p++) {
+            Map<Path, Sample> m = new LinkedHashMap<>();
+            for (OwnDataset.Moment mo : moments.get(p)) {
+                m.put(mo.representative().file(), new Sample(Base.OWN, own.persons().get(p).name(), mo.representative().file(), ' '));
+                for (OwnDataset.Frame f : mo.frames()) {
+                    if (f.quality() >= OwnDataset.FAIR) m.put(f.file(), new Sample(Base.OWN, own.persons().get(p).name(), f.file(), ' '));
+                }
+            }
+            samples.addAll(m.values());
+        }
+        gt.values().forEach(samples::addAll);
+        muct.values().forEach(samples::addAll);
+        orl.values().forEach(samples::addAll);
+        return new Data(own, moments, gt, muct, orl, samples);
+    }
+
+    /** Разбиения: GT — обучающие индексы по разбиениям и людям; MUCT — валидация и контроль по людям. */
+    record Splits(List<String> gtPersons, List<List<List<Integer>>> gtTrain, List<String> muctVal, List<String> muctCtrl) {}
+
+    /** GT: разбиение s — seed + s, 5 обучающих на человека; MUCT: люди перемешаны по seed, пополам. */
+    static Splits splits(Map<String, List<Sample>> gt, Map<String, List<Sample>> muct, long seed) {
+        List<String> gtPersons = new ArrayList<>(gt.keySet());
+        List<List<List<Integer>>> gtTrain = new ArrayList<>();
+        for (int s = 0; s < GT_SPLITS; s++) {
+            Random rnd = new Random(seed + s);
+            List<List<Integer>> perPerson = new ArrayList<>();
+            for (String p : gtPersons) {
+                List<Integer> idx = new ArrayList<>();
+                for (int i = 0; i < gt.get(p).size(); i++) idx.add(i);
+                Collections.shuffle(idx, rnd);
+                perPerson.add(idx.subList(0, GT_TRAIN));
+            }
+            gtTrain.add(perPerson);
+        }
+        List<String> muctPersons = new ArrayList<>(muct.keySet());
+        Collections.shuffle(muctPersons, new Random(seed));
+        List<String> muctVal = muctPersons.subList(0, muctPersons.size() / 2);
+        List<String> muctCtrl = muctPersons.subList(muctPersons.size() / 2, muctPersons.size());
+        return new Splits(gtPersons, gtTrain, muctVal, muctCtrl);
+    }
 
     static Map<String, List<Sample>> listGt(Path dir) throws IOException {
         return toSamples(ExternalDatasets.georgiaTech(dir), Base.GT);
@@ -300,6 +329,32 @@ public final class GalleryEvaluation {
         }
     }
 
+    /** Время детекции последнего вызова detections (из кэша — время исходного прогона). */
+    static long lastDetTime;
+
+    /** Детекции всех снимков: из кэша reports/faces/far/far_detections.cache или заново (fresh) с записью кэша. */
+    static Map<String, Det> detections(List<Sample> samples, float score, SettingsStore settings, Path modelsDir, Path outDir,
+                                       boolean fresh) throws IOException {
+        Path cacheFile = outDir.resolve(CACHE_NAME);
+        String signature = signature(samples, score, settings);
+        Map<String, Det> dets = fresh ? null : loadCache(cacheFile, signature);
+        if (dets == null) {
+            dets = new LinkedHashMap<>();
+            FaceDetectorYN detector = OwnDetectorThreshold.create(modelsDir, score);
+            long t0 = System.nanoTime();
+            int done = 0;
+            for (Sample s : samples) {
+                dets.put(s.file().toString(), detect(s, detector));
+                if (++done % 250 == 0) System.out.println("Детекция: " + done + "/" + samples.size());
+            }
+            lastDetTime = System.nanoTime() - t0;
+            saveCache(cacheFile, signature, dets, lastDetTime);
+        } else {
+            lastDetTime = cachedDetTime;
+        }
+        return dets;
+    }
+
     /** Векторы одного варианта для всех снимков (по детекциям); остальные варианты не строятся. */
     static Map<String, Feat> vectors(List<Sample> samples, Map<String, Det> dets, Variant v, FaceRecognizerSF sface) throws IOException {
         Map<String, Feat> feats = new LinkedHashMap<>();
@@ -321,54 +376,68 @@ public final class GalleryEvaluation {
 
     /** Вектор снимка для варианта v по строке детекции row (координаты полного снимка). */
     static double[] vector(Sample s, double[] row, Variant v, FaceRecognizerSF sface) throws IOException {
-        double scale = scale(s);
         Mat[] m = load(s);
         try {
-            double[][] lmFull = new double[5][2];
-            double[][] lmSmall = new double[5][2];
-            for (int j = 0; j < 5; j++) {
-                lmFull[j][0] = row[4 + 2 * j];
-                lmFull[j][1] = row[5 + 2 * j];
-                lmSmall[j][0] = lmFull[j][0] * scale;
-                lmSmall[j][1] = lmFull[j][1] * scale;
-            }
-            switch (v) {
-                case A -> {
-                    Mat inputGray = new Mat();
-                    Imgproc.cvtColor(m[1], inputGray, Imgproc.COLOR_BGR2GRAY);
-                    Mat a = new Mat();
-                    Imgproc.warpAffine(inputGray, a, FaceAlignment.similarity(lmSmall, FaceAlignment.ownTemplate(92, 112)),
-                            new Size(92, 112), Imgproc.INTER_LINEAR, Core.BORDER_REPLICATE);
-                    inputGray.release();
-                    return FaceAlignment.toVector(a);
-                }
-                case B, C -> {
-                    int w = v == Variant.B ? 92 : 184;
-                    int h = v == Variant.B ? 112 : 224;
-                    Mat fullGray = new Mat();
-                    Imgproc.cvtColor(m[0], fullGray, Imgproc.COLOR_BGR2GRAY);
-                    double[] x = FaceAlignment.toVector(fromFull(fullGray, lmFull, FaceAlignment.ownTemplate(w, h), w, h));
-                    fullGray.release();
-                    return x;
-                }
-                default -> {
-                    Mat smallRow = new Mat(1, 15, CvType.CV_32F);
-                    for (int j = 0; j < 15; j++) smallRow.put(0, j, j == 14 ? row[j] : row[j] * scale);
-                    Mat crop = new Mat();
-                    sface.alignCrop(m[1], smallRow, crop);
-                    Mat feature = new Mat();
-                    sface.feature(crop, feature);
-                    Mat f64 = new Mat();
-                    feature.convertTo(f64, CvType.CV_64F);
-                    double[] x = new double[(int) f64.total()];
-                    f64.get(0, 0, x);
-                    OwnEvaluation.normalize(x);
-                    return x;
-                }
-            }
+            return vector(frame(s, m, row, v, sface), v, sface);
         } finally {
             release(m);
         }
+    }
+
+    /**
+     * Кадр снимка для варианта v (m — {полный, вход} из load): а, б, в — серый 8 бит (92×112, 92×112, 184×224),
+     * SFace — alignCrop 112×112 BGR. Эти кадры FarExport пишет в PNG без потерь.
+     */
+    static Mat frame(Sample s, Mat[] m, double[] row, Variant v, FaceRecognizerSF sface) {
+        double scale = scale(s);
+        double[][] lmFull = new double[5][2];
+        double[][] lmSmall = new double[5][2];
+        for (int j = 0; j < 5; j++) {
+            lmFull[j][0] = row[4 + 2 * j];
+            lmFull[j][1] = row[5 + 2 * j];
+            lmSmall[j][0] = lmFull[j][0] * scale;
+            lmSmall[j][1] = lmFull[j][1] * scale;
+        }
+        switch (v) {
+            case A -> {
+                Mat inputGray = new Mat();
+                Imgproc.cvtColor(m[1], inputGray, Imgproc.COLOR_BGR2GRAY);
+                Mat a = new Mat();
+                Imgproc.warpAffine(inputGray, a, FaceAlignment.similarity(lmSmall, FaceAlignment.ownTemplate(92, 112)),
+                        new Size(92, 112), Imgproc.INTER_LINEAR, Core.BORDER_REPLICATE);
+                inputGray.release();
+                return a;
+            }
+            case B, C -> {
+                int w = v == Variant.B ? 92 : 184;
+                int h = v == Variant.B ? 112 : 224;
+                Mat fullGray = new Mat();
+                Imgproc.cvtColor(m[0], fullGray, Imgproc.COLOR_BGR2GRAY);
+                Mat out = fromFull(fullGray, lmFull, FaceAlignment.ownTemplate(w, h), w, h);
+                fullGray.release();
+                return out;
+            }
+            default -> {
+                Mat smallRow = new Mat(1, 15, CvType.CV_32F);
+                for (int j = 0; j < 15; j++) smallRow.put(0, j, j == 14 ? row[j] : row[j] * scale);
+                Mat crop = new Mat();
+                sface.alignCrop(m[1], smallRow, crop);
+                return crop;
+            }
+        }
+    }
+
+    /** Вектор по кадру варианта v: а, б, в — пиксели /255; SFace — признак feature(), нормированный. */
+    static double[] vector(Mat frame, Variant v, FaceRecognizerSF sface) {
+        if (v != Variant.SFACE) return FaceAlignment.toVector(frame);
+        Mat feature = new Mat();
+        sface.feature(frame, feature);
+        Mat f64 = new Mat();
+        feature.convertTo(f64, CvType.CV_64F);
+        double[] x = new double[(int) f64.total()];
+        f64.get(0, 0, x);
+        OwnEvaluation.normalize(x);
+        return x;
     }
 
     /** Кадр из полного разрешения: снимок масштабируется до масштаба подобия (INTER_AREA / INTER_LINEAR), затем warpAffine. */

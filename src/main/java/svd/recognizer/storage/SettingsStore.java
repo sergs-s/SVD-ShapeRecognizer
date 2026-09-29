@@ -7,6 +7,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.EnumMap;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Properties;
 import svd.recognizer.model.RecognitionMode;
@@ -45,7 +46,6 @@ public class SettingsStore {
     private static final String KEY_FACES_DATASET_DIR = "faces.dataset.dir";
     private static final String KEY_FACES_SEED = "faces.seed";
     private static final String KEY_FACES_TRAIN_PER_PERSON = "faces.train.per.person";
-    private static final String DEFAULT_FACES_DATASET_DIR = "D:\\data\\ORL";
     private static final String KEY_FACES_FRAME_WIDTH = "faces.frame.width";
     private static final String KEY_FACES_FRAME_HEIGHT = "faces.frame.height";
     private static final int DEFAULT_FACES_FRAME_WIDTH = 92;
@@ -55,13 +55,10 @@ public class SettingsStore {
     private static final String KEY_FACES_OWN_DETECTOR_SCORE = "faces.own.detector.score";
     private static final float DEFAULT_FACES_OWN_DETECTOR_SCORE = 0.7f;
     private static final String KEY_FACES_GT_DIR = "faces.gt.dir";
-    private static final String DEFAULT_FACES_GT_DIR = "D:\\data\\GeorgiaTech\\gt_db";
     private static final String KEY_FACES_MUCT_DIR = "faces.muct.dir";
-    private static final String DEFAULT_FACES_MUCT_DIR = "D:\\data\\MUCT\\jpg";
     private static final String KEY_FACES_OWN_DIR = "faces.own.dir";
-    private static final String DEFAULT_FACES_OWN_DIR = "D:\\data\\SpiiranDataSet";
     private static final String KEY_FACES_MODELS_DIR = "faces.models.dir";
-    private static final String DEFAULT_FACES_MODELS_DIR = "D:\\data\\models\\opencv_zoo";
+    private static final String KEY_FACES_EXPORT_DIR = "faces.export.dir";
     private static final long DEFAULT_FACES_SEED = 42L;
     private static final int DEFAULT_FACES_TRAIN_PER_PERSON = 5;
 
@@ -223,11 +220,11 @@ public class SettingsStore {
     /**
      * Загружает путь к папке базы лиц ORL (структура sX/Y.pgm).
      *
-     * @return путь к базе (по умолчанию D:\data\ORL)
+     * @return путь к базе (переменная окружения FACES_DATASET_DIR или settings.properties)
+     * @throws IllegalStateException если путь не задан
      */
     public String loadFacesDatasetDir() {
-        String raw = loadProperties().getProperty(KEY_FACES_DATASET_DIR);
-        return (raw != null && !raw.isBlank()) ? raw : DEFAULT_FACES_DATASET_DIR;
+        return requiredPath(KEY_FACES_DATASET_DIR);
     }
 
     /**
@@ -311,41 +308,79 @@ public class SettingsStore {
     /**
      * Загружает путь к Georgia Tech Face Database (папки s01…s50, вне git).
      *
-     * @return путь (по умолчанию D:\data\GeorgiaTech\gt_db)
+     * @return путь (FACES_GT_DIR или settings.properties)
+     * @throws IllegalStateException если путь не задан
      */
     public String loadFacesGtDir() {
-        String raw = loadProperties().getProperty(KEY_FACES_GT_DIR);
-        return (raw != null && !raw.isBlank()) ? raw : DEFAULT_FACES_GT_DIR;
+        return requiredPath(KEY_FACES_GT_DIR);
     }
 
     /**
      * Загружает путь к снимкам MUCT (папка jpg, вне git).
      *
-     * @return путь (по умолчанию D:\data\MUCT\jpg)
+     * @return путь (FACES_MUCT_DIR или settings.properties)
+     * @throws IllegalStateException если путь не задан
      */
     public String loadFacesMuctDir() {
-        String raw = loadProperties().getProperty(KEY_FACES_MUCT_DIR);
-        return (raw != null && !raw.isBlank()) ? raw : DEFAULT_FACES_MUCT_DIR;
+        return requiredPath(KEY_FACES_MUCT_DIR);
     }
 
     /**
      * Загружает путь к своей базе лиц (папки людей с JPEG, вне git).
      *
-     * @return путь к базе (по умолчанию D:\data\SpiiranDataSet)
+     * @return путь к базе (FACES_OWN_DIR или settings.properties)
+     * @throws IllegalStateException если путь не задан
      */
     public String loadFacesOwnDir() {
-        String raw = loadProperties().getProperty(KEY_FACES_OWN_DIR);
-        return (raw != null && !raw.isBlank()) ? raw : DEFAULT_FACES_OWN_DIR;
+        return requiredPath(KEY_FACES_OWN_DIR);
     }
 
     /**
      * Загружает путь к папке моделей opencv_zoo (YuNet, SFace; ONNX, вне git).
      *
-     * @return путь к моделям (по умолчанию D:\data\models\opencv_zoo)
+     * @return путь к моделям (FACES_MODELS_DIR или settings.properties)
+     * @throws IllegalStateException если путь не задан
      */
     public String loadFacesModelsDir() {
-        String raw = loadProperties().getProperty(KEY_FACES_MODELS_DIR);
-        return (raw != null && !raw.isBlank()) ? raw : DEFAULT_FACES_MODELS_DIR;
+        return requiredPath(KEY_FACES_MODELS_DIR);
+    }
+
+    /**
+     * Загружает путь к экспорту выровненных кадров (репозиторий данных SVD-faces-data): FarExport пишет туда,
+     * GalleryEvaluation при заданном ключе читает все базы оттуда. Ключ необязательный.
+     *
+     * @return путь (FACES_EXPORT_DIR или settings.properties) или null, если не задан
+     */
+    public String loadFacesExportDir() {
+        return path(KEY_FACES_EXPORT_DIR);
+    }
+
+    /**
+     * Путь по ключу: переменная окружения (ключ заглавными, точки — подчёркивания: faces.gt.dir →
+     * FACES_GT_DIR), иначе settings.properties; null — не задан нигде.
+     */
+    private String path(String key) {
+        String env = System.getenv(envName(key));
+        if (env != null && !env.isBlank()) {
+            return env;
+        }
+        String raw = loadProperties().getProperty(key);
+        return (raw != null && !raw.isBlank()) ? raw : null;
+    }
+
+    /** Обязательный путь; незаданный — ошибка, путей по умолчанию нет. */
+    private String requiredPath(String key) {
+        String value = path(key);
+        if (value == null) {
+            throw new IllegalStateException("Не задан путь " + key + " (settings.properties) и переменная окружения "
+                    + envName(key));
+        }
+        return value;
+    }
+
+    /** Имя переменной окружения для ключа: faces.gt.dir → FACES_GT_DIR. */
+    static String envName(String key) {
+        return key.toUpperCase(Locale.ROOT).replace('.', '_');
     }
 
     /**

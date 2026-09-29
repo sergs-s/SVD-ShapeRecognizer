@@ -300,6 +300,18 @@ mvn compile exec:java@faces-eval   # оценка на лицах ORL -> reports
   `faces-own-eval` с `fresh` в процессе Maven занимает до 17 ГБ (нативные Mat
   кадров 4000×3000 не освобождаются до сборки мусора) — запускать в
   отдельной JVM с `-Xmx2g`.
+- Пути баз и моделей (`faces.dataset.dir`, `faces.gt.dir`, `faces.muct.dir`,
+  `faces.own.dir`, `faces.models.dir`) — только в `settings.properties`, путей
+  по умолчанию в коде нет (незаданный — ошибка); каждый ключ переопределяется
+  переменной окружения (`faces.gt.dir` → `FACES_GT_DIR` и т. д.).
+- Экспорт выровненных кадров для облака: `mvn compile exec:exec@faces-export`
+  (`FarExport`, каталог — `faces.export.dir` / `FACES_EXPORT_DIR`, детекции —
+  кэш faces-far): PNG вариантов а/б/в и входа SFace для своей базы, GT, MUCT,
+  ORL, `detections.tsv`, `own_moments.tsv`, `splits.tsv`, `MANIFEST.txt`,
+  `README.md`. При заданном `faces.export.dir` `faces-far` читает все четыре
+  базы из экспорта (сырые снимки не нужны), отчёт побайтно тот же. Локально
+  экспорт — `D:\data\SVD-faces-data` (ключ в `settings.properties` не
+  задан, передаётся переменной окружения).
 - Подписи на картинках OpenCV (`putText`) — только латиницей: шрифты
   Hershey не рисуют кириллицу.
 
