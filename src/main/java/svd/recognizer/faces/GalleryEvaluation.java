@@ -782,15 +782,15 @@ public final class GalleryEvaluation {
                 sumX, sumN);
     }
 
-    private static String ub(int x, int n) {
+    static String ub(int x, int n) {
         return String.format(Locale.ROOT, "%.2f", 100 * FaceEvaluation.binomialUpperBound(x, n, FaceEvaluation.CONFIDENCE));
     }
 
-    private static String pct(int x, int n) {
+    static String pct(int x, int n) {
         return n == 0 ? "—" : String.format(Locale.ROOT, "%.1f", 100.0 * x / n);
     }
 
-    private static String q(List<Double> v, double p) {
+    static String q(List<Double> v, double p) {
         if (v.isEmpty()) return "—";
         double[] d = v.stream().mapToDouble(Double::doubleValue).sorted().toArray();
         return String.format(Locale.ROOT, "%+.4f", d[(int) Math.round(p * (d.length - 1))]);
@@ -798,10 +798,10 @@ public final class GalleryEvaluation {
 
     // ---------------------------------------------------------------- шапка
 
-    private static void header(StringBuilder text, OwnDataset own, List<List<OwnDataset.Moment>> moments,
-                               Map<String, List<Sample>> gt, Map<String, List<Sample>> muct, Map<String, List<Sample>> orl,
-                               List<String> muctVal, List<String> muctCtrl, Map<String, Feat> feats, List<Sample> samples,
-                               float score, long seed) {
+    static void header(StringBuilder text, OwnDataset own, List<List<OwnDataset.Moment>> moments,
+                       Map<String, List<Sample>> gt, Map<String, List<Sample>> muct, Map<String, List<Sample>> orl,
+                       List<String> muctVal, List<String> muctCtrl, Map<String, Feat> feats, List<Sample> samples,
+                       float score, long seed) {
         text.append("FAR и FRR на расширенной галерее (шаг 5, задача FAR)\n");
         text.append("Оговорки:\n");
         text.append("  - чужие MUCT сняты в лаборатории (вебкамеры, 480×640), свои — телефоном (4000×3000): чужие отличаются\n"

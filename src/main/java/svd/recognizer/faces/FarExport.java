@@ -168,6 +168,12 @@ public final class FarExport {
             }
         }
 
+        /** Кадр снимка варианта v из PNG без векторизации (FarMethods); отказ детектора — null. */
+        Mat frame(Sample s, Variant v) throws IOException {
+            String key = s.file().toString();
+            return found.get(key) ? readPng(dir.resolve(dirName(v)).resolve(key + ".png"), v == Variant.SFACE) : null;
+        }
+
         /** Векторы одного варианта из PNG (отказ детектора — Feat.NONE). */
         Map<String, Feat> vectors(List<Sample> samples, Variant v, FaceRecognizerSF sface) throws IOException {
             Map<String, Feat> feats = new LinkedHashMap<>();

@@ -6,7 +6,9 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.ArrayList;
 import java.util.EnumMap;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Properties;
@@ -413,5 +415,111 @@ public class SettingsStore {
             }
         }
         return DEFAULT_FACES_TRAIN_PER_PERSON;
+    }
+
+    // ---------------------------------------------------------------- шаг 5, отсечение чужих (FarMethods)
+
+    private static final String KEY_FACES_FAR_METHODS = "faces.far.methods";
+    private static final String KEY_FACES_CLAHE_CLIP = "faces.clahe.clip";
+    private static final double DEFAULT_FACES_CLAHE_CLIP = 2.0;
+    private static final String KEY_FACES_CLAHE_TILE = "faces.clahe.tile";
+    private static final int DEFAULT_FACES_CLAHE_TILE = 8;
+    private static final String KEY_FACES_TT_GAMMA = "faces.tt.gamma";
+    private static final double DEFAULT_FACES_TT_GAMMA = 0.2;
+    private static final String KEY_FACES_TT_SIGMA0 = "faces.tt.sigma0";
+    private static final double DEFAULT_FACES_TT_SIGMA0 = 1.0;
+    private static final String KEY_FACES_TT_SIGMA1 = "faces.tt.sigma1";
+    private static final double DEFAULT_FACES_TT_SIGMA1 = 2.0;
+    private static final String KEY_FACES_TT_ALPHA = "faces.tt.alpha";
+    private static final double DEFAULT_FACES_TT_ALPHA = 0.1;
+    private static final String KEY_FACES_TT_TAU = "faces.tt.tau";
+    private static final double DEFAULT_FACES_TT_TAU = 10.0;
+
+    /**
+     * Значение по ключу: переменная окружения (правило {@link #envName}), иначе settings.properties;
+     * null — не задано нигде.
+     *
+     * @param key ключ settings.properties
+     * @return значение или null
+     */
+    public String setting(String key) {
+        return path(key);
+    }
+
+    /**
+     * Загружает список конфигураций FarMethods (faces.far.methods / FACES_FAR_METHODS, через запятую).
+     *
+     * @return идентификаторы; пустой список — все конфигурации
+     */
+    public List<String> loadFacesFarMethods() {
+        String raw = setting(KEY_FACES_FAR_METHODS);
+        List<String> list = new ArrayList<>();
+        if (raw != null) {
+            for (String s : raw.split(",")) {
+                if (!s.isBlank()) list.add(s.trim());
+            }
+        }
+        return list;
+    }
+
+    /** @return предел усиления контраста CLAHE (по умолчанию 2,0) */
+    public double loadFacesClaheClip() {
+        return positiveDouble(KEY_FACES_CLAHE_CLIP, DEFAULT_FACES_CLAHE_CLIP);
+    }
+
+    /** @return число клеток CLAHE по стороне (по умолчанию 8) */
+    public int loadFacesClaheTile() {
+        String raw = setting(KEY_FACES_CLAHE_TILE);
+        if (raw == null) return DEFAULT_FACES_CLAHE_TILE;
+        int value;
+        try {
+            value = Integer.parseInt(raw.trim());
+        } catch (NumberFormatException e) {
+            throw new IllegalArgumentException(KEY_FACES_CLAHE_TILE + " должно быть целым числом, получено «" + raw + "»", e);
+        }
+        if (value <= 0) {
+            throw new IllegalArgumentException(KEY_FACES_CLAHE_TILE + " должно быть положительным, получено " + value);
+        }
+        return value;
+    }
+
+    /** @return показатель гамма-коррекции Tan – Triggs (по умолчанию 0,2) */
+    public double loadFacesTtGamma() {
+        return positiveDouble(KEY_FACES_TT_GAMMA, DEFAULT_FACES_TT_GAMMA);
+    }
+
+    /** @return σ₀ разности гауссианов Tan – Triggs (по умолчанию 1,0) */
+    public double loadFacesTtSigma0() {
+        return positiveDouble(KEY_FACES_TT_SIGMA0, DEFAULT_FACES_TT_SIGMA0);
+    }
+
+    /** @return σ₁ разности гауссианов Tan – Triggs (по умолчанию 2,0) */
+    public double loadFacesTtSigma1() {
+        return positiveDouble(KEY_FACES_TT_SIGMA1, DEFAULT_FACES_TT_SIGMA1);
+    }
+
+    /** @return показатель α выравнивания контраста Tan – Triggs (по умолчанию 0,1) */
+    public double loadFacesTtAlpha() {
+        return positiveDouble(KEY_FACES_TT_ALPHA, DEFAULT_FACES_TT_ALPHA);
+    }
+
+    /** @return порог τ выравнивания контраста Tan – Triggs (по умолчанию 10) */
+    public double loadFacesTtTau() {
+        return positiveDouble(KEY_FACES_TT_TAU, DEFAULT_FACES_TT_TAU);
+    }
+
+    private double positiveDouble(String key, double defaultValue) {
+        String raw = setting(key);
+        if (raw == null) return defaultValue;
+        double value;
+        try {
+            value = Double.parseDouble(raw.trim());
+        } catch (NumberFormatException e) {
+            throw new IllegalArgumentException(key + " должно быть числом, получено «" + raw + "»", e);
+        }
+        if (!(value > 0)) {
+            throw new IllegalArgumentException(key + " должно быть положительным, получено " + value);
+        }
+        return value;
     }
 }
