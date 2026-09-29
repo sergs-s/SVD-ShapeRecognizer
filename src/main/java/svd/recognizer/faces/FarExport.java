@@ -405,9 +405,13 @@ public final class FarExport {
         Map<Base, int[]> c = counts(data, dets);
         StringBuilder t = new StringBuilder("MANIFEST SVD-faces-data (FarExport)\n\n");
         t.append("Снимков по базам (найдено лицо / всего): ");
+        // FEI — только если подключена (без неё строка прежняя).
+        List<String> parts = new ArrayList<>();
         for (Base b : Base.values()) {
-            t.append(dirName(b)).append(' ').append(c.get(b)[1]).append('/').append(c.get(b)[0]).append(b == Base.ORL ? "\n" : ", ");
+            if (b == Base.FEI && c.get(b)[0] == 0) continue;
+            parts.add(dirName(b) + ' ' + c.get(b)[1] + '/' + c.get(b)[0]);
         }
+        t.append(String.join(", ", parts)).append('\n');
         t.append("Файлов и байт по каталогам (вариант/база):\n");
         byDir.forEach((k, v) -> t.append(String.format(Locale.ROOT, "  %-14s %6d файлов %,12d байт%n", k, v[0], v[1])));
         t.append(String.format(Locale.ROOT, "Всего (без MANIFEST.txt): %d файлов, %,d байт%n%n", files.size(), total));
