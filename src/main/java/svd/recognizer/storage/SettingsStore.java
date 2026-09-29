@@ -59,6 +59,7 @@ public class SettingsStore {
     private static final String KEY_FACES_OWN_DIR = "faces.own.dir";
     private static final String KEY_FACES_MODELS_DIR = "faces.models.dir";
     private static final String KEY_FACES_EXPORT_DIR = "faces.export.dir";
+    private static final String KEY_FACES_FEI_DIR = "faces.fei.dir";
     private static final long DEFAULT_FACES_SEED = 42L;
     private static final int DEFAULT_FACES_TRAIN_PER_PERSON = 5;
 
@@ -353,6 +354,16 @@ public class SettingsStore {
      */
     public String loadFacesExportDir() {
         return path(KEY_FACES_EXPORT_DIR);
+    }
+
+    /**
+     * Загружает путь к FEI Face Database (originalimages, справочные наборы; вне git). Ключ необязательный: без него
+     * FEI в faces-far не подключается.
+     *
+     * @return путь (FACES_FEI_DIR или settings.properties) или null, если не задан
+     */
+    public String loadFacesFeiDir() {
+        return path(KEY_FACES_FEI_DIR);
     }
 
     /**
