@@ -105,6 +105,11 @@ public final class FarMethods {
         Collections.shuffle(val, new Random(settings.loadFacesSeed() + OUTSIDER_SEED_SHIFT));
         outsiders = List.copyOf(val.subList(0, val.size() / 2));
         thresholdSet = List.copyOf(val.subList(val.size() / 2, val.size()));
+        // Посторонние и пороговые — только валидация MUCT: не пересекаются друг с другом и с контролем MUCT.
+        if (!java.util.Collections.disjoint(outsiders, thresholdSet) || !java.util.Collections.disjoint(outsiders, splits.muctCtrl())
+                || !java.util.Collections.disjoint(thresholdSet, splits.muctCtrl())) {
+            throw new IllegalStateException("Посторонние / пороговые пересекаются между собой или с контролем MUCT");
+        }
         register();
     }
 
@@ -544,6 +549,16 @@ public final class FarMethods {
         t.append(fei == null ? "FEI: нет в экспорте (строка добавится прогоном после подключения).\n"
                 : String.format(Locale.ROOT, "FEI: %d человек — только контроль (порог MUCT).%n", fei.size()));
         t.append("Контрольные 138 MUCT (и FEI) не участвуют в обучении, пороге, когорте и выборе лучшего.\n");
+        t.append("Обучение и порог по методам (разбиения своих — own_moments.tsv, GT и MUCT — splits.tsv экспорта):\n"
+                + "  - все методы: галерея — свои 6 (обучающие моменты ротации r, кадры «+» и «+-») и Georgia Tech 50 × 5 (разбиение\n"
+                + "    r mod 3); контроль своих и GT в обучение не входит;\n"
+                + "  - 1а, 1: обучение — только галерея; порог — валидация MUCT 138 человек;\n"
+                + "  - 2a-fisher: обучение — только галерея; порог — 69 пороговых;\n"
+                + "  - 2b-fisher-bg, 2c-mlda: обучение — галерея + 69 посторонних MUCT (все снимки с лицом, все камеры); порог — 69\n"
+                + "    пороговых;\n"
+                + "  - нигде не участвуют: контроль MUCT (138 человек), ORL (40), FEI.\n");
+        t.append("  69 посторонних: ").append(String.join(", ", outsiders)).append('\n');
+        t.append("  69 пороговых: ").append(String.join(", ", thresholdSet)).append('\n');
         t.append("Оговорки 32dc1fa в силе: своя база — одна сессия, у Georgia Tech нет сессий (FRR оптимистичен); чужие сняты в\n"
                 + "лаборатории, свои — телефоном; FAR по попыткам — граница внутри конфигурации (оптимистична).\n");
         t.append(String.format(Locale.ROOT, "Нормализация освещения: CLAHE clip %.2f, сетка %d×%d; Tan – Triggs γ %.2f, σ₀ %.2f, σ₁ %.2f, α %.2f, τ %.2f.%n",
