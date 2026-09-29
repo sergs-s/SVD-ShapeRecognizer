@@ -172,6 +172,22 @@
                             </arguments>
                         </configuration>
                     </execution>
+                    <!-- Шаг 5, SVD: отсечение чужих — mvn compile exec:exec@faces-far-methods
+                         (конфигурации — faces.far.methods / FACES_FAR_METHODS; базы — как у faces-far) -->
+                    <execution>
+                        <id>faces-far-methods</id>
+                        <configuration>
+                            <executable>${java.home}/bin/java</executable>
+                            <arguments>
+                                <argument>-Xmx6g</argument>
+                                <argument>-Dstdout.encoding=UTF-8</argument>
+                                <argument>-classpath</argument>
+                                <classpath/>
+                                <argument>svd.recognizer.faces.FarMethods</argument>
+                                <argument>${far.args}</argument>
+                            </arguments>
+                        </configuration>
+                    </execution>
                 </executions>
             </plugin>
         </plugins>
