@@ -1,6 +1,9 @@
 package svd.recognizer.faces;
 
 import java.io.IOException;
+import java.io.OutputStreamWriter;
+import java.io.UncheckedIOException;
+import java.io.Writer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -16,6 +19,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.stream.IntStream;
+import java.util.zip.GZIPOutputStream;
 import org.opencv.core.Mat;
 import svd.recognizer.faces.GalleryEvaluation.Impostors;
 import svd.recognizer.faces.GalleryEvaluation.Sample;
@@ -32,7 +36,8 @@ import svd.recognizer.storage.SettingsStore;
  * принят под чужим именем. Контрольные 40 чужих — только FAR; в обучении, пороге, когорте и выборе метода не участвуют.
  * Методы и их параметры — как в этапе 4 (FarMethods), заново не подбираются; новый — 4-wpca ({@link WpcaScorer}).
  *
- * Отчёты (вне git): reports/faces/fei/fei_methods.txt, fei_time.txt (время; не входит в сравнение).
+ * Отчёты (вне git): reports/faces/fei/fei_methods.txt, fei_time.txt (время; не входит в сравнение); оценки каждой
+ * попытки — fei_scores.tsv.gz ({@link FeiScores}; этап 5б, разбор — faces-fei-scores).
  *
  * @author ssv
  */
@@ -71,6 +76,8 @@ public final class FeiMethods {
     final Map<String, String> about = new LinkedHashMap<>();
     final Map<String, Result> results = new LinkedHashMap<>();
     final StringBuilder timeText = new StringBuilder();
+    /** Файл оценок попыток (этап 5б); null — не пишется. */
+    Writer scoresOut;
 
     FeiMethods(SettingsStore settings, Map<String, Map<Integer, String>> keys, Map<String, Mat> frames, FeiDataset.Info info) {
         this.settings = settings;
@@ -191,10 +198,16 @@ public final class FeiMethods {
         frames.values().forEach(Mat::release);
         fm.timeText.append(String.format(Locale.ROOT, "Загрузка и векторы: %.0f с, снимков FEI %d.%n", (System.nanoTime() - start) / 1e9,
                 frames.size()));
-        fm.run(limit);
         Path outDir = Paths.get(System.getProperty("user.dir"), "reports", "faces", "fei");
         Files.createDirectories(outDir);
         String source = "экспорт " + exportDir + ", коммит данных " + FarMethods.dataCommit(dir);
+        try (Writer w = new OutputStreamWriter(new GZIPOutputStream(Files.newOutputStream(outDir.resolve(FeiScores.FILE)), 1 << 16),
+                StandardCharsets.UTF_8)) {
+            w.write(FeiScores.header(FarMethods.commit(), source, Math.min(limit, CONFIGS), new ArrayList<>(fm.about.keySet())));
+            fm.scoresOut = w;
+            fm.run(limit);
+            fm.scoresOut = null;
+        }
         FarMethods.write(outDir.resolve("fei_methods.txt"), fm.report(source, limit));
         fm.timeText.append(String.format(Locale.ROOT, "Всего %.0f с.%n", (System.nanoTime() - start) / 1e9));
         FarMethods.write(outDir.resolve("fei_time.txt"), fm.timeText);
@@ -264,6 +277,7 @@ public final class FeiMethods {
             long t0 = System.nanoTime();
             Map<String, Map<String, double[]>> sc = scoreConfig(sp, j);
             for (String id : about.keySet()) results.get(id).add(this, sp, j, sc.get(id));
+            writeScores(sp, j, sc);
             timeText.append(String.format(Locale.ROOT, "Конфигурация %d (разбиение %d, контроль №%d): %.0f с.%n", c, sp.index(),
                     FeiProtocol.NUMBERS[j], (System.nanoTime() - t0) / 1e9));
             System.out.print(timeText.substring(timeText.lastIndexOf("Конфигурация")));
@@ -340,6 +354,36 @@ public final class FeiMethods {
             sc.put(d.id(), map);
         }
         return sc;
+    }
+
+    /** Оценки попыток конфигурации в файл: по методам (порядок отчёта) — свои, пороговые, контрольные чужие. */
+    void writeScores(FeiProtocol.Split sp, int j, Map<String, Map<String, double[]>> sc) {
+        if (scoresOut == null) return;
+        Set<String> agree = new HashSet<>();
+        for (Derived d : derived) if (d.kind() == Kind.AGREE) agree.add(d.id());
+        List<String> gallery = sp.gallery();
+        StringBuilder b = new StringBuilder();
+        for (String id : about.keySet()) {
+            Map<String, double[]> s = sc.get(id);
+            boolean agr = agree.contains(id);
+            int n = FeiProtocol.NUMBERS[j];
+            for (int p = 0; p < gallery.size(); p++) {
+                String person = gallery.get(p);
+                b.append(FeiScores.line(id, sp.index(), j, FeiScores.OWN, person, n, p, gallery, s.get(key(person, n)), agr));
+            }
+            for (String role : new String[] {FeiScores.THR, FeiScores.CTRL}) {
+                for (String person : role.equals(FeiScores.THR) ? sp.threshold() : sp.control()) {
+                    for (Map.Entry<Integer, String> e : keys.get(person).entrySet()) {
+                        b.append(FeiScores.line(id, sp.index(), j, role, person, e.getKey(), -1, gallery, s.get(e.getValue()), agr));
+                    }
+                }
+            }
+        }
+        try {
+            scoresOut.write(b.toString());
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
     }
 
     static double median(double[] v) {
