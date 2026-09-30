@@ -43,6 +43,7 @@ mvn compile              # сборка
 mvn javadoc:javadoc      # javadoc -> target/site/apidocs/index.html
 mvn test                 # тесты (SVDComputerTest, SubspaceTrainerTest, FaceEvaluationTest)
 mvn compile exec:java@faces-eval   # оценка на лицах ORL -> reports/faces/
+mvn compile exec:exec@faces-fei    # основная оценка методов (только FEI) -> reports/faces/fei/
 ```
 
 Запуск GUI — через NetBeans (главный класс `svd.recognizer.Main`), либо
@@ -328,6 +329,17 @@ mvn compile exec:java@faces-eval   # оценка на лицах ORL -> reports
   `fei_selection.tsv` (все 2800 с причиной включения), `reference/FEI/`
   (справочные наборы и разметка 46 точек как есть, в протокол не входят);
   исходные снимки FEI не кладутся.
+- С 30.09.2026 (решение Хозяина) методы оцениваются ТОЛЬКО на FEI: своя
+  база, Georgia Tech, MUCT и ORL из оценки методов исключены (прежние
+  таблицы — история; `faces-far` и `faces-far-methods` должны по-прежнему
+  воспроизводиться). Команда `mvn compile exec:exec@faces-fei` (`FeiMethods`,
+  отдельная JVM `-Xmx6g`; отладка — `-Dfei.args=N`, первые N конфигураций);
+  данные — только экспорт (`faces.export.dir` / `FACES_EXPORT_DIR`):
+  `a/fei/` и `fei_selection.tsv`. Протокол — PLAN.md, п. 3а (`FeiProtocol`):
+  149 «полных» людей (все 8 снимков №4–7, 11–14), 5 разбиений (seed + s):
+  свои 100, когорта 20, пороговые 40, контроль 40; 40 конфигураций; порог по
+  людям пороговых. Отчёт `reports/faces/fei/fei_methods.txt`, время —
+  `fei_time.txt`. Полный прогон в облаке — около 1 ч.
 - Подписи на картинках OpenCV (`putText`) — только латиницей: шрифты
   Hershey не рисуют кириллицу.
 - Отчёты, полученные на разных ОС, сравниваются без учёта CR: `%n` в
