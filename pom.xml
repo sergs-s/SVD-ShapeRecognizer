@@ -205,6 +205,14 @@
                             </arguments>
                         </configuration>
                     </execution>
+                    <!-- Этап 5б, разбор файла оценок faces-fei без обучения: mvn compile exec:java@faces-fei-scores
+                         (файл — -Dexec.args, по умолчанию reports/faces/fei/fei_scores.tsv.gz; отчёт fei_scores.txt) -->
+                    <execution>
+                        <id>faces-fei-scores</id>
+                        <configuration>
+                            <mainClass>svd.recognizer.faces.FeiScores</mainClass>
+                        </configuration>
+                    </execution>
                 </executions>
             </plugin>
         </plugins>
