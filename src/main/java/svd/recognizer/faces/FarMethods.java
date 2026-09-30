@@ -468,10 +468,25 @@ public final class FarMethods {
 
     // ---------------------------------------------------------------- метрики
 
+    /**
+     * Порог Неймана – Пирсона по людям: чужой принят, если принят хотя бы один его снимок, т. е. его оценка — минимум по
+     * снимкам с детекцией; люди без детекций не считаются. Допускается ⌊α·n⌋ людей (69 → 3, 34 → 1, 138 → 6 при
+     * α = 0,05); при α = 0 порог совпадает с порогом по попыткам (наименьшая оценка чужого).
+     */
+    static double personThreshold(Impostors imp, double alpha) {
+        double[] mins = imp.byPerson().values().stream().mapToDouble(v -> Arrays.stream(v).filter(x -> !Double.isNaN(x)).min()
+                .orElse(Double.NaN)).filter(x -> !Double.isNaN(x)).toArray();
+        return FaceEvaluation.neymanPearsonThreshold(mins, alpha);
+    }
+
     /** Метрики конфигурации на контроле (как GalleryEvaluation.evaluate) и данные диагностики. */
     static final class Result {
         Method method;
         Threshold threshold;
+        /** Порог по людям (основной); false — по попыткам (справочно). */
+        boolean byPersons;
+        /** Те же оценки с порогом по попыткам (справочно; у самого справочного — null). */
+        Result attempts;
         List<String> info;
         int ownCorrect, ownAtt, ownDetRej, gtCorrect, gtAtt, gtDetRej;
         int[] ownRej = new int[ALPHAS.length];
@@ -503,10 +518,18 @@ public final class FarMethods {
         }
     }
 
+    /** Метрики с порогом по людям (основной) и рядом — с порогом по попыткам (справочно). */
     Result metrics(Method m, Scores sc, Threshold th) {
+        Result res = metrics(m, sc, th, true);
+        res.attempts = metrics(m, sc, th, false);
+        return res;
+    }
+
+    Result metrics(Method m, Scores sc, Threshold th, boolean byPersons) {
         Result res = new Result();
         res.method = m;
         res.threshold = th;
+        res.byPersons = byPersons;
         res.info = sc.info();
         int nOwn = data.moments().size();
         int nGal = gallerySize();
@@ -594,8 +617,8 @@ public final class FarMethods {
             double[] valDet = val.detected();
             double[] valADet = valA.detected();
             for (int a = 0; a < ALPHAS.length; a++) {
-                double theta = FaceEvaluation.neymanPearsonThreshold(valDet, ALPHAS[a]);
-                double thetaA = FaceEvaluation.neymanPearsonThreshold(valADet, ALPHAS[a]);
+                double theta = byPersons ? personThreshold(val, ALPHAS[a]) : FaceEvaluation.neymanPearsonThreshold(valDet, ALPHAS[a]);
+                double thetaA = byPersons ? personThreshold(valA, ALPHAS[a]) : FaceEvaluation.neymanPearsonThreshold(valADet, ALPHAS[a]);
                 res.thetas[a][r] = theta;
                 for (int i = 0; i < ownScores.size(); i++) {
                     if (ownScores.get(i) > theta) res.ownRej[a]++;
@@ -624,13 +647,13 @@ public final class FarMethods {
 
     /**
      * Лучшая конфигурация: наименьшая полная доля ошибок своих и Georgia Tech на контрольных пробах (FRR + принят под
-     * чужим именем) при пороге с валидации, α = 0,05; при равенстве — α = 0. FAR на контроле (MUCT, ORL, FEI) в выборе
+     * чужим именем) при пороге с валидации по людям, α = 0,05; при равенстве — α = 0. FAR на контроле (MUCT, ORL, FEI) в выборе
      * не участвует.
      */
     String best(String what, List<String> candidates) {
         String best = null;
         StringBuilder note = new StringBuilder("Выбор лучшего (" + what + "): по полной доле ошибок своих и Georgia Tech на "
-                + "контроле (FRR + принят под чужим именем) при пороге с валидации, α = 0,05, при равенстве — α = 0; FAR на контроле в "
+                + "контроле (FRR + принят под чужим именем) при пороге с валидации по людям, α = 0,05, при равенстве — α = 0; FAR на контроле в "
                 + "выборе не участвует. Кандидаты (ошибок α = 0,05; α = 0):");
         for (String id : candidates) {
             Result r = result(id);
@@ -684,6 +707,13 @@ public final class FarMethods {
         t.append("Решение: argmin по галерее; принят, если оценка argmin ≤ θ (θ — Нейман – Пирсон по чужим набора порога, в каждой\n"
                 + "конфигурации). FRR — свои и Georgia Tech вместе; FAR по людям — худшая и медианная конфигурация, ↑95 —\n"
                 + "верхняя граница Клоппера – Пирсона худшей.\n");
+        t.append("Порог (решение Хозяина по этапу 3): Нейман – Пирсон по доле ЛЮДЕЙ чужих набора порога — чужой принят, если принят\n"
+                + "хотя бы один его снимок; допускается ⌊α·n⌋ людей (α = 0,05: 69 → 3, 34 → 1, 138 → 6). Все таблицы, кроме\n"
+                + "раздела «Порог по людям и по попыткам», и выбор лучшего — с этим порогом. Причина: порог по попыткам не\n"
+                + "ограничивает долю принятых людей; Z-norm размазывает приёмы чужих по людям (на валидации до 31 из 69), выигрыш по\n"
+                + "ошибкам своих частично куплен ростом FAR по людям. Критерий изменён после просмотра контроля (прогон 6024a38);\n"
+                + "результаты по прежнему критерию (порог по попыткам) — рядом, справочно. При α = 0 пороги совпадают (0 попыток =\n"
+                + "0 людей).\n");
         for (String c : choices) t.append(c).append('\n');
 
         t.append("\n=== Сводка ===\n");
@@ -700,6 +730,7 @@ public final class FarMethods {
             t.append(r.method.id()).append(" | ").append(thresholdSize(r)).append(" | ").append(errorsText(r, A05)).append(" | ")
                     .append(errorsText(r, A0)).append('\n');
         }
+        thresholds(t);
         if (results.containsKey("3-znorm-svd") || results.containsKey("3-znorm-lda")) stage3(t);
         if (orlCheck != null) t.append("\n=== ").append(ORL_CHECK).append(" ===\n").append(orlCheck);
         if (check != null) t.append("\n=== ").append(CHECK).append(" ===\n").append(checkLine()).append('\n').append(check.text());
@@ -755,6 +786,48 @@ public final class FarMethods {
                     .append(" | ").append(errorsText(r, A05)).append(" | ").append(median(r.thetas[A0])).append(" | ")
                     .append(persons(r.far[4][A0])).append(" | ").append(errorsText(r, A0)).append('\n');
         }
+    }
+
+    /** Раздел «Порог по людям и по попыткам»: α = 0,05 оба порога рядом; проверка совпадения порогов при α = 0. */
+    void thresholds(StringBuilder t) {
+        t.append("\n=== Порог по людям и по попыткам (α = 0,05) ===\n");
+        t.append("Слева — порог по людям (основной), справа — по попыткам (прежний критерий, справочно). FAR валидации — на наборе\n"
+                + "порога: люди и попытки, худшая конфигурация (↑95 — верхняя граница Клоппера – Пирсона) / медианная. Ошибки своих —\n"
+                + "FRR + принят под чужим именем (из 1556). FAR контроля (MUCT 138 люди, ORL 40, FEI) — худшая конфигурация.\n");
+        t.append("конфигурация | набор порога | ПО ЛЮДЯМ: θ мед. | FAR вал. люди | FAR вал. попытки | ошибки своих | FAR MUCT люди | ORL | FEI "
+                + "| ПО ПОПЫТКАМ: θ мед. | FAR вал. люди | FAR вал. попытки | ошибки своих | FAR MUCT люди | ORL | FEI\n");
+        boolean same = true;
+        for (Map.Entry<String, Result> e : results.entrySet()) {
+            Result r = e.getValue();
+            t.append(r.method.id()).append(e.getKey().contains("@") ? " (порог: " + r.threshold.label + ")" : "").append(" | ")
+                    .append(thresholdSize(r)).append(" | ").append(thresholdCells(r)).append(" | ").append(thresholdCells(r.attempts)).append('\n');
+            same &= Arrays.equals(r.thetas[A0], r.attempts.thetas[A0]);
+        }
+        if (!same) throw new IllegalStateException("При α = 0 порог по людям не совпал с порогом по попыткам");
+        t.append("Проверка: при α = 0 порог по людям совпал с порогом по попыткам во всех конфигурациях всех строк.\n");
+    }
+
+    private String thresholdCells(Result r) {
+        return String.join(" | ", median(r.thetas[A05]), persons(r.far[4][A05]), attempts(r.far[4][A05]),
+                r.errors(A05) + " = " + GalleryEvaluation.pct(r.errors(A05), r.att()) + " %", worstPersons(r.far[0][A05]),
+                worstPersons(r.far[2][A05]), r.far[3][A05][0] == null ? "—" : worstPersons(r.far[3][A05]));
+    }
+
+    /** FAR по попыткам: худшая конфигурация (↑95) / медианная. */
+    static String attempts(int[][] cfg) {
+        Integer[] idx = new Integer[cfg.length];
+        for (int i = 0; i < cfg.length; i++) idx[i] = i;
+        Arrays.sort(idx, (x, y) -> Double.compare(cfg[x][0] / (double) cfg[x][1], cfg[y][0] / (double) cfg[y][1]));
+        int[] w = cfg[idx[cfg.length - 1]];
+        int[] m = cfg[idx[cfg.length / 2]];
+        return String.format(Locale.ROOT, "%d/%d (%s %%) / %d/%d", w[0], w[1], GalleryEvaluation.ub(w[0], w[1]), m[0], m[1]);
+    }
+
+    /** FAR по людям: только худшая конфигурация. */
+    static String worstPersons(int[][] cfg) {
+        int[] w = cfg[0];
+        for (int[] c : cfg) if (c[2] / (double) c[3] > w[2] / (double) w[3]) w = c;
+        return w[2] + "/" + w[3];
     }
 
     private static String median(double[] v) {
