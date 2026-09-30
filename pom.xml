@@ -15,6 +15,7 @@
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <maven.compiler.release>17</maven.compiler.release>
         <far.args></far.args>
+        <fei.args></fei.args>
     </properties>
 
     <dependencies>
@@ -185,6 +186,22 @@
                                 <classpath/>
                                 <argument>svd.recognizer.faces.FarMethods</argument>
                                 <argument>${far.args}</argument>
+                            </arguments>
+                        </configuration>
+                    </execution>
+                    <!-- Этап 5, протокол «только FEI»: mvn compile exec:exec@faces-fei
+                         (данные — экспорт faces.export.dir / FACES_EXPORT_DIR; отладка: -Dfei.args=N — первые N конфигураций) -->
+                    <execution>
+                        <id>faces-fei</id>
+                        <configuration>
+                            <executable>${java.home}/bin/java</executable>
+                            <arguments>
+                                <argument>-Xmx6g</argument>
+                                <argument>-Dstdout.encoding=UTF-8</argument>
+                                <argument>-classpath</argument>
+                                <classpath/>
+                                <argument>svd.recognizer.faces.FeiMethods</argument>
+                                <argument>${fei.args}</argument>
                             </arguments>
                         </configuration>
                     </execution>
