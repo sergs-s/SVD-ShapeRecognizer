@@ -36,7 +36,7 @@ import svd.recognizer.faces.GalleryEvaluation.Impostors;
  *
  * @author ssv
  */
-final class FeiScores {
+public final class FeiScores {
 
     static final String FILE = "fei_scores.tsv.gz";
     static final String OWN = "own";
@@ -297,7 +297,7 @@ final class FeiScores {
         }
         Files.createDirectories(dir);
         FarMethods.write(dir.resolve("fei_scores.txt"), report(a, file.toString()));
-        System.out.println("Строк " + a.lines + ", конфигураций " + a.configs.size() + ", строк отчёта " + a.stats.size() + "; отчёт "
+        new java.io.PrintStream(System.out, true, StandardCharsets.UTF_8).println("Строк " + a.lines + ", конфигураций " + a.configs.size() + ", строк отчёта " + a.stats.size() + "; отчёт "
                 + dir.resolve("fei_scores.txt"));
     }
 

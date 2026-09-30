@@ -44,6 +44,7 @@ mvn javadoc:javadoc      # javadoc -> target/site/apidocs/index.html
 mvn test                 # тесты (SVDComputerTest, SubspaceTrainerTest, FaceEvaluationTest)
 mvn compile exec:java@faces-eval   # оценка на лицах ORL -> reports/faces/
 mvn compile exec:exec@faces-fei    # основная оценка методов (только FEI) -> reports/faces/fei/
+mvn compile exec:java@faces-fei-scores  # разбор файла оценок FEI (без обучения) -> reports/faces/fei/fei_scores.txt
 ```
 
 Запуск GUI — через NetBeans (главный класс `svd.recognizer.Main`), либо
@@ -340,6 +341,17 @@ mvn compile exec:exec@faces-fei    # основная оценка методо�
   свои 100, когорта 20, пороговые 40, контроль 40; 40 конфигураций; порог по
   людям пороговых. Отчёт `reports/faces/fei/fei_methods.txt`, время —
   `fei_time.txt`. Полный прогон в облаке — около 1 ч.
+- Файл оценок (этап 5б, с `7e73e3d`): `faces-fei` пишет каждую попытку в
+  `reports/faces/fei/fei_scores.tsv.gz` (`FeiScores`; TSV + gzip; метод, s, j,
+  роль own/thr/ctrl, человек, снимок, истинный id, лучший и второй кандидаты с
+  оценками, оценка истинного, у 4-agr — «согласие не достигнуто»; в шапке —
+  направление оценки «меньше — ближе» и коммиты кода и данных; около 36 МБ
+  на 40 конфигураций). Разбор без обучения — `mvn compile
+  exec:java@faces-fei-scores` (путь — `-Dexec.args`, по умолчанию этот файл),
+  отчёт `fei_scores.txt`: порог по снимкам пороговых (FAR 1 % и 5 %),
+  справочно по людям (α = 0,05 и 0, как в `FeiMethods`); строки
+  2a95-fisher-ratio, 2c-mlda-ratio, 4-wpca-cos-0-ratio (лучший / второй) и
+  3-znorm-lda-margin (z₁ − z₂).
 - Подписи на картинках OpenCV (`putText`) — только латиницей: шрифты
   Hershey не рисуют кириллицу.
 - Отчёты, полученные на разных ОС, сравниваются без учёта CR: `%n` в
