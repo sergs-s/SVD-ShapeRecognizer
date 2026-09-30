@@ -170,6 +170,113 @@ public final class FarMethods {
             return new Method("3-znorm-lda", "3", lda.norm(), new ZNormScorer(lda.scorer(), cohortVectors(lda.norm(), cohort),
                     a ? "69 посторонних MUCT" : "35 из пороговых MUCT"), th, lda.outsiders());
         });
+        // Этап 4 (PLAN.md, п. 4.2): CLAHE; обучение — только галерея; нормировка частей — 69 посторонних; порог — 69 пороговых.
+        // Блочные: 2a-fisher и подпространство (ε) на областях; всё лицо — готовые 2a-fisher и 1-clahe-eps.
+        for (RegionScorer.Region g : REGIONS) {
+            String f = "4-" + g.id() + "-fisher";
+            String e = "4-" + g.id() + "-eps";
+            registry.put(f, () -> new Method(f, "4", IlluminationNorm.CLAHE, new RegionScorer(FisherScorer.byEnergy(PCA_ENERGY), g),
+                    Threshold.VAL69, false));
+            registry.put(e, () -> new Method(e, "4", IlluminationNorm.CLAHE, new RegionScorer(new SubspaceScorer(false), g),
+                    Threshold.VAL69, false));
+        }
+        fusion("4-blk-fisher", FusionScorer.Mode.SUM, "4-eyes-fisher", "4-nose-fisher", "4-mouth-fisher", "2a-fisher");
+        fusion("4-blk-subspace", FusionScorer.Mode.SUM, "4-eyes-eps", "4-nose-eps", "4-mouth-eps", "1-clahe-eps");
+        fusion("4-blk-both", FusionScorer.Mode.SUM, "4-eyes-fisher", "4-nose-fisher", "4-mouth-fisher", "2a-fisher", "4-eyes-eps",
+                "4-nose-eps", "4-mouth-eps", "1-clahe-eps");
+        for (FusionScorer.Mode mode : FusionScorer.Mode.values()) {
+            for (String[] c : COMBINATIONS) {
+                String[] ids = new String[c.length];
+                for (int i = 0; i < c.length; i++) ids[i] = PARTICIPANTS.get(c[i]);
+                fusion("4-" + (mode == FusionScorer.Mode.SUM ? "sum" : "agr") + "-" + String.join("+", c), mode, ids);
+            }
+        }
+    }
+
+    /** Области блочных методов (всё лицо — готовые конфигурации). */
+    static final List<RegionScorer.Region> REGIONS = List.of(RegionScorer.EYES, RegionScorer.NOSE, RegionScorer.MOUTH);
+    /** Участники объединения: краткое имя → конфигурация. */
+    static final Map<String, String> PARTICIPANTS = new LinkedHashMap<>();
+    static {
+        PARTICIPANTS.put("ratio", "1-clahe-ratio");
+        PARTICIPANTS.put("eps", "1-clahe-eps");
+        PARTICIPANTS.put("fisher", "2a-fisher");
+        PARTICIPANTS.put("zsvd", "3-znorm-svd");
+        PARTICIPANTS.put("zlda", "3-znorm-lda");
+    }
+    /** Комбинации объединения (не больше 6), каждая — в вариантах SUM и AGREE; обоснование — в отчёте (этап 4). */
+    static final String[][] COMBINATIONS = {
+        {"ratio", "fisher"}, {"ratio", "zlda"}, {"zsvd", "zlda"}, {"ratio", "zsvd"}, {"ratio", "zsvd", "zlda"},
+        {"ratio", "eps", "fisher", "zsvd", "zlda"}
+    };
+
+    /** Части объединений: идентификатор объединения → конфигурации частей. */
+    private final Map<String, List<String>> fusionParts = new LinkedHashMap<>();
+
+    /**
+     * Объединение конфигураций parts. Все части — CLAHE и без посторонних в обучении (69 посторонних — только
+     * нормировка). Оценки частей берутся готовыми (FarMethods.fused), модель FusionScorer — для подписи.
+     */
+    private void fusion(String id, FusionScorer.Mode mode, String... parts) {
+        registry.put(id, () -> {
+            List<GalleryScorer> scorers = new ArrayList<>();
+            for (String p : parts) {
+                Method m = result(p).method;
+                if (m.norm() != IlluminationNorm.CLAHE || m.outsiders()) {
+                    throw new IllegalStateException("Часть объединения " + id + " — не CLAHE или с посторонними в обучении: " + p);
+                }
+                scorers.add(m.scorer());
+            }
+            fusionParts.put(id, List.of(parts));
+            return new Method(id, "4", IlluminationNorm.CLAHE, new FusionScorer(scorers, cohortVectors(IlluminationNorm.CLAHE,
+                    outsiders), "69 посторонних MUCT", mode), Threshold.VAL69, false);
+        });
+    }
+
+    /** Ключи снимков с лицом людей когорты (порядок — как у cohortVectors). */
+    List<String> cohortKeys(IlluminationNorm norm, List<String> persons) {
+        Map<String, double[]> vec = vectors(norm);
+        List<String> out = new ArrayList<>();
+        for (String p : persons) {
+            for (Sample s : data.muct().get(p)) {
+                if (vec.containsKey(s.file().toString())) out.add(s.file().toString());
+            }
+        }
+        return out;
+    }
+
+    /**
+     * Оценки объединения из готовых оценок частей — то же, что FusionScorer.fit на каждой конфигурации (модели частей
+     * те же, нормировка — по оценкам снимков 69 посторонних на модели конфигурации), без повторного обучения.
+     */
+    Scores fused(Method m, List<String> parts) {
+        FusionScorer.Mode mode = ((FusionScorer) m.scorer()).mode();
+        List<String> cohort = cohortKeys(IlluminationNorm.CLAHE, outsiders);
+        int n = parts.size();
+        List<Map<String, double[]>> byConfig = new ArrayList<>();
+        List<String> info = new ArrayList<>();
+        for (int r = 0; r < CONFIGS; r++) {
+            List<Map<String, double[]>> s = new ArrayList<>();
+            for (String p : parts) s.add(scores.get(p).byConfig().get(r));
+            double[][] mu = new double[n][gallerySize()];
+            double[][] sigma = new double[n][gallerySize()];
+            StringBuilder inf = new StringBuilder(String.format(Locale.ROOT, "нормировка: когорта %d снимков; σ медиана по людям:", cohort.size()));
+            for (int j = 0; j < n; j++) {
+                Map<String, double[]> sj = s.get(j);
+                ZNormScorer.stats(cohort.stream().map(sj::get).toArray(double[][]::new), mu[j], sigma[j]);
+                double[] sg = Arrays.stream(sigma[j]).filter(Double::isFinite).sorted().toArray();
+                inf.append(String.format(Locale.ROOT, " %s %.4g;", parts.get(j), sg.length == 0 ? Double.NaN : sg[sg.length / 2]));
+            }
+            info.add(inf.toString());
+            Map<String, double[]> map = new HashMap<>();
+            for (String key : s.get(0).keySet()) {
+                double[][] raw = new double[n][];
+                for (int j = 0; j < n; j++) raw[j] = s.get(j).get(key);
+                map.put(key, FusionScorer.combine(raw, mu, sigma, mode));
+            }
+            byConfig.add(map);
+        }
+        return new Scores(byConfig, info);
     }
 
     private String bestLda;
@@ -335,6 +442,7 @@ public final class FarMethods {
         }
 
         fm.stage3Choices();
+        fm.stage4Choices();
         write(outDir.resolve("far_methods.txt"), fm.report(fm.dataSource));
         write(outDir.resolve("far_methods_auc.txt"), fm.aucReport());
         fm.timeText.append(String.format(Locale.ROOT, "Всего %.0f с.%n", (System.nanoTime() - start) / 1e9));
@@ -427,6 +535,8 @@ public final class FarMethods {
     }
 
     Scores score(Method m) {
+        List<String> parts = fusionParts.get(m.id());
+        if (parts != null) return fused(m, parts);
         Map<String, double[]> vec = vectors(m.norm());
         List<String> keys = new ArrayList<>(vec.keySet());
         List<Map<String, double[]>> byConfig = new ArrayList<>();
@@ -515,6 +625,18 @@ public final class FarMethods {
 
         int att() {
             return ownAtt + gtAtt;
+        }
+
+        /** Ошибки своих по всем α (FRR и принятые под чужим именем, свои и GT отдельно). */
+        int[] errorsByAlpha() {
+            int[] e = new int[4 * ALPHAS.length];
+            for (int a = 0; a < ALPHAS.length; a++) {
+                e[4 * a] = ownRej[a];
+                e[4 * a + 1] = gtRej[a];
+                e[4 * a + 2] = ownMis[a];
+                e[4 * a + 3] = gtMis[a];
+            }
+            return e;
         }
     }
 
@@ -696,6 +818,8 @@ public final class FarMethods {
                 + "  - 3-znorm-lda: обучение — как у лучшего LDA этапа 2; когорта и порог — вариант а (обучение без посторонних:\n"
                 + "    когорта 69 посторонних, порог 69 пороговых) или б (посторонние в обучении: когорта 35 / порог 34 из\n"
                 + "    пороговых, seed + " + COHORT_SEED_SHIFT + ");\n"
+                + "  - этап 4 (4-*: блочные и объединение): обучение — только галерея; нормировка оценок частей — 69 посторонних;\n"
+                + "    порог — 69 пороговых;\n"
                 + "  - нигде не участвуют: контроль MUCT (138 человек), ORL (40), FEI.\n");
         t.append("  69 посторонних: ").append(String.join(", ", outsiders)).append('\n');
         t.append("  69 пороговых: ").append(String.join(", ", thresholdSet)).append('\n');
@@ -732,6 +856,7 @@ public final class FarMethods {
         }
         thresholds(t);
         if (results.containsKey("3-znorm-svd") || results.containsKey("3-znorm-lda")) stage3(t);
+        if (!fusionParts.isEmpty()) stage4(t);
         if (orlCheck != null) t.append("\n=== ").append(ORL_CHECK).append(" ===\n").append(orlCheck);
         if (check != null) t.append("\n=== ").append(CHECK).append(" ===\n").append(checkLine()).append('\n').append(check.text());
 
@@ -749,6 +874,111 @@ public final class FarMethods {
             Result z = results.get("3-znorm-lda");
             String base = z.threshold == result(bestLda).threshold ? bestLda : bestLda + "@" + z.threshold;
             best("этап 3, LDA, порог " + thresholdSize(z), List.of("3-znorm-lda", base));
+        }
+    }
+
+    /** Выбор лучшего этапа 4: блочные и объединения против лучшего линейного (3-znorm-lda), все — порог 69 пороговых. */
+    void stage4Choices() {
+        if (fusionParts.isEmpty()) return;
+        fusionCheck = fusionCheck();
+        List<String> ids = new ArrayList<>(fusionParts.keySet());
+        if (results.containsKey("3-znorm-lda") && results.get("3-znorm-lda").threshold == Threshold.VAL69) ids.add("3-znorm-lda");
+        best("этап 4, объединение и блочные, порог 69", ids);
+    }
+
+    /** Текст проверки готовых оценок объединения против FusionScorer.fit (не выполнялась — null). */
+    String fusionCheck;
+
+    /**
+     * Проверка: оценки объединения из готовых оценок частей (fused) совпадают с FusionScorer.fit (заново обученные части,
+     * нормировка на тех же 69 посторонних) — первое посчитанное объединение каждого варианта, конфигурация 0, каждый 20-й
+     * снимок.
+     */
+    String fusionCheck() {
+        StringBuilder t = new StringBuilder();
+        for (FusionScorer.Mode mode : FusionScorer.Mode.values()) {
+            String id = fusionParts.keySet().stream().filter(k -> ((FusionScorer) results.get(k).method.scorer()).mode() == mode)
+                    .findFirst().orElse(null);
+            if (id == null) continue;
+            Map<String, double[]> vec = vectors(IlluminationNorm.CLAHE);
+            GalleryScorer.ScoreModel model = results.get(id).method.scorer().fit(classes(0, vec, false), gallerySize());
+            Map<String, double[]> fast = scores.get(id).byConfig().get(0);
+            List<String> keys = new ArrayList<>(vec.keySet());
+            Collections.sort(keys);
+            double max = 0;
+            int n = 0;
+            boolean same = true;
+            for (int i = 0; i < keys.size(); i += 20) {
+                double[] a = model.scores(vec.get(keys.get(i)));
+                double[] b = fast.get(keys.get(i));
+                for (int p = 0; p < a.length; p++) {
+                    if (Double.isFinite(a[p]) != Double.isFinite(b[p]) || !Double.isFinite(a[p]) && a[p] != b[p]) same = false;
+                    else if (Double.isFinite(a[p])) max = Math.max(max, Math.abs(a[p] - b[p]));
+                }
+                n++;
+            }
+            same &= max < 1e-9;
+            t.append(String.format(Locale.ROOT, "Проверка %s (конфигурация 0, %d снимков): готовые оценки и FusionScorer.fit %s, наибольшее "
+                    + "расхождение %.2e.%n", id, n, same ? "совпали" : "НЕ совпали", max));
+        }
+        return t.toString();
+    }
+
+    /** Раздел этапа 4: нормировка, области, комбинации и их обоснование, проверка совпадения, таблица. */
+    void stage4(StringBuilder t) {
+        t.append("\n=== Этап 4: объединение методов и блочные методы (PLAN.md, п. 4.2) ===\n");
+        t.append("Нормировка (все объединения): оценка sᵢ каждой части по каждому человеку галереи i → zᵢ = (sᵢ − μᵢ)/σᵢ; μᵢ и σᵢ\n"
+                + "(выборочное, N − 1) — по оценкам всех снимков с лицом 69 посторонних MUCT (все камеры) на модели этой части в\n"
+                + "этой конфигурации (как Z-norm этапа 3). Пороговые 69, контроль MUCT, ORL и FEI в нормировке не участвуют; в\n"
+                + "обучении частей посторонних нет.\n"
+                + "  (а) sum: итог по человеку — сумма zᵢ частей (веса равны), решение — argmin суммы, порог — Нейман – Пирсон по\n"
+                + "      людям (69 пороговых).\n"
+                + "  (б) agr: правило согласия — argmin собственных (ненормированных) оценок у всех частей один и тот же; тогда итог\n"
+                + "      этого человека — сумма zᵢ частей, иначе отказ при любом пороге; порог — так же.\n"
+                + "Следствие нормировки: 2a-fisher после неё — ровно 3-znorm-lda (та же основа и когорта 69 посторонних), 1-clahe-eps —\n"
+                + "ровно 3-znorm-svd; нормировка z-оценок той же когортой — тождество (μ = 0, σ = 1). Поэтому в варианте (а) оценки\n"
+                + "частей различимы только три: ε₁/ε₂, Z-norm ε, Z-norm LDA; в варианте (б) различаются и сырые argmin.\n");
+        t.append("Участники:");
+        for (Map.Entry<String, String> e : PARTICIPANTS.entrySet()) t.append(' ').append(e.getKey()).append(" = ").append(e.getValue()).append(';');
+        t.append('\n');
+        t.append("Комбинации (выбраны до прогона по устройству методов, не по результатам; каждая — в вариантах sum и agr):\n"
+                + "  ratio+fisher — пара из PLAN: у ε₁/ε₂ мало приёмов под чужим именем, у Fisherfaces лучше опознание; разные\n"
+                + "    признаки (реконструкция в подпространстве человека и расстояние в общем пространстве LDA);\n"
+                + "  ratio+zlda — то же с лучшим линейным; в (а) совпадает с ratio+fisher (см. выше), в (б) согласие по argmin\n"
+                + "    Z-norm LDA вместо сырого LDA (проверка совпадения — ниже);\n"
+                + "  zsvd+zlda — лучшие Z-norm SVD и LDA (порог 69), без ε₁/ε₂;\n"
+                + "  ratio+zsvd — только подпространства: даёт ли что-то объединение внутри одного семейства;\n"
+                + "  ratio+zsvd+zlda — три различные после нормировки оценки с равными весами;\n"
+                + "  ratio+eps+fisher+zsvd+zlda — все пять участников; в (а) это ratio + 2·zsvd + 2·zlda, в (б) — согласие пяти.\n");
+        t.append("Блочные (CLAHE на всём кадре, затем пиксели области; кадр а 92×112; шаблон 5 точек: глаза (28,3; 51,7) и\n"
+                + "(63,5; 51,5), нос (46,0; 71,7), углы рта (31,5; 92,4) и (60,7; 92,2)):\n");
+        for (RegionScorer.Region g : REGIONS) t.append("  ").append(g.label()).append('\n');
+        t.append("  ").append(RegionScorer.FACE.label()).append(" — готовые 2a-fisher и 1-clahe-eps\n");
+        t.append("  на каждой области: Fisherfaces как 2a-fisher (PCA по энергии 95 %, LDA, расстояние до среднего) и подпространство\n"
+                + "  на человека (k = 4, ε); 4-blk-fisher — сумма нормированных оценок Fisherfaces 4 областей, 4-blk-subspace — ε\n"
+                + "  4 областей, 4-blk-both — все 8; объединение областей — как вариант (а).\n");
+        if (fusionCheck != null) t.append(fusionCheck);
+        if (results.containsKey("4-sum-ratio+fisher") && results.containsKey("4-sum-ratio+zlda")) {
+            Result a = results.get("4-sum-ratio+fisher");
+            Result b = results.get("4-sum-ratio+zlda");
+            boolean same = Arrays.equals(a.errorsByAlpha(), b.errorsByAlpha()) && Arrays.deepEquals(a.far, b.far);
+            t.append("Проверка: 4-sum-ratio+fisher и 4-sum-ratio+zlda — ошибки своих и FAR (все строки, α, конфигурации) ")
+                    .append(same ? "совпали" : "НЕ совпали").append(".\n");
+        }
+        t.append("конфигурация | части | ошибки своих α=0,05 | ошибки своих α=0 | FAR валидации люди α=0,05: худш. (↑95) / мед. | "
+                + "FAR контроля α=0,05, люди, худшая конфигурация: MUCT / ORL / FEI\n");
+        List<String> ids = new ArrayList<>();
+        if (results.containsKey("3-znorm-lda")) ids.add("3-znorm-lda");
+        for (String id : results.keySet()) if (id.startsWith("4-")) ids.add(id);
+        for (String id : ids) {
+            Result r = results.get(id);
+            List<String> parts = fusionParts.get(id);
+            t.append(id).append(" | ").append(parts == null ? "—" : String.join(" + ", parts)).append(" | ")
+                    .append(r.errors(A05)).append('/').append(r.att()).append(" = ").append(GalleryEvaluation.pct(r.errors(A05), r.att()))
+                    .append(" % | ").append(r.errors(A0)).append('/').append(r.att()).append(" = ")
+                    .append(GalleryEvaluation.pct(r.errors(A0), r.att())).append(" % | ").append(persons(r.far[4][A05])).append(" | ")
+                    .append(worstPersons(r.far[0][A05])).append(" / ").append(worstPersons(r.far[2][A05])).append(" / ")
+                    .append(r.far[3][A05][0] == null ? "—" : worstPersons(r.far[3][A05])).append('\n');
         }
     }
 
