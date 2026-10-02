@@ -56,6 +56,22 @@ final class FeiPose {
         return Math.abs(v);
     }
 
+    /**
+     * Порог позы r0 из значения ключа faces.fei.pose.r0 (FACES_FEI_POSE_R0).
+     *
+     * @param raw  значение ключа или null
+     * @param what кому нужен (для сообщения об ошибке)
+     * @return r0 — конечное число ≥ 0
+     */
+    static double r0(String raw, String what) {
+        if (raw == null || raw.isBlank()) {
+            throw new IllegalStateException(what + ": не задан порог позы faces.fei.pose.r0 / FACES_FEI_POSE_R0");
+        }
+        double v = Double.parseDouble(raw.trim());
+        if (!Double.isFinite(v) || v < 0) throw new IllegalStateException("faces.fei.pose.r0 должен быть конечным и ≥ 0: " + raw);
+        return v;
+    }
+
     /** Снимок «повёрнут» относительно r0: |r| > r0 (граница |r| = r0 — анфас). */
     boolean turned(String person, int number, double r0) {
         return absR(person, number) > r0;

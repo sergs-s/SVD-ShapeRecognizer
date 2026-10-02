@@ -64,6 +64,7 @@ public class SettingsStore {
     private static final String KEY_FACES_FEI_DIR = "faces.fei.dir";
     private static final String KEY_FACES_FEI_MIRROR = "faces.fei.mirror";
     private static final String KEY_FACES_FEI_BOOTSTRAP = "faces.fei.bootstrap";
+    private static final String KEY_FACES_FEI_POSE_R0 = "faces.fei.pose.r0";
     private static final long DEFAULT_FACES_SEED = 42L;
     private static final int DEFAULT_FACES_TRAIN_PER_PERSON = 5;
 
@@ -371,14 +372,25 @@ public class SettingsStore {
     }
 
     /**
-     * Режим зеркальных копий в обучении faces-fei (строки +mirror, этап 5б): ключ faces.fei.mirror или переменная
-     * окружения FACES_FEI_MIRROR. По умолчанию выключен — набор строк и отчёты прежние.
+     * Режим зеркальных копий в обучении faces-fei (этап 5б): ключ faces.fei.mirror или переменная окружения
+     * FACES_FEI_MIRROR — список через запятую: true (строки +mirror, все обучающие снимки), turn (строки +mirror-turn,
+     * только снимки с |r| > faces.fei.pose.r0), true,turn — обе. Разбор и проверка — FeiMethods.mirrorModes. По умолчанию
+     * выключен — набор строк и отчёты прежние.
      *
-     * @return true, если значение — «true» (без учёта регистра)
+     * @return значение как есть или null, если не задано
      */
-    public boolean loadFacesFeiMirror() {
-        String raw = path(KEY_FACES_FEI_MIRROR);
-        return raw != null && Boolean.parseBoolean(raw.trim());
+    public String loadFacesFeiMirror() {
+        return path(KEY_FACES_FEI_MIRROR);
+    }
+
+    /**
+     * Порог позы r0 (этап 5б): ключ faces.fei.pose.r0 или переменная окружения FACES_FEI_POSE_R0; снимок «повёрнут», если
+     * |r| > r0. Нужен режиму faces.fei.mirror = turn и строкам +pose разбора faces-fei-scores. Разбор — FeiPose.r0.
+     *
+     * @return значение как есть или null, если не задано
+     */
+    public String loadFacesFeiPoseR0() {
+        return path(KEY_FACES_FEI_POSE_R0);
     }
 
     /**

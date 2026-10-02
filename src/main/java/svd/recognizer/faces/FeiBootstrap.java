@@ -41,8 +41,14 @@ final class FeiBootstrap {
     static final int FARP1 = 6;
     static final int METRICS = 7;
 
-    /** Пары по суффиксу: «X + суффикс − X» для всех X, у которых в файле есть обе строки. */
-    static final List<String> PAIR_SUFFIXES = List.of("+mirror");
+    /**
+     * Пары суффиксов {a, b}: «X + a − X + b» для всех X, у которых в файле есть обе строки («» — сама X). Сначала против X,
+     * затем между вариантами (А) +mirror-turn, (Б) +pose / +pose-turn и +mirror.
+     */
+    static final List<String[]> SUFFIX_PAIRS = List.of(
+            new String[] {"+mirror", ""}, new String[] {"+mirror-turn", ""}, new String[] {"+pose", ""}, new String[] {"+pose-turn", ""},
+            new String[] {"+mirror-turn", "+mirror"}, new String[] {"+pose", "+mirror"}, new String[] {"+mirror-turn", "+pose"},
+            new String[] {"+pose-turn", "+mirror-turn"});
     /** Прочие пары (A − B). */
     static final List<String[]> EXTRA_PAIRS = List.<String[]>of(new String[] {"2c-mlda-ratio", "2a95-fisher-ratio"});
 
@@ -297,11 +303,12 @@ final class FeiBootstrap {
     /** Пары (A, B) для разностей A − B: по суффиксам, затем прочие; только если обе строки есть. */
     static List<String[]> pairs(Iterable<String> ids, Map<String, ?> present) {
         List<String[]> p = new ArrayList<>();
-        for (String suffix : PAIR_SUFFIXES) {
+        for (String[] sp : SUFFIX_PAIRS) {
             for (String id : ids) {
-                if (id.endsWith(suffix)) {
-                    String base = id.substring(0, id.length() - suffix.length());
-                    if (present.containsKey(base)) p.add(new String[] {id, base});
+                if (id.endsWith(sp[0])) {
+                    String x = id.substring(0, id.length() - sp[0].length());
+                    String other = x + sp[1];
+                    if (present.containsKey(other)) p.add(new String[] {id, other});
                 }
             }
         }

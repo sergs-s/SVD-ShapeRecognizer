@@ -8,8 +8,10 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -141,7 +143,58 @@ public final class FeiScores {
     static final List<NewRow> MIRROR_ROWS = List.of(
             new NewRow("2a95-fisher-ratio+mirror", "2a95-fisher+mirror", Transform.RATIO, "d₁/d₂ над 2a95-fisher+mirror"),
             new NewRow("2c-mlda-ratio+mirror", "2c-mlda+mirror", Transform.RATIO, "d₁/d₂ над 2c-mlda+mirror"),
-            new NewRow("4-wpca-cos-0-ratio+mirror", "4-wpca-cos-0+mirror", Transform.RATIO, "d₁/d₂ над 4-wpca-cos-0+mirror"));
+            new NewRow("4-wpca-cos-0-ratio+mirror", "4-wpca-cos-0+mirror", Transform.RATIO, "d₁/d₂ над 4-wpca-cos-0+mirror"),
+            new NewRow("2a95-fisher-ratio+mirror-turn", "2a95-fisher+mirror-turn", Transform.RATIO, "d₁/d₂ над 2a95-fisher+mirror-turn"),
+            new NewRow("2c-mlda-ratio+mirror-turn", "2c-mlda+mirror-turn", Transform.RATIO, "d₁/d₂ над 2c-mlda+mirror-turn"),
+            new NewRow("4-wpca-cos-0-ratio+mirror-turn", "4-wpca-cos-0+mirror-turn", Transform.RATIO, "d₁/d₂ над 4-wpca-cos-0+mirror-turn"));
+
+    /** Шапка файла оценок: порог позы прогона (faces.fei.mirror = turn). */
+    static final String R0_HEADER = "# Поза: r0 = ";
+    /** Методы файла, для которых строится выбор модели по позе пробы (+pose): X или X+mirror. */
+    static final List<String> POSE_BASES = List.of("1-clahe-eps", "1-clahe-ratio", "2a95-fisher", "2c-mlda", "4-wpca-cos-0");
+    /** Источник отражённой модели → суффикс строки выбора по позе. */
+    static final Map<String, String> POSE_SOURCES = Map.of(FeiMethods.MIRROR, "+pose", FeiMethods.MIRROR_TURN, "+pose-turn");
+    /** Справочная сетка r0 для 2c-mlda-ratio+pose (не для выбора). */
+    static final double[] POSE_GRID = {0.08, 0.10, 0.12, 0.15, 0.18};
+
+    /** Ratio-строки над строками +pose и +pose-turn (основа — та же строка файла с суффиксом). */
+    static List<NewRow> poseRows(String suffix) {
+        List<NewRow> out = new ArrayList<>();
+        for (NewRow n : NEW_ROWS) {
+            if (n.t() == Transform.RATIO) out.add(new NewRow(n.id() + suffix, n.base() + suffix, n.t(), n.about() + suffix));
+        }
+        return out;
+    }
+
+    /** Строка сетки r0 (справочно, не для выбора). */
+    static String gridId(double r0) {
+        return String.format(Locale.ROOT, "2c-mlda-ratio+pose [r0=%.2f]", r0);
+    }
+
+    /**
+     * Выбор модели по позе пробы: для каждой попытки — строка базового метода, если |r| пробы ≤ r0, иначе строка
+     * отражённой модели; попытки сопоставляются по (роль, человек, снимок). Порядок — порядок отражённой группы.
+     */
+    static List<Row> choose(List<Row> base, List<Row> mirrored, FeiPose pose, double r0, String method) {
+        Map<String, Row> byKey = new HashMap<>();
+        for (Row r : base) if (byKey.put(attemptKey(r), r) != null) throw new IllegalStateException("Повтор попытки: " + r);
+        if (base.size() != mirrored.size()) {
+            throw new IllegalStateException("Разное число попыток в " + base.get(0).method() + " и " + mirrored.get(0).method());
+        }
+        List<Row> out = new ArrayList<>(mirrored.size());
+        for (Row m : mirrored) {
+            Row b = byKey.get(attemptKey(m));
+            if (b == null) throw new IllegalStateException("Нет попытки базовой строки для " + m);
+            Row c = pose.absR(m.person(), m.image()) <= r0 ? b : m;
+            out.add(new Row(method, c.s(), c.j(), c.role(), c.person(), c.image(), c.trueId(), c.bestId(), c.best(), c.secondId(), c.second(),
+                    c.trueScore(), c.noAgreement()));
+        }
+        return out;
+    }
+
+    private static String attemptKey(Row r) {
+        return r.role() + "\t" + r.person() + "\t" + r.image();
+    }
 
     /** Метрики строки, накопленные по конфигурациям. */
     static final class Stat {
@@ -248,12 +301,20 @@ public final class FeiScores {
         long lines;
         /** Бутстреп по людям (faces.fei.bootstrap); null — выключен. */
         FeiBootstrap boot;
+        /** Выбор модели по позе пробы (+pose; faces.fei.pose.r0): поза снимков и r0; pose null — выключен. */
+        FeiPose pose;
+        double r0 = Double.NaN;
+        /** Строки сетки r0 (справочно, не для выбора): в основные таблицы и бутстреп не входят. */
+        final Set<String> grid = new LinkedHashSet<>();
+        /** Группы базовых методов POSE_BASES: «метод s j» → попытки (ждут свою отражённую группу). */
+        private final Map<String, List<Row>> pending = new HashMap<>();
         private final Set<String> done = new HashSet<>();
         private final List<Row> group = new ArrayList<>();
         private String key;
 
         void read(BufferedReader in) throws IOException {
             String l;
+            boolean checked = false;
             while ((l = in.readLine()) != null) {
                 if (l.startsWith("#")) {
                     header.add(l);
@@ -261,9 +322,26 @@ public final class FeiScores {
                 }
                 if (l.equals(COLUMNS)) continue;
                 if (l.isEmpty()) continue;
+                if (!checked) {
+                    checkR0();
+                    checked = true;
+                }
                 add(parse(l));
             }
             finish();
+        }
+
+        /** r0 прогона (строка шапки R0_HEADER) должен совпасть с ключом faces.fei.pose.r0; есть в шапке, а ключа нет — ошибка. */
+        void checkR0() {
+            for (String h : header) {
+                if (!h.startsWith(R0_HEADER)) continue;
+                double fileR0 = Double.parseDouble(h.substring(R0_HEADER.length()).trim());
+                if (pose == null) {
+                    throw new IllegalStateException("В файле оценок строки с порогом позы r0 = " + fileR0 + " — задайте faces.fei.pose.r0 / "
+                            + "FACES_FEI_POSE_R0");
+                }
+                if (Double.compare(fileR0, r0) != 0) throw new IllegalStateException("r0 файла оценок " + fileR0 + " ≠ faces.fei.pose.r0 " + r0);
+            }
         }
 
         /** Завершить последнюю группу. */
@@ -286,15 +364,49 @@ public final class FeiScores {
             if (group.isEmpty()) return;
             Row first = group.get(0);
             configs.add(first.s() + "	" + first.j());
-            addTo(first.method(), Transform.NONE);
-            for (NewRow n : NEW_ROWS) if (n.base().equals(first.method())) addTo(n.id(), n.t());
-            for (NewRow n : MIRROR_ROWS) if (n.base().equals(first.method())) addTo(n.id(), n.t());
+            addTo(first.method(), Transform.NONE, group);
+            for (NewRow n : NEW_ROWS) if (n.base().equals(first.method())) addTo(n.id(), n.t(), group);
+            for (NewRow n : MIRROR_ROWS) if (n.base().equals(first.method())) addTo(n.id(), n.t(), group);
+            if (pose != null) pose(first);
             group.clear();
         }
 
-        private void addTo(String id, Transform t) {
-            stat(id, t).add(group);
-            if (boot != null) boot.add(id, t, group);
+        /** +pose: базовая группа запоминается; отражённая — сводится с ней по позе пробы. */
+        private void pose(Row first) {
+            String m = first.method();
+            String cfg = "\t" + first.s() + "\t" + first.j();
+            if (POSE_BASES.contains(m)) {
+                pending.put(m + cfg, new ArrayList<>(group));
+                return;
+            }
+            for (Map.Entry<String, String> e : POSE_SOURCES.entrySet().stream().sorted(Map.Entry.comparingByKey()).toList()) {
+                if (!m.endsWith(e.getKey())) continue;
+                String x = m.substring(0, m.length() - e.getKey().length());
+                if (!POSE_BASES.contains(x)) continue;
+                List<Row> base = pending.get(x + cfg);
+                if (base == null) throw new IllegalStateException("+pose: нет группы " + x + " " + cfg.trim() + " до " + m);
+                String id = x + e.getValue();
+                List<Row> chosen = choose(base, group, pose, r0, id);
+                addTo(id, Transform.NONE, chosen);
+                for (NewRow n : poseRows(e.getValue())) if (n.base().equals(id)) addTo(n.id(), n.t(), chosen);
+                if (x.equals("2c-mlda") && e.getKey().equals(FeiMethods.MIRROR)) {
+                    for (double g : POSE_GRID) {
+                        String gid = gridId(g);
+                        grid.add(gid);
+                        stat(gid, Transform.RATIO).add(choose(base, group, pose, g, "2c-mlda+pose"));
+                    }
+                }
+            }
+        }
+
+        private void addTo(String id, Transform t, List<Row> rows) {
+            stat(id, t).add(rows);
+            if (boot != null) boot.add(id, t, rows);
+        }
+
+        /** Строки основных таблиц (без сетки r0). */
+        List<Stat> main() {
+            return stats.values().stream().filter(s -> !grid.contains(s.id)).toList();
         }
 
         private Stat stat(String id, Transform t) {
@@ -306,8 +418,15 @@ public final class FeiScores {
         Path dir = Paths.get(System.getProperty("user.dir"), "reports", "faces", "fei");
         Path file = args.length > 0 && !args[0].isBlank() ? Paths.get(args[0].trim()) : dir.resolve(FILE);
         Analysis a = new Analysis();
-        int b = new SettingsStore().loadFacesFeiBootstrap();
-        if (b > 0) a.boot = new FeiBootstrap(selection(new SettingsStore()).persons());
+        SettingsStore settings = new SettingsStore();
+        int b = settings.loadFacesFeiBootstrap();
+        String rawR0 = settings.loadFacesFeiPoseR0();
+        FeiPose sel = b > 0 || rawR0 != null ? selection(settings) : null;
+        if (b > 0) a.boot = new FeiBootstrap(sel.persons());
+        if (rawR0 != null) {
+            a.pose = sel;
+            a.r0 = FeiPose.r0(rawR0, "+pose");
+        }
         try (BufferedReader in = new BufferedReader(new InputStreamReader(new GZIPInputStream(Files.newInputStream(file), 1 << 16),
                 StandardCharsets.UTF_8))) {
             a.read(in);
@@ -352,15 +471,26 @@ public final class FeiScores {
         t.append("Строки 4-sum-blk-both+* в файле есть все (в таблице fei_methods.txt — только условная строка).\n");
         if (a.stats.keySet().stream().anyMatch(FeiMethods::isMirror)) {
             t.append("Строки +mirror (режим faces.fei.mirror): обучение + отражённые кадры (FaceMirror, способ а), пробы без отражения; ");
-            for (NewRow n : MIRROR_ROWS) t.append(n.id()).append(" — ").append(n.about()).append("; ");
+            for (NewRow n : MIRROR_ROWS) if (a.stats.containsKey(n.id())) t.append(n.id()).append(" — ").append(n.about()).append("; ");
             t.append("в конце таблиц.\n");
+        }
+        if (a.stats.keySet().stream().anyMatch(id -> id.endsWith(FeiMethods.MIRROR_TURN))) {
+            t.append("Строки +mirror-turn (faces.fei.mirror = turn): отражаются только обучающие снимки с |r| > r0 (шапка файла), анфас — без "
+                    + "отражения.\n");
+        }
+        if (a.pose != null) {
+            t.append("Строки +pose / +pose-turn (faces.fei.pose.r0 = ").append(a.r0).append("): выбор модели по позе пробы, без "
+                    + "переобучения: |r| пробы ≤ r0 — попытка строки X, иначе X+mirror / X+mirror-turn (r — fei_selection.tsv); так у всех\n"
+                    + "проб — своих, пороговых и контрольных чужих; порог общий, по снимкам пороговых. Строки +pose у методов без отношения ("
+                    + "1-clahe-eps, 2a95-fisher, 2c-mlda, 4-wpca-cos-0) — справочно: шкалы X и X+mirror разные. Сетка r0 для "
+                    + "2c-mlda-ratio+pose — отдельная таблица в конце, не для выбора.\n");
         }
 
         t.append("\n=== Основная таблица: порог по снимкам пороговых чужих ===\n");
         t.append("метод | ошибка своих FAR 1 % (FRR + под чужим) | FAR 5 % (FRR + под чужим) | анфас / поворот FAR 5 % | "
                 + "FAR контроля снимки FAR 1 %: сумма; худш. (↑95) / мед. | FAR 5 %: сумма; худш. (↑95) / мед. | "
                 + "справочно: ошибка своих, порог по людям α=0,05\n");
-        for (Stat s : a.stats.values()) {
+        for (Stat s : a.main()) {
             t.append(String.join(" | ", s.id, errText(s, T1), errText(s, T5),
                     FeiMethods.pctOf(s.errors(T5, 1), s.attBy[1]) + " / " + FeiMethods.pctOf(s.errors(T5, 0), s.attBy[0]),
                     FeiMethods.attemptsSum(s.far(s.farCtrl, T1)) + "; " + FarMethods.attempts(s.far(s.farCtrl, T1)),
@@ -371,7 +501,7 @@ public final class FeiScores {
         t.append("\n=== Справочно: порог по людям (как fei_methods.txt; для сверки) ===\n");
         t.append("метод | ошибки своих α=0,05 (FRR + под чужим) | α=0 | анфас / поворот α=0,05 | анфас / поворот α=0 | "
                 + "FAR контроля люди α=0,05: худш. (↑95) / мед. | FAR контроля попытки α=0,05, сумма | FAR контроля люди α=0: худш. / мед.\n");
-        for (Stat s : a.stats.values()) {
+        for (Stat s : a.main()) {
             t.append(String.join(" | ", s.id,
                     String.format(Locale.ROOT, "%d + %d = %s", s.frr(P05), s.misaccepted(P05), FeiMethods.pctOf(s.errors(P05), s.att)),
                     FeiMethods.pctOf(s.errors(P0), s.att),
@@ -384,7 +514,7 @@ public final class FeiScores {
         t.append("\n=== Пороги и FAR на пороговых (набор порога) ===\n");
         t.append("метод | θ мед.: снимки 1 % / 5 % / люди α=0,05 / α=0 | FAR пороговых снимки, сумма: 1 % / 5 % | "
                 + "FAR пороговых люди худш. / мед.: 1 % / 5 %\n");
-        for (Stat s : a.stats.values()) {
+        for (Stat s : a.main()) {
             StringBuilder th = new StringBuilder();
             for (int k = 0; k < THRESHOLDS; k++) {
                 if (k > 0) th.append(" / ");
@@ -392,6 +522,17 @@ public final class FeiScores {
             }
             t.append(String.join(" | ", s.id, th, FeiMethods.attemptsSum(s.far(s.farThr, T1)) + " / " + FeiMethods.attemptsSum(s.far(s.farThr, T5)),
                     FeiMethods.personsNoUb(s.far(s.farThr, T1)) + " / " + FeiMethods.personsNoUb(s.far(s.farThr, T5)))).append('\n');
+        }
+        if (!a.grid.isEmpty()) {
+            t.append("\n=== Справочно, НЕ ДЛЯ ВЫБОРА: сетка r0 для 2c-mlda-ratio+pose (r0 выбран заранее по позам, а не по этой таблице) ===\n");
+            t.append("строка | ошибка своих FAR 1 % (FRR + под чужим) | FAR 5 % (FRR + под чужим) | анфас / поворот FAR 5 % | "
+                    + "FAR контроля снимки FAR 1 %: сумма | FAR 5 %: сумма\n");
+            for (String id : a.grid) {
+                Stat s = a.stats.get(id);
+                t.append(String.join(" | ", s.id, errText(s, T1), errText(s, T5),
+                        FeiMethods.pctOf(s.errors(T5, 1), s.attBy[1]) + " / " + FeiMethods.pctOf(s.errors(T5, 0), s.attBy[0]),
+                        FeiMethods.attemptsSum(s.far(s.farCtrl, T1)), FeiMethods.attemptsSum(s.far(s.farCtrl, T5)))).append('\n');
+            }
         }
         return t;
     }
@@ -403,6 +544,11 @@ public final class FeiScores {
 
     /** Шапка файла (строки с «#») и строка столбцов. */
     static String header(String code, String data, int configs, List<String> methods) {
+        return header(code, data, configs, methods, List.of());
+    }
+
+    /** То же с дополнительными строками шапки (каждая — с «#», перед строкой столбцов), например R0_HEADER. */
+    static String header(String code, String data, int configs, List<String> methods, List<String> extra) {
         StringBuilder t = new StringBuilder();
         t.append("# Этап 5б: оценки попыток faces-fei (FeiMethods), протокол FEI (PLAN.md, п. 3а)\n");
         t.append("# Код: коммит ").append(code).append('\n');
@@ -416,6 +562,7 @@ public final class FeiScores {
         t.append("# 4-agr-*: no_agreement = 1 — согласие не достигнуто (все оценки +∞), 0 — достигнуто (best_score — сумма нормированных, "
                 + "у прочих людей Double.MAX_VALUE, second_* «-»)\n");
         t.append("# Методы (").append(methods.size()).append("): ").append(String.join(", ", methods)).append('\n');
+        for (String e : extra) t.append(e).append('\n');
         t.append(COLUMNS).append('\n');
         return t.toString();
     }

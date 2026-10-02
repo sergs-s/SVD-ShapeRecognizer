@@ -51,10 +51,47 @@ public final class FeiMethods {
     static final double[] WPCA_C = {0, 0.1, 1};
 
     /** Базовый метод: оценщик обучается на своих (и, если cohortInTraining, на когорте). */
-    record Base(String id, String about, IlluminationNorm norm, GalleryScorer scorer, boolean cohortInTraining, boolean mirror) {}
+    record Base(String id, String about, IlluminationNorm norm, GalleryScorer scorer, boolean cohortInTraining, Mirror mirror) {}
+
+    /** Зеркальные копии в обучении: нет; все обучающие снимки (+mirror); только с |r| > r0 (+mirror-turn). */
+    enum Mirror { NONE, ALL, TURN }
 
     /** Суффикс строк с зеркальными копиями в обучении (этап 5б, ключ faces.fei.mirror). */
     static final String MIRROR = "+mirror";
+    /** Суффикс строк с отражением только повёрнутых обучающих снимков (|r| > r0; faces.fei.mirror = turn). */
+    static final String MIRROR_TURN = "+mirror-turn";
+
+    /**
+     * Режимы из значения ключа faces.fei.mirror: список через запятую из true (ALL) и turn (TURN), без учёта регистра;
+     * null, пусто или false — нет режимов; прочее — ошибка.
+     */
+    static Set<Mirror> mirrorModes(String raw) {
+        Set<Mirror> m = java.util.EnumSet.noneOf(Mirror.class);
+        if (raw == null || raw.isBlank()) return m;
+        for (String v : raw.split(",")) {
+            switch (v.trim().toLowerCase(Locale.ROOT)) {
+                case "true" -> m.add(Mirror.ALL);
+                case "turn" -> m.add(Mirror.TURN);
+                case "false" -> { }
+                default -> throw new IllegalStateException("faces.fei.mirror: неизвестное значение «" + v.trim() + "» (true, turn, true,turn)");
+            }
+        }
+        return m;
+    }
+
+    /**
+     * Ключи обучающих снимков человека, к которым добавляются отражения: ALL — все, TURN — с |r| > r0 (граница — без
+     * отражения); порядок — порядок numbers.
+     */
+    static List<String> mirrorKeys(String person, Map<Integer, String> byNumber, Iterable<Integer> numbers, Mirror mode, FeiPose pose,
+                                   double r0) {
+        List<String> out = new ArrayList<>();
+        for (int n : numbers) {
+            if (mode == Mirror.ALL || mode == Mirror.TURN && pose.turned(person, n, r0)) out.add(byNumber.get(n));
+            else if (mode != Mirror.TURN) throw new IllegalArgumentException("Режим без отражений: " + mode);
+        }
+        return out;
+    }
 
     /** Производный метод: оценки из оценок других методов той же конфигурации. */
     record Derived(String id, String about, List<String> parts, Kind kind) {}
@@ -72,9 +109,14 @@ public final class FeiMethods {
     final FeiDataset.Info info;
     final IlluminationNorm.NormParams params;
     final Map<IlluminationNorm, Map<String, double[]>> vectors = new HashMap<>();
-    /** Режим +mirror (faces.fei.mirror): к обучению добавляются отражённые кадры (FaceMirror, способ а). */
+    /** Режим +mirror (faces.fei.mirror = true): к обучению добавляются отражённые кадры (FaceMirror, способ а). */
     final boolean mirror;
-    /** Векторы CLAHE отражённых кадров (только при mirror). */
+    /** Режим +mirror-turn (faces.fei.mirror = turn): отражаются только обучающие снимки с |r| > r0. */
+    final boolean mirrorTurn;
+    /** Поза отобранных снимков (fei_selection.tsv) и порог r0 — только при mirrorTurn. */
+    final FeiPose pose;
+    final double r0;
+    /** Векторы CLAHE отражённых кадров (только при mirror или mirrorTurn). */
     final Map<String, double[]> mirrorVectors = new HashMap<>();
 
     final List<Base> bases = new ArrayList<>();
@@ -86,7 +128,7 @@ public final class FeiMethods {
     /** Файл оценок попыток (этап 5б); null — не пишется. */
     Writer scoresOut;
 
-    FeiMethods(SettingsStore settings, Map<String, Map<Integer, String>> keys, Map<String, Mat> frames, FeiDataset.Info info) {
+    FeiMethods(SettingsStore settings, Map<String, Map<Integer, String>> keys, FeiPose pose, Map<String, Mat> frames, FeiDataset.Info info) {
         this.settings = settings;
         this.seed = settings.loadFacesSeed();
         this.keys = keys;
@@ -103,8 +145,12 @@ public final class FeiMethods {
             for (int i = 0; i < k.size(); i++) map.put(k.get(i), out[i]);
             vectors.put(n, map);
         }
-        mirror = settings.loadFacesFeiMirror();
-        if (mirror) {
+        Set<Mirror> modes = mirrorModes(settings.loadFacesFeiMirror());
+        mirror = modes.contains(Mirror.ALL);
+        mirrorTurn = modes.contains(Mirror.TURN);
+        this.pose = mirrorTurn ? pose : null;
+        r0 = mirrorTurn ? FeiPose.r0(settings.loadFacesFeiPoseR0(), "faces.fei.mirror = turn") : Double.NaN;
+        if (mirror || mirrorTurn) {
             List<String> k = new ArrayList<>(frames.keySet());
             double[][] out = new double[k.size()][];
             IntStream.range(0, k.size()).parallel().forEach(i -> {
@@ -166,21 +212,26 @@ public final class FeiMethods {
         }
         // Условная строка (добавляется в таблицу, если лучшая строка wpca обходит 3-znorm-lda): считается для всех 9 wpca.
         for (String w : wpcaIds()) derived(blkWpcaId(w), "сумма нормированных: 4-blk-both + " + w, Kind.SUM, "4-blk-both", w);
-        if (!mirror) return;
         // +mirror (этап 5б): те же методы, к обучению добавлены отражённые кадры своих (и когорты, если она в обучении);
         // пробы и когорта в нормировке — без отражения. Строки — в конце таблицы, прежние не меняются.
-        String note = "; обучение + отражённые кадры";
-        base("1-clahe-eps" + MIRROR, about.get("1-clahe-eps") + note, cl, new SubspaceScorer(false), false, true);
-        derived("1-clahe-ratio" + MIRROR, about.get("1-clahe-ratio") + note, Kind.RATIO, "1-clahe-eps" + MIRROR);
-        base("2a95-fisher" + MIRROR, about.get("2a95-fisher") + note, cl, FisherScorer.byEnergy(FarMethods.PCA_ENERGY), false, true);
-        base("2c-mlda" + MIRROR, about.get("2c-mlda") + note + " (и когорты)", cl, new MldaScorer(), true, true);
+        if (mirror) mirrorRows(MIRROR, Mirror.ALL, "; обучение + отражённые кадры");
+        // +mirror-turn: отражаются только обучающие снимки с |r| > r0 (анфас — без отражения).
+        if (mirrorTurn) mirrorRows(MIRROR_TURN, Mirror.TURN, "; обучение + отражённые кадры с |r| > r0 = " + r0);
+    }
+
+    private void mirrorRows(String suffix, Mirror mode, String note) {
+        IlluminationNorm cl = IlluminationNorm.CLAHE;
+        base("1-clahe-eps" + suffix, about.get("1-clahe-eps") + note, cl, new SubspaceScorer(false), false, mode);
+        derived("1-clahe-ratio" + suffix, about.get("1-clahe-ratio") + note, Kind.RATIO, "1-clahe-eps" + suffix);
+        base("2a95-fisher" + suffix, about.get("2a95-fisher") + note, cl, FisherScorer.byEnergy(FarMethods.PCA_ENERGY), false, mode);
+        base("2c-mlda" + suffix, about.get("2c-mlda") + note + " (и когорты)", cl, new MldaScorer(), true, mode);
         String w0 = wpcaId("cos", 0);
-        base(w0 + MIRROR, about.get(w0) + note + " (и когорты; своя PCA)", cl, new WpcaScorer(WpcaScorer.Mode.COS, 0), true, true);
+        base(w0 + suffix, about.get(w0) + note + " (и когорты; своя PCA)", cl, new WpcaScorer(WpcaScorer.Mode.COS, 0), true, mode);
     }
 
     /** Строка режима +mirror. */
     static boolean isMirror(String id) {
-        return id.endsWith(MIRROR);
+        return id.endsWith(MIRROR) || id.endsWith(MIRROR_TURN);
     }
 
     static String wpcaId(String kind, double c) {
@@ -196,10 +247,10 @@ public final class FeiMethods {
     }
 
     private void base(String id, String text, IlluminationNorm norm, GalleryScorer scorer, boolean cohort) {
-        base(id, text, norm, scorer, cohort, false);
+        base(id, text, norm, scorer, cohort, Mirror.NONE);
     }
 
-    private void base(String id, String text, IlluminationNorm norm, GalleryScorer scorer, boolean cohort, boolean mirrored) {
+    private void base(String id, String text, IlluminationNorm norm, GalleryScorer scorer, boolean cohort, Mirror mirrored) {
         bases.add(new Base(id, text, norm, scorer, cohort, mirrored));
         about.put(id, text);
     }
@@ -220,8 +271,8 @@ public final class FeiMethods {
         Path dir = Paths.get(exportDir);
         FarExport.Loaded export = FarExport.read(dir);
         if (export.data().fei().isEmpty() || export.feiInfo() == null) throw new IllegalStateException("В экспорте нет FEI");
-        Map<String, Map<Integer, String>> keys = selection(Files.readAllLines(dir.resolve(FarExport.FEI_SELECTION), StandardCharsets.UTF_8),
-                export.data().fei());
+        List<String> selLines = Files.readAllLines(dir.resolve(FarExport.FEI_SELECTION), StandardCharsets.UTF_8);
+        Map<String, Map<Integer, String>> keys = selection(selLines, export.data().fei());
         Map<String, Mat> frames = new HashMap<>();
         for (List<Sample> list : export.data().fei().values()) {
             for (Sample s : list) {
@@ -231,9 +282,9 @@ public final class FeiMethods {
             }
         }
         int limit = args.length > 0 && !args[0].isBlank() ? Integer.parseInt(args[0].trim()) : CONFIGS;
-        FeiMethods fm = new FeiMethods(settings, keys, frames, export.feiInfo());
+        FeiMethods fm = new FeiMethods(settings, keys, FeiPose.parse(selLines), frames, export.feiInfo());
         Path outDir0 = Paths.get(System.getProperty("user.dir"), "reports", "faces", "fei");
-        if (fm.mirror) {
+        if (fm.mirror || fm.mirrorTurn) {
             Files.createDirectories(outDir0);
             mirrorCheck(keys, frames, outDir0.resolve("fei_mirror_check.png"));
         }
@@ -245,7 +296,8 @@ public final class FeiMethods {
         String source = "экспорт " + exportDir + ", коммит данных " + FarMethods.dataCommit(dir);
         try (Writer w = new OutputStreamWriter(new GZIPOutputStream(Files.newOutputStream(outDir.resolve(FeiScores.FILE)), 1 << 16),
                 StandardCharsets.UTF_8)) {
-            w.write(FeiScores.header(FarMethods.commit(), source, Math.min(limit, CONFIGS), new ArrayList<>(fm.about.keySet())));
+            w.write(FeiScores.header(FarMethods.commit(), source, Math.min(limit, CONFIGS), new ArrayList<>(fm.about.keySet()),
+                    fm.mirrorTurn ? List.of(FeiScores.R0_HEADER + fm.r0) : List.of()));
             fm.scoresOut = w;
             fm.run(limit);
             fm.scoresOut = null;
@@ -360,14 +412,14 @@ public final class FeiMethods {
     }
 
     /**
-     * Обучающие классы +mirror (только CLAHE): в каждом классе — те же снимки, затем их отражения (свои 7 → 14; у когорты
-     * в обучении — все её снимки и их отражения).
+     * Обучающие классы +mirror (только CLAHE): в каждом классе — те же снимки, затем отражения (ALL: свои 7 → 14, у когорты
+     * в обучении — все её снимки и их отражения; TURN: отражения только снимков с |r| > r0, FeiMethods.mirrorKeys).
      */
-    List<List<double[]>> mirrorClasses(FeiProtocol.Split sp, int j, boolean withCohort) {
+    List<List<double[]>> mirrorClasses(FeiProtocol.Split sp, int j, boolean withCohort, Mirror mode) {
         List<List<double[]>> base = classes(sp, j, IlluminationNorm.CLAHE, withCohort);
         List<List<String>> ks = new ArrayList<>();
-        for (String p : sp.gallery()) ks.add(FeiProtocol.trainNumbers(j).stream().map(n -> key(p, n)).toList());
-        if (withCohort) for (String p : sp.cohort()) ks.add(keysOf(List.of(p)));
+        for (String p : sp.gallery()) ks.add(mirrorKeys(p, keys.get(p), FeiProtocol.trainNumbers(j), mode, pose, r0));
+        if (withCohort) for (String p : sp.cohort()) ks.add(mirrorKeys(p, keys.get(p), keys.get(p).keySet(), mode, pose, r0));
         List<List<double[]>> out = new ArrayList<>();
         for (int c = 0; c < base.size(); c++) {
             List<double[]> list = new ArrayList<>(base.get(c));
@@ -411,9 +463,11 @@ public final class FeiMethods {
         WpcaScorer.Pca pca = null;
         for (Base b : bases) {
             long t0 = System.nanoTime();
-            List<List<double[]>> cls = b.mirror() ? mirrorClasses(sp, j, b.cohortInTraining()) : classes(sp, j, b.norm(), b.cohortInTraining());
+            boolean mirrored = b.mirror() != Mirror.NONE;
+            List<List<double[]>> cls = mirrored ? mirrorClasses(sp, j, b.cohortInTraining(), b.mirror())
+                    : classes(sp, j, b.norm(), b.cohortInTraining());
             GalleryScorer.ScoreModel model;
-            if (b.scorer() instanceof WpcaScorer && b.mirror()) {
+            if (b.scorer() instanceof WpcaScorer && mirrored) {
                 // +mirror: своя PCA на отражённых классах.
                 WpcaScorer w = (WpcaScorer) b.scorer();
                 model = WpcaScorer.model(WpcaScorer.Pca.of(cls), cls, g, w.mode(), w.c());
@@ -661,6 +715,12 @@ public final class FeiMethods {
                     + "«отражённый шаблон → шаблон» (FaceMirror, способ а; шаблон кадра несимметричен — без поправки сдвиг 0,8–1,3 px).\n"
                     + "Пробы (контроль своих, пороговые, контрольные чужие) и когорта в нормировке — без отражения. Строки +mirror — в конце\n"
                     + "таблиц, в выборе лучшего по правилу не участвуют; прежние строки не меняются.\n");
+        }
+        if (mirrorTurn) {
+            t.append("Режим +mirror-turn (faces.fei.mirror = turn, этап 5б): то же, но отражаются только обучающие снимки с |r| > r0 = "
+                    + r0 + "\n(faces.fei.pose.r0; r — смещение носа от середины глаз в долях межглазья, точки YuNet, fei_selection.tsv;\n"
+                    + "|r| = r0 — без отражения), у своих и у когорты в обучении (2c-mlda, 4-wpca); строки — в конце таблиц, в выборе\n"
+                    + "лучшего не участвуют.\n");
         }
 
         t.append("\n=== Сводка (основная таблица FEI) ===\n");
