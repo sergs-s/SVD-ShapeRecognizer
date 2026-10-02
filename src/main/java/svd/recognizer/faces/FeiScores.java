@@ -16,6 +16,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.zip.GZIPInputStream;
+import svd.recognizer.storage.SettingsStore;
 import svd.recognizer.faces.GalleryEvaluation.Impostors;
 
 /**
@@ -245,6 +246,8 @@ public final class FeiScores {
         final Map<String, Stat> stats = new LinkedHashMap<>();
         final Set<String> configs = new TreeSet<>();
         long lines;
+        /** Бутстреп по людям (faces.fei.bootstrap); null — выключен. */
+        FeiBootstrap boot;
         private final Set<String> done = new HashSet<>();
         private final List<Row> group = new ArrayList<>();
         private String key;
@@ -283,10 +286,15 @@ public final class FeiScores {
             if (group.isEmpty()) return;
             Row first = group.get(0);
             configs.add(first.s() + "	" + first.j());
-            stat(first.method(), Transform.NONE).add(group);
-            for (NewRow n : NEW_ROWS) if (n.base().equals(first.method())) stat(n.id(), n.t()).add(group);
-            for (NewRow n : MIRROR_ROWS) if (n.base().equals(first.method())) stat(n.id(), n.t()).add(group);
+            addTo(first.method(), Transform.NONE);
+            for (NewRow n : NEW_ROWS) if (n.base().equals(first.method())) addTo(n.id(), n.t());
+            for (NewRow n : MIRROR_ROWS) if (n.base().equals(first.method())) addTo(n.id(), n.t());
             group.clear();
+        }
+
+        private void addTo(String id, Transform t) {
+            stat(id, t).add(group);
+            if (boot != null) boot.add(id, t, group);
         }
 
         private Stat stat(String id, Transform t) {
@@ -298,6 +306,8 @@ public final class FeiScores {
         Path dir = Paths.get(System.getProperty("user.dir"), "reports", "faces", "fei");
         Path file = args.length > 0 && !args[0].isBlank() ? Paths.get(args[0].trim()) : dir.resolve(FILE);
         Analysis a = new Analysis();
+        int b = new SettingsStore().loadFacesFeiBootstrap();
+        if (b > 0) a.boot = new FeiBootstrap();
         try (BufferedReader in = new BufferedReader(new InputStreamReader(new GZIPInputStream(Files.newInputStream(file), 1 << 16),
                 StandardCharsets.UTF_8))) {
             a.read(in);
@@ -306,6 +316,14 @@ public final class FeiScores {
         FarMethods.write(dir.resolve("fei_scores.txt"), report(a, file.toString()));
         new java.io.PrintStream(System.out, true, StandardCharsets.UTF_8).println("Строк " + a.lines + ", конфигураций " + a.configs.size() + ", строк отчёта " + a.stats.size() + "; отчёт "
                 + dir.resolve("fei_scores.txt"));
+        if (a.boot != null) {
+            long seed = new SettingsStore().loadFacesSeed() + FeiBootstrap.SEED_OFFSET;
+            long t0 = System.nanoTime();
+            FeiBootstrap.Result r = a.boot.run(b, seed);
+            FarMethods.write(dir.resolve(FeiBootstrap.FILE), FeiBootstrap.report(r, a.header, file.toString()));
+            new java.io.PrintStream(System.out, true, StandardCharsets.UTF_8).println(String.format(Locale.ROOT,
+                    "Бутстреп: B = %d, seed = %d, %.0f с; отчёт %s", b, seed, (System.nanoTime() - t0) / 1e9, dir.resolve(FeiBootstrap.FILE)));
+        }
     }
 
     static StringBuilder report(Analysis a, String source) {

@@ -63,6 +63,7 @@ public class SettingsStore {
     private static final String KEY_FACES_EXPORT_DIR = "faces.export.dir";
     private static final String KEY_FACES_FEI_DIR = "faces.fei.dir";
     private static final String KEY_FACES_FEI_MIRROR = "faces.fei.mirror";
+    private static final String KEY_FACES_FEI_BOOTSTRAP = "faces.fei.bootstrap";
     private static final long DEFAULT_FACES_SEED = 42L;
     private static final int DEFAULT_FACES_TRAIN_PER_PERSON = 5;
 
@@ -378,6 +379,24 @@ public class SettingsStore {
     public boolean loadFacesFeiMirror() {
         String raw = path(KEY_FACES_FEI_MIRROR);
         return raw != null && Boolean.parseBoolean(raw.trim());
+    }
+
+    /**
+     * Бутстреп по людям в разборе файла оценок faces-fei-scores (fei_bootstrap.txt, этап 5б): ключ faces.fei.bootstrap
+     * или переменная окружения FACES_FEI_BOOTSTRAP — число реплик B. По умолчанию выключен (0).
+     *
+     * @return B ≥ 0; 0 — выключен
+     */
+    public int loadFacesFeiBootstrap() {
+        String raw = path(KEY_FACES_FEI_BOOTSTRAP);
+        if (raw == null) {
+            return 0;
+        }
+        int b = Integer.parseInt(raw.trim());
+        if (b < 0) {
+            throw new IllegalStateException(KEY_FACES_FEI_BOOTSTRAP + " < 0: " + raw);
+        }
+        return b;
     }
 
     /**
