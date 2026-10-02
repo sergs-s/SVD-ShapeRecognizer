@@ -12,13 +12,14 @@ import svd.recognizer.faces.FeiScores.Row;
 import svd.recognizer.faces.FeiScores.Transform;
 
 /**
- * Этап 5б: бутстреп по людям для разбора файла оценок faces-fei (PLAN.md, п. 3а). В каждой реплике люди пересэмплируются
- * целиком, со всеми своими снимками, отдельно в каждом разбиении s и в каждой роли (свои 100, пороговые 40, контроль 40):
- * человек получает вес — сколько раз он вытянут (выборка с возвращением). Веса общие для всех строк отчёта (парные
- * разности) и для всех 8 конфигураций разбиения. В каждой реплике и конфигурации порог заново — Нейман – Пирсон по
- * снимкам пороговых чужих с весами (наибольший θ, при котором взвешенное число принятых снимков не больше ⌊FAR·W⌋, W —
- * взвешенное число снимков); при весах 1 — ровно порог FeiScores. Интервал — процентили 2,5 и 97,5 %, для FAR контроля —
- * верхняя 95 % граница (процентиль 95 %), рядом граница Клоппера – Пирсона по снимкам (оптимистична).
+ * Этап 5б: бутстреп по людям для разбора файла оценок faces-fei (PLAN.md, п. 3а). В каждой реплике люди FEI (все 200,
+ * fei_selection.tsv) вытягиваются с возвращением целиком, со всеми своими снимками: человек получает один вес — сколько
+ * раз он вытянут; вес общий для всех разбиений, ролей, конфигураций и строк отчёта (парные разности). Число людей в
+ * ролях в реплике плавает. Обучение не повторяется: галерея и модели те же, веса только перевзвешивают попытки. В каждой
+ * реплике и конфигурации порог заново — Нейман – Пирсон по снимкам пороговых чужих с весами (наибольший θ, при котором
+ * взвешенное число принятых снимков не больше ⌊FAR·W⌋, W — взвешенное число снимков); при весах 1 — ровно порог
+ * FeiScores. Интервал — процентили 2,5 и 97,5 %, для FAR контроля — верхняя 95 % граница (процентиль 95 %), рядом граница
+ * Клоппера – Пирсона по снимкам (оптимистична).
  *
  * Включается ключом faces.fei.bootstrap (число реплик B, FACES_FEI_BOOTSTRAP); seed — faces.seed + 7000. Отчёт —
  * fei_bootstrap.txt; fei_scores.txt не меняется.
@@ -29,11 +30,6 @@ final class FeiBootstrap {
 
     static final String FILE = "fei_bootstrap.txt";
     static final long SEED_OFFSET = 7000;
-    /** Роли (индексы весов). */
-    static final String[] ROLES = {FeiScores.OWN, FeiScores.THR, FeiScores.CTRL};
-    static final int OWN = 0;
-    static final int THR = 1;
-    static final int CTRL = 2;
 
     /** Метрики реплики. */
     static final int ERR1 = 0;
@@ -50,9 +46,8 @@ final class FeiBootstrap {
     /** Прочие пары (A − B). */
     static final List<String[]> EXTRA_PAIRS = List.<String[]>of(new String[] {"2c-mlda-ratio", "2a95-fisher-ratio"});
 
-    /** Попытки одной строки отчёта в одной конфигурации; люди — индексы в своей роли и разбиении. */
+    /** Попытки одной строки отчёта в одной конфигурации; люди — индексы в списке людей FEI. */
     static final class Cfg {
-        final int s;
         final boolean frontal;
         int[] ownP;
         double[] ownS;
@@ -62,23 +57,46 @@ final class FeiBootstrap {
         double[] thrS;
         int[] ctrlP;
         double[] ctrlS;
+        /** Люди контроля (без повторов) — для FAR по людям. */
+        int[] ctrlPeople;
 
-        Cfg(int s, boolean frontal) {
-            this.s = s;
+        Cfg(boolean frontal) {
             this.frontal = frontal;
         }
     }
 
     final Map<String, List<Cfg>> rows = new LinkedHashMap<>();
-    /** [s][роль]: человек → индекс по первому появлению (после finish — по возрастанию id). */
-    private final List<List<Map<String, Integer>>> persons = new ArrayList<>();
-    private boolean finished;
+    /** Люди FEI по возрастанию id: id → индекс. */
+    private final List<String> persons;
+    private final Map<String, Integer> index = new HashMap<>();
+
+    /** @param persons все люди FEI (по возрастанию id) — из них вытягиваются реплики */
+    FeiBootstrap(List<String> persons) {
+        this.persons = List.copyOf(persons);
+        for (int i = 0; i < this.persons.size(); i++) {
+            if (index.put(this.persons.get(i), i) != null) throw new IllegalArgumentException("Повтор человека: " + this.persons.get(i));
+            if (i > 0 && this.persons.get(i - 1).compareTo(this.persons.get(i)) > 0) {
+                throw new IllegalArgumentException("Люди не по возрастанию id");
+            }
+        }
+    }
+
+    /** Число людей FEI. */
+    int size() {
+        return persons.size();
+    }
+
+    /** Индекс человека; нет в списке людей FEI — ошибка. */
+    int person(String id) {
+        Integer i = index.get(id);
+        if (i == null) throw new IllegalArgumentException("Человек " + id + " из файла оценок не входит в людей FEI (fei_selection.tsv)");
+        return i;
+    }
 
     /** Попытки одной конфигурации строки id (все строки группы — один метод, s, j). */
     void add(String id, Transform t, List<Row> group) {
-        if (finished) throw new IllegalStateException("Бутстреп уже завершён");
         Row first = group.get(0);
-        Cfg c = new Cfg(first.s(), FeiProtocol.frontal(first.j()));
+        Cfg c = new Cfg(FeiProtocol.frontal(first.j()));
         List<double[]> own = new ArrayList<>();
         List<double[]> thr = new ArrayList<>();
         List<double[]> ctrl = new ArrayList<>();
@@ -88,10 +106,10 @@ final class FeiBootstrap {
             switch (r.role()) {
                 case FeiScores.OWN -> {
                     double s = Double.isInfinite(r.trueScore()) ? Double.POSITIVE_INFINITY : sc;
-                    own.add(new double[] {person(c.s, OWN, r.person()), s, r.bestId().equals(r.trueId()) ? 1 : 0});
+                    own.add(new double[] {person(r.person()), s, r.bestId().equals(r.trueId()) ? 1 : 0});
                 }
-                case FeiScores.THR -> thr.add(new double[] {person(c.s, THR, r.person()), sc});
-                case FeiScores.CTRL -> ctrl.add(new double[] {person(c.s, CTRL, r.person()), sc});
+                case FeiScores.THR -> thr.add(new double[] {person(r.person()), sc});
+                case FeiScores.CTRL -> ctrl.add(new double[] {person(r.person()), sc});
                 default -> throw new IllegalArgumentException("Роль: " + r.role());
             }
         }
@@ -109,82 +127,22 @@ final class FeiBootstrap {
         c.thrS = thr.stream().mapToDouble(a -> a[1]).toArray();
         c.ctrlP = ctrl.stream().mapToInt(a -> (int) a[0]).toArray();
         c.ctrlS = ctrl.stream().mapToDouble(a -> a[1]).toArray();
+        c.ctrlPeople = Arrays.stream(c.ctrlP).distinct().sorted().toArray();
         rows.computeIfAbsent(id, k -> new ArrayList<>()).add(c);
     }
 
-    private int person(int s, int role, String id) {
-        while (persons.size() <= s) {
-            List<Map<String, Integer>> l = new ArrayList<>();
-            for (int k = 0; k < ROLES.length; k++) l.add(new HashMap<>());
-            persons.add(l);
-        }
-        Map<String, Integer> m = persons.get(s).get(role);
-        return m.computeIfAbsent(id, k -> m.size());
-    }
-
-    /** Число людей [s][роль]. */
-    int[][] sizes() {
-        int[][] n = new int[persons.size()][ROLES.length];
-        for (int s = 0; s < n.length; s++) for (int k = 0; k < ROLES.length; k++) n[s][k] = persons.get(s).get(k).size();
-        return n;
-    }
-
-    /** Индексы людей — по возрастанию id (выборка не зависит от порядка строк в файле). */
-    void finish() {
-        if (finished) return;
-        finished = true;
-        List<List<int[]>> remap = new ArrayList<>();
-        for (List<Map<String, Integer>> bySplit : persons) {
-            List<int[]> r = new ArrayList<>();
-            for (Map<String, Integer> m : bySplit) {
-                String[] ids = m.keySet().toArray(String[]::new);
-                Arrays.sort(ids);
-                int[] map = new int[ids.length];
-                for (int i = 0; i < ids.length; i++) map[m.get(ids[i])] = i;
-                r.add(map);
-            }
-            remap.add(r);
-        }
-        for (List<Cfg> cs : rows.values()) {
-            for (Cfg c : cs) {
-                List<int[]> r = remap.get(c.s);
-                remapAll(c.ownP, r.get(OWN));
-                remapAll(c.thrP, r.get(THR));
-                remapAll(c.ctrlP, r.get(CTRL));
-            }
-        }
-    }
-
-    private static void remapAll(int[] p, int[] map) {
-        for (int i = 0; i < p.length; i++) p[i] = map[p[i]];
-    }
-
-    /** Веса реплик [b][s][роль][человек]; реплики по порядку, разбиения по порядку, роли own, thr, ctrl. */
-    static int[][][][] weights(int[][] sizes, int b, long seed) {
+    /** Веса реплик [b][человек]: в каждой реплике n вытягиваний из n людей с возвращением. */
+    static int[][] weights(int n, int b, long seed) {
         Random rnd = new Random(seed);
-        int[][][][] w = new int[b][sizes.length][ROLES.length][];
-        for (int i = 0; i < b; i++) {
-            for (int s = 0; s < sizes.length; s++) {
-                for (int k = 0; k < ROLES.length; k++) {
-                    int n = sizes[s][k];
-                    int[] v = new int[n];
-                    for (int d = 0; d < n; d++) v[rnd.nextInt(n)]++;
-                    w[i][s][k] = v;
-                }
-            }
-        }
+        int[][] w = new int[b][n];
+        for (int i = 0; i < b; i++) for (int d = 0; d < n; d++) w[i][rnd.nextInt(n)]++;
         return w;
     }
 
     /** Веса 1 (исходная выборка). */
-    static int[][][] unit(int[][] sizes) {
-        int[][][] w = new int[sizes.length][ROLES.length][];
-        for (int s = 0; s < sizes.length; s++) {
-            for (int k = 0; k < ROLES.length; k++) {
-                w[s][k] = new int[sizes[s][k]];
-                Arrays.fill(w[s][k], 1);
-            }
-        }
+    static int[] unit(int n) {
+        int[] w = new int[n];
+        Arrays.fill(w, 1);
         return w;
     }
 
@@ -207,8 +165,8 @@ final class FeiBootstrap {
         return Double.POSITIVE_INFINITY;
     }
 
-    /** Метрики строки при весах w[s][роль][человек], проценты (100,0·x/n — как округляет FeiScores). */
-    static double[] metrics(List<Cfg> cs, int[][][] w) {
+    /** Метрики строки при весах людей w, проценты (100,0·x/n — как округляет FeiScores). */
+    static double[] metrics(List<Cfg> cs, int[] w) {
         double[] err = new double[2];
         double[] err5By = new double[2];
         double[] ownN = new double[2];
@@ -216,15 +174,13 @@ final class FeiBootstrap {
         double farN = 0;
         double farPX = 0;
         double farPN = 0;
+        boolean[] accP = new boolean[w.length];
         for (Cfg c : cs) {
-            int[] wo = w[c.s][OWN];
-            int[] wt = w[c.s][THR];
-            int[] wc = w[c.s][CTRL];
-            double t1 = threshold(c.thrS, c.thrP, wt, FeiScores.FARS[0]);
-            double t5 = threshold(c.thrS, c.thrP, wt, FeiScores.FARS[1]);
+            double t1 = threshold(c.thrS, c.thrP, w, FeiScores.FARS[0]);
+            double t5 = threshold(c.thrS, c.thrP, w, FeiScores.FARS[1]);
             int fr = c.frontal ? 1 : 0;
             for (int i = 0; i < c.ownP.length; i++) {
-                int q = wo[c.ownP[i]];
+                int q = w[c.ownP[i]];
                 if (q == 0) continue;
                 ownN[fr] += q;
                 if (c.ownS[i] > t1 || !c.ownOk[i]) err[0] += q;
@@ -233,9 +189,8 @@ final class FeiBootstrap {
                     err5By[fr] += q;
                 }
             }
-            boolean[] accP = new boolean[wc.length];
             for (int i = 0; i < c.ctrlS.length; i++) {
-                int q = wc[c.ctrlP[i]];
+                int q = w[c.ctrlP[i]];
                 farN += q;
                 if (c.ctrlS[i] <= t1) {
                     farX[0] += q;
@@ -243,9 +198,10 @@ final class FeiBootstrap {
                 }
                 if (c.ctrlS[i] <= t5) farX[1] += q;
             }
-            for (int p = 0; p < wc.length; p++) {
-                farPN += wc[p];
-                if (accP[p]) farPX += wc[p];
+            for (int p : c.ctrlPeople) {
+                farPN += w[p];
+                if (accP[p]) farPX += w[p];
+                accP[p] = false;
             }
         }
         double[] m = new double[METRICS];
@@ -261,11 +217,11 @@ final class FeiBootstrap {
     }
 
     /** Без весов: принятые снимки контроля и все снимки, сумма по конфигурациям (для Клоппера – Пирсона). */
-    static int[] ctrlCounts(List<Cfg> cs, int[][][] unit, int k) {
+    static int[] ctrlCounts(List<Cfg> cs, int[] unit, int k) {
         int x = 0;
         int n = 0;
         for (Cfg c : cs) {
-            double t = threshold(c.thrS, c.thrP, unit[c.s][THR], FeiScores.FARS[k]);
+            double t = threshold(c.thrS, c.thrP, unit, FeiScores.FARS[k]);
             for (double v : c.ctrlS) {
                 n++;
                 if (v <= t) x++;
@@ -278,6 +234,9 @@ final class FeiBootstrap {
     static final class Result {
         final int b;
         final long seed;
+        /** Людей FEI и из них встречаются в файле оценок (в ролях own, thr, ctrl). */
+        int persons;
+        int inFile;
         final Map<String, double[]> point = new LinkedHashMap<>();
         final Map<String, double[][]> reps = new LinkedHashMap<>();
         final Map<String, int[][]> cp = new LinkedHashMap<>();
@@ -289,11 +248,20 @@ final class FeiBootstrap {
     }
 
     Result run(int b, long seed) {
-        finish();
-        int[][] sizes = sizes();
-        int[][][][] w = weights(sizes, b, seed);
-        int[][][] u = unit(sizes);
+        int n = size();
+        int[][] w = weights(n, b, seed);
+        int[] u = unit(n);
         Result res = new Result(b, seed);
+        res.persons = n;
+        boolean[] seen = new boolean[n];
+        for (List<Cfg> cs : rows.values()) {
+            for (Cfg c : cs) {
+                for (int p : c.ownP) seen[p] = true;
+                for (int p : c.thrP) seen[p] = true;
+                for (int p : c.ctrlP) seen[p] = true;
+            }
+        }
+        for (boolean s : seen) if (s) res.inFile++;
         List<String> ids = new ArrayList<>(rows.keySet());
         double[][][] all = new double[ids.size()][][];
         java.util.stream.IntStream.range(0, ids.size()).parallel().forEach(r -> {
@@ -350,10 +318,13 @@ final class FeiBootstrap {
         t.append("Файл: ").append(source).append('\n');
         t.append("Шапка файла:\n");
         for (String h : header) t.append("  ").append(h).append('\n');
-        t.append(String.format(Locale.ROOT, "Реплик B = %d, seed = %d (faces.seed + %d).%n", r.b, r.seed, SEED_OFFSET));
-        t.append("Реплика: в каждом разбиении s люди каждой роли (свои 100, пороговые 40, контроль 40) вытягиваются с возвращением\n"
-                + "целиком, со всеми снимками; вес человека — число вытягиваний; веса общие для всех строк (разности парные) и для 8\n"
-                + "конфигураций разбиения. Порог в каждой реплике и конфигурации — Нейман – Пирсон по снимкам пороговых с весами\n"
+        t.append(String.format(Locale.ROOT, "Реплик B = %d, seed = %d (faces.seed + %d). Людей FEI %d (fei_selection.tsv), из них в "
+                + "файле оценок (свои, пороговые, контроль хотя бы в одном разбиении) %d; остальные — только когорта.%n", r.b, r.seed,
+                SEED_OFFSET, r.persons, r.inFile));
+        t.append("Реплика: люди FEI вытягиваются с возвращением (n из n) целиком, со всеми снимками; у человека один вес — число\n"
+                + "вытягиваний, общий для всех 5 разбиений, ролей, 40 конфигураций и строк (разности парные); число людей в ролях\n"
+                + "в реплике плавает; обучение не повторяется (галерея и модели те же, веса перевзвешивают попытки).\n"
+                + "Порог в каждой реплике и конфигурации — Нейман – Пирсон по снимкам пороговых с весами\n"
                 + "(взвешенное число принятых снимков ≤ ⌊FAR·W⌋), FAR 1 % и 5 %. Метрики — по сумме 40 конфигураций с весами.\n"
                 + "Точка — исходная выборка (веса 1; совпадает с fei_scores.txt); [2,5; 97,5] — процентили реплик; ↑95 — процентиль\n"
                 + "95 % (односторонняя верхняя граница FAR контроля); КП — граница Клоппера – Пирсона по снимкам (сумма 40\n"

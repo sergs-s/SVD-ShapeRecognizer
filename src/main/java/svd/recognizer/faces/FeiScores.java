@@ -307,7 +307,7 @@ public final class FeiScores {
         Path file = args.length > 0 && !args[0].isBlank() ? Paths.get(args[0].trim()) : dir.resolve(FILE);
         Analysis a = new Analysis();
         int b = new SettingsStore().loadFacesFeiBootstrap();
-        if (b > 0) a.boot = new FeiBootstrap();
+        if (b > 0) a.boot = new FeiBootstrap(selection(new SettingsStore()).persons());
         try (BufferedReader in = new BufferedReader(new InputStreamReader(new GZIPInputStream(Files.newInputStream(file), 1 << 16),
                 StandardCharsets.UTF_8))) {
             a.read(in);
@@ -324,6 +324,13 @@ public final class FeiScores {
             new java.io.PrintStream(System.out, true, StandardCharsets.UTF_8).println(String.format(Locale.ROOT,
                     "Бутстреп: B = %d, seed = %d, %.0f с; отчёт %s", b, seed, (System.nanoTime() - t0) / 1e9, dir.resolve(FeiBootstrap.FILE)));
         }
+    }
+
+    /** Отбор FEI (люди и поза снимков) — fei_selection.tsv экспорта (faces.export.dir / FACES_EXPORT_DIR); не задан — ошибка. */
+    static FeiPose selection(SettingsStore settings) throws IOException {
+        String exportDir = settings.loadFacesExportDir();
+        if (exportDir == null) throw new IllegalStateException("faces-fei-scores: не задан faces.export.dir / FACES_EXPORT_DIR (нужен fei_selection.tsv)");
+        return FeiPose.read(Paths.get(exportDir, FarExport.FEI_SELECTION));
     }
 
     static StringBuilder report(Analysis a, String source) {

@@ -73,14 +73,32 @@ public class FeiBootstrapTest {
         }
     }
 
-    /** Два разбиения × конфигурации j = 0 (поворот) и 4 (анфас); свои 10, пороговые 8 (1–4 снимка), контроль 8. */
+    /** Люди FEI в тесте: p00…p29 и p99 (только «когорта» — в файле оценок не встречается). */
+    private static final List<String> PERSONS = persons();
+
+    private static List<String> persons() {
+        List<String> p = new ArrayList<>();
+        for (int i = 0; i < 30; i++) p.add(String.format("p%02d", i));
+        p.add("p99");
+        return p;
+    }
+
+    /** Человек k-й по кругу со сдвигом 7·s: роли людей в разбиениях разные (p10 — пороговый в s = 0, свой в s = 1). */
+    private static String person(int s, int k) {
+        return PERSONS.get((7 * s + k) % 30);
+    }
+
+    /**
+     * Два разбиения × конфигурации j = 0 (поворот) и 4 (анфас); свои 10 (k = 0…9), пороговые 8 (10…17, 1–4 снимка),
+     * контроль 8 (18…25).
+     */
     private static List<FeiScores.Row> rows(String method, long seed) {
         Random rnd = new Random(seed);
         List<FeiScores.Row> rows = new ArrayList<>();
         for (int s = 0; s < 2; s++) {
             for (int j : new int[] {0, 4}) {
                 for (int p = 0; p < 10; p++) {
-                    String id = "o" + s + p;
+                    String id = person(s, p);
                     double v = rnd.nextDouble();
                     double t = rnd.nextInt(10) == 0 ? Double.POSITIVE_INFINITY : v;
                     rows.add(new FeiScores.Row(method, s, j, FeiScores.OWN, id, j, id, rnd.nextInt(5) == 0 ? "z" : id, v, "x", v + 1, t, -1));
@@ -88,9 +106,10 @@ public class FeiBootstrapTest {
                 for (String role : List.of(FeiScores.THR, FeiScores.CTRL)) {
                     for (int p = 0; p < 8; p++) {
                         int k = 1 + (p * 7 + s) % 4;
+                        String id = person(s, (role.equals(FeiScores.THR) ? 10 : 18) + p);
                         for (int q = 0; q < k; q++) {
                             double v = rnd.nextDouble() * 1.5;
-                            rows.add(new FeiScores.Row(method, s, j, role, role + s + p, q, FeiScores.NONE, "o00", v, "o01", v + 1, Double.NaN, -1));
+                            rows.add(new FeiScores.Row(method, s, j, role, id, q, FeiScores.NONE, "p00", v, "p01", v + 1, Double.NaN, -1));
                         }
                     }
                 }
@@ -100,10 +119,16 @@ public class FeiBootstrapTest {
     }
 
     private static FeiScores.Analysis analysis() {
+        return analysis(null);
+    }
+
+    /** @param without человек, чьи строки (во всех ролях) выброшены; null — все */
+    private static FeiScores.Analysis analysis(String without) {
         FeiScores.Analysis a = new FeiScores.Analysis();
-        a.boot = new FeiBootstrap();
-        for (FeiScores.Row r : rows("2c-mlda", 5)) a.add(r);
-        for (FeiScores.Row r : rows("2c-mlda+mirror", 5)) a.add(r);
+        a.boot = new FeiBootstrap(PERSONS);
+        for (String m : List.of("2c-mlda", "2c-mlda+mirror")) {
+            for (FeiScores.Row r : rows(m, 5)) if (!r.person().equals(without)) a.add(r);
+        }
         a.finish();
         return a;
     }
@@ -113,6 +138,8 @@ public class FeiBootstrapTest {
         FeiScores.Analysis a = analysis();
         FeiBootstrap.Result r = a.boot.run(50, 7);
         assertEquals(List.of("2c-mlda", "2c-mlda-ratio", "2c-mlda+mirror", "2c-mlda-ratio+mirror"), new ArrayList<>(r.point.keySet()));
+        assertEquals(31, r.persons);
+        assertEquals(30, r.inFile);
         for (String id : r.point.keySet()) {
             FeiScores.Stat s = a.stats.get(id);
             double[] p = r.point.get(id);
@@ -134,6 +161,38 @@ public class FeiBootstrapTest {
         int[] t = new int[4];
         for (int[] c : cfg) for (int k = 0; k < 4; k++) t[k] += c[k];
         return t;
+    }
+
+    /** Один человек в двух ролях разных разбиений (p10: пороговый в s = 0, свой в s = 1) — один индекс, значит один вес. */
+    @Test
+    public void samePersonSameWeightAcrossSplits() {
+        FeiBootstrap boot = analysis().boot;
+        int p10 = boot.person("p10");
+        List<FeiBootstrap.Cfg> cs = boot.rows.get("2c-mlda");
+        // Группы в порядке файла: (s = 0, j = 0), (0, 4), (1, 0), (1, 4).
+        assertTrue(Arrays.stream(cs.get(0).thrP).anyMatch(p -> p == p10));
+        assertTrue(Arrays.stream(cs.get(0).ownP).noneMatch(p -> p == p10));
+        assertTrue(Arrays.stream(cs.get(2).ownP).anyMatch(p -> p == p10));
+        // Вес 0 у p10 — то же, что выбросить все его попытки во всех ролях и разбиениях.
+        int[] w = FeiBootstrap.unit(PERSONS.size());
+        w[p10] = 0;
+        FeiBootstrap without = analysis("p10").boot;
+        for (String id : boot.rows.keySet()) {
+            assertArrayEquals(id, FeiBootstrap.metrics(without.rows.get(id), FeiBootstrap.unit(PERSONS.size())),
+                    FeiBootstrap.metrics(boot.rows.get(id), w), 0);
+        }
+    }
+
+    @Test
+    public void unknownPersonIsError() {
+        FeiBootstrap boot = new FeiBootstrap(List.of("p00", "p01"));
+        try {
+            boot.person("p02");
+        } catch (IllegalArgumentException e) {
+            assertTrue(e.getMessage().contains("p02"));
+            return;
+        }
+        throw new AssertionError("ожидалась ошибка");
     }
 
     @Test
@@ -160,15 +219,11 @@ public class FeiBootstrapTest {
 
     @Test
     public void weightsResampleWholePersons() {
-        int[][] sizes = {{10, 8, 8}, {10, 8, 8}};
-        int[][][][] w = FeiBootstrap.weights(sizes, 100, 3);
-        for (int[][][] b : w) {
-            for (int s = 0; s < sizes.length; s++) {
-                for (int k = 0; k < 3; k++) assertEquals(sizes[s][k], Arrays.stream(b[s][k]).sum());
-            }
-        }
-        assertArrayEquals(w[5][1][2], FeiBootstrap.weights(sizes, 100, 3)[5][1][2]);
+        int[][] w = FeiBootstrap.weights(200, 100, 3);
+        for (int[] b : w) assertEquals(200, Arrays.stream(b).sum());
+        assertArrayEquals(w[5], FeiBootstrap.weights(200, 100, 3)[5]);
     }
+
 
     @Test
     public void quantiles() {
