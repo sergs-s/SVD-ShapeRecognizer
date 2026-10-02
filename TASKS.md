@@ -976,3 +976,27 @@ SHA-256 `f5528a56…baea8`); `far_methods.txt` на том же коде сов�
 Полный прогон (Вася, локально, около 1 ч):
 `mvn compile exec:exec@faces-fei` (при `FACES_EXPORT_DIR` на
 `SVD-faces-data`), затем `mvn compile exec:java@faces-fei-scores`.
+
+## Этап 5б-2: полный прогон (Вася, локально, 02.10.2026)
+
+Код `728cf83` (плюс незакоммиченная правка PLAN.md от Жорика – документ, код
+не менялся), данные `SVD-faces-data` `93f1274d`; Windows 11, JDK 26.0.2.
+`mvn test`: 58/0/0.
+
+- Прогон: `mvn compile exec:exec@faces-fei` при `FACES_EXPORT_DIR` на
+  `D:\data\SVD-faces-data` – 40 конфигураций, 15 мин 42 с (в облаке около
+  1 ч); файл оценок `fei_scores.tsv.gz` – 36 053 867 байт, 1 485 200 строк
+  попыток. Затем `mvn compile exec:java@faces-fei-scores` →
+  `fei_scores.txt`.
+- Проверка 1: `fei_methods.txt` без учёта CR совпал с отчётом этапа 5
+  (`SVD-faces-data`, `reports/fei_e300d72/fei_methods.txt`) во всех 2054
+  строках, кроме двух строк с коммитами кода и данных.
+- Проверка 2: справочная таблица «по людям» в `fei_scores.txt` совпала со
+  «Сводкой» `fei_methods.txt` этого прогона во всех 39 строках (все столбцы,
+  кроме «суть» и argmin, которых в разборе нет); 12 строк разбора – новые
+  (*-ratio, 3-znorm-lda-margin, все 4-sum-blk-both+*).
+- Отчёты: `SVD-faces-data`, `reports/fei_728cf83/` (`fei_methods.txt`,
+  `fei_time.txt`, `fei_scores.tsv.gz`, `fei_scores.txt`), коммит
+  `08b2eadc`. Итоги и полная таблица «порог по снимкам» – PLAN.md, пп. 4.2 и
+  4.0а; лучший – 2c-mlda-ratio: ошибка своих 29,0 % при FAR 1 %, 23,6 % при
+  FAR 5 %.
