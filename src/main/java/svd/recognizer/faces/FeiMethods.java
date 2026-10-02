@@ -1,9 +1,7 @@
 package svd.recognizer.faces;
 
 import java.io.IOException;
-import java.io.OutputStreamWriter;
 import java.io.UncheckedIOException;
-import java.io.Writer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -19,7 +17,6 @@ import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.stream.IntStream;
-import java.util.zip.GZIPOutputStream;
 import org.opencv.core.Mat;
 import svd.recognizer.faces.GalleryEvaluation.Impostors;
 import svd.recognizer.faces.GalleryEvaluation.Sample;
@@ -125,8 +122,9 @@ public final class FeiMethods {
     final Map<String, String> about = new LinkedHashMap<>();
     final Map<String, Result> results = new LinkedHashMap<>();
     final StringBuilder timeText = new StringBuilder();
-    /** Файл оценок попыток (этап 5б); null — не пишется. */
-    Writer scoresOut;
+    /** Контрольная точка (оценки конфигураций и состояние после каждой конфигурации); null — не пишется. */
+    FeiCheckpoint checkpoint;
+    FeiCheckpoint.State state;
 
     FeiMethods(SettingsStore settings, Map<String, Map<Integer, String>> keys, FeiPose pose, Map<String, Mat> frames, FeiDataset.Info info) {
         this.settings = settings;
@@ -289,22 +287,35 @@ public final class FeiMethods {
             mirrorCheck(keys, frames, outDir0.resolve("fei_mirror_check.png"));
         }
         frames.values().forEach(Mat::release);
-        fm.timeText.append(String.format(Locale.ROOT, "Загрузка и векторы: %.0f с, снимков FEI %d.%n", (System.nanoTime() - start) / 1e9,
-                frames.size()));
         Path outDir = Paths.get(System.getProperty("user.dir"), "reports", "faces", "fei");
         Files.createDirectories(outDir);
-        String source = "экспорт " + exportDir + ", коммит данных " + FarMethods.dataCommit(dir);
-        try (Writer w = new OutputStreamWriter(new GZIPOutputStream(Files.newOutputStream(outDir.resolve(FeiScores.FILE)), 1 << 16),
-                StandardCharsets.UTF_8)) {
-            w.write(FeiScores.header(FarMethods.commit(), source, Math.min(limit, CONFIGS), new ArrayList<>(fm.about.keySet()),
-                    fm.mirrorTurn ? List.of(FeiScores.R0_HEADER + fm.r0) : List.of()));
-            fm.scoresOut = w;
-            fm.run(limit);
-            fm.scoresOut = null;
+        int n = Math.min(limit, CONFIGS);
+        // Контрольная точка: отпечаток — код, данные, ключи, seed, число конфигураций.
+        String fingerprint = FeiCheckpoint.fingerprint(dir, String.format(Locale.ROOT, "ключи: faces.fei.mirror %s, faces.fei.pose.r0 %s, "
+                + "seed %d, конфигураций %d", settings.loadFacesFeiMirror(), fm.mirrorTurn ? Double.toString(fm.r0) : "-", fm.seed, n));
+        fm.checkpoint = new FeiCheckpoint(outDir.resolve(FeiCheckpoint.DIR));
+        FeiCheckpoint.State st = fm.checkpoint.load(fingerprint);
+        double loadS = (System.nanoTime() - start) / 1e9;
+        if (st == null) {
+            st = new FeiCheckpoint.State(fingerprint, FarMethods.commit(), "экспорт " + exportDir + ", коммит данных " + FarMethods.dataCommit(dir));
+            fm.timeText.append(String.format(Locale.ROOT, "Загрузка и векторы: %.0f с, снимков FEI %d.%n", loadS, frames.size()));
+        } else {
+            fm.results.putAll(st.results);
+            fm.timeText.append(st.timeText);
+            fm.timeText.append(String.format(Locale.ROOT, "Продолжено с конфигурации %d (контрольная точка %s); загрузка и векторы: %.0f с.%n",
+                    st.done, fm.checkpoint.dir, loadS));
+            System.out.print(fm.timeText.substring(fm.timeText.lastIndexOf("Продолжено")));
         }
-        FarMethods.write(outDir.resolve("fei_methods.txt"), fm.report(source, limit));
-        fm.timeText.append(String.format(Locale.ROOT, "Всего %.0f с.%n", (System.nanoTime() - start) / 1e9));
+        fm.state = st;
+        fm.run(st.done, limit);
+        String header = FeiScores.header(st.code, st.source, n, new ArrayList<>(fm.about.keySet()),
+                fm.mirrorTurn ? List.of(FeiScores.R0_HEADER + fm.r0) : List.of());
+        fm.checkpoint.assemble(outDir.resolve(FeiScores.FILE), header, n);
+        FarMethods.write(outDir.resolve("fei_methods.txt"), fm.report(st.code, st.source, limit));
+        fm.timeText.append(String.format(Locale.ROOT, "Всего %.0f с%s.%n", (System.nanoTime() - start) / 1e9,
+                fm.timeText.indexOf("Продолжено") >= 0 ? " (последний запуск)" : ""));
         FarMethods.write(outDir.resolve("fei_time.txt"), fm.timeText);
+        fm.checkpoint.delete();
         System.out.print(fm.timeText);
     }
 
@@ -430,17 +441,29 @@ public final class FeiMethods {
     }
 
     /** Все конфигурации (limit — первые limit, для отладки). */
-    void run(int limit) {
-        for (String id : about.keySet()) results.put(id, new Result(id));
-        for (int c = 0; c < Math.min(limit, CONFIGS); c++) {
+    /** Конфигурации с from (продолжение после контрольной точки; итоги до from — уже в results) до limit. */
+    void run(int from, int limit) {
+        if (results.isEmpty()) for (String id : about.keySet()) results.put(id, new Result(id));
+        for (int c = from; c < Math.min(limit, CONFIGS); c++) {
             FeiProtocol.Split sp = splits.get(c / FeiProtocol.NUMBERS.length);
             int j = c % FeiProtocol.NUMBERS.length;
             long t0 = System.nanoTime();
             Map<String, Map<String, double[]>> sc = scoreConfig(sp, j);
             for (String id : about.keySet()) results.get(id).add(this, sp, j, sc.get(id));
-            writeScores(sp, j, sc);
+            String text = scoresText(sp, j, sc);
             timeText.append(String.format(Locale.ROOT, "Конфигурация %d (разбиение %d, контроль №%d): %.0f с.%n", c, sp.index(),
                     FeiProtocol.NUMBERS[j], (System.nanoTime() - t0) / 1e9));
+            if (checkpoint != null) {
+                try {
+                    checkpoint.savePart(c, text);
+                    state.done = c + 1;
+                    state.results = new LinkedHashMap<>(results);
+                    state.timeText = timeText.toString();
+                    checkpoint.save(state);
+                } catch (IOException e) {
+                    throw new UncheckedIOException(e);
+                }
+            }
             System.out.print(timeText.substring(timeText.lastIndexOf("Конфигурация")));
         }
     }
@@ -523,9 +546,8 @@ public final class FeiMethods {
         return sc;
     }
 
-    /** Оценки попыток конфигурации в файл: по методам (порядок отчёта) — свои, пороговые, контрольные чужие. */
-    void writeScores(FeiProtocol.Split sp, int j, Map<String, Map<String, double[]>> sc) {
-        if (scoresOut == null) return;
+    /** Оценки попыток конфигурации (строки файла оценок): по методам (порядок отчёта) — свои, пороговые, контрольные чужие. */
+    String scoresText(FeiProtocol.Split sp, int j, Map<String, Map<String, double[]>> sc) {
         Set<String> agree = new HashSet<>();
         for (Derived d : derived) if (d.kind() == Kind.AGREE) agree.add(d.id());
         List<String> gallery = sp.gallery();
@@ -546,11 +568,7 @@ public final class FeiMethods {
                 }
             }
         }
-        try {
-            scoresOut.write(b.toString());
-        } catch (IOException e) {
-            throw new UncheckedIOException(e);
-        }
+        return b.toString();
     }
 
     static double median(double[] v) {
@@ -573,7 +591,8 @@ public final class FeiMethods {
     // ---------------------------------------------------------------- метрики
 
     /** Метрики метода, накопленные по конфигурациям. */
-    static final class Result {
+    static final class Result implements java.io.Serializable {
+        private static final long serialVersionUID = 1L;
         final String id;
         final List<String> info = new ArrayList<>();
         int configs;
@@ -672,12 +691,12 @@ public final class FeiMethods {
         return best(List.of(best(wpcaIds()), "3-znorm-lda")).startsWith("4-wpca-");
     }
 
-    StringBuilder report(String source, int limit) {
+    StringBuilder report(String code, String source, int limit) {
         StringBuilder t = new StringBuilder();
         int n = Math.min(limit, CONFIGS);
         Result any = results.values().iterator().next();
         t.append("Этап 5: протокол «только FEI» (FeiMethods, faces-fei)\n");
-        t.append("Код: коммит ").append(FarMethods.commit()).append('\n');
+        t.append("Код: коммит ").append(code).append('\n');
         t.append("Данные: ").append(source).append(" (a/fei — кадр а 92×112, fei_selection.tsv).\n");
         if (n < CONFIGS) t.append("ОТЛАДОЧНЫЙ ПРОГОН: конфигураций ").append(n).append(" из ").append(CONFIGS).append(".\n");
         int images = keys.values().stream().mapToInt(Map::size).sum();
