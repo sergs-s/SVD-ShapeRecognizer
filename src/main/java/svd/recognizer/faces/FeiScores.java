@@ -136,6 +136,12 @@ public final class FeiScores {
             new NewRow("4-wpca-cos-0-ratio", "4-wpca-cos-0", Transform.RATIO, "d₁/d₂ над 4-wpca-cos-0"),
             new NewRow("3-znorm-lda-margin", "3-znorm-lda", Transform.MARGIN, "z₁ − z₂ над 3-znorm-lda"));
 
+    /** То же для строк +mirror (этап 5б, faces.fei.mirror); появляются, только если основа есть в файле. */
+    static final List<NewRow> MIRROR_ROWS = List.of(
+            new NewRow("2a95-fisher-ratio+mirror", "2a95-fisher+mirror", Transform.RATIO, "d₁/d₂ над 2a95-fisher+mirror"),
+            new NewRow("2c-mlda-ratio+mirror", "2c-mlda+mirror", Transform.RATIO, "d₁/d₂ над 2c-mlda+mirror"),
+            new NewRow("4-wpca-cos-0-ratio+mirror", "4-wpca-cos-0+mirror", Transform.RATIO, "d₁/d₂ над 4-wpca-cos-0+mirror"));
+
     /** Метрики строки, накопленные по конфигурациям. */
     static final class Stat {
         final String id;
@@ -279,6 +285,7 @@ public final class FeiScores {
             configs.add(first.s() + "	" + first.j());
             stat(first.method(), Transform.NONE).add(group);
             for (NewRow n : NEW_ROWS) if (n.base().equals(first.method())) stat(n.id(), n.t()).add(group);
+            for (NewRow n : MIRROR_ROWS) if (n.base().equals(first.method())) stat(n.id(), n.t()).add(group);
             group.clear();
         }
 
@@ -318,6 +325,11 @@ public final class FeiScores {
         for (NewRow n : NEW_ROWS) t.append(n.id()).append(" — ").append(n.about()).append("; ");
         t.append("для z отношение не определено (знак и ноль произвольны), поэтому разность.\n");
         t.append("Строки 4-sum-blk-both+* в файле есть все (в таблице fei_methods.txt — только условная строка).\n");
+        if (a.stats.keySet().stream().anyMatch(FeiMethods::isMirror)) {
+            t.append("Строки +mirror (режим faces.fei.mirror): обучение + отражённые кадры (FaceMirror, способ а), пробы без отражения; ");
+            for (NewRow n : MIRROR_ROWS) t.append(n.id()).append(" — ").append(n.about()).append("; ");
+            t.append("в конце таблиц.\n");
+        }
 
         t.append("\n=== Основная таблица: порог по снимкам пороговых чужих ===\n");
         t.append("метод | ошибка своих FAR 1 % (FRR + под чужим) | FAR 5 % (FRR + под чужим) | анфас / поворот FAR 5 % | "

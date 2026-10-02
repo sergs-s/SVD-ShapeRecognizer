@@ -62,6 +62,7 @@ public class SettingsStore {
     private static final String KEY_FACES_MODELS_DIR = "faces.models.dir";
     private static final String KEY_FACES_EXPORT_DIR = "faces.export.dir";
     private static final String KEY_FACES_FEI_DIR = "faces.fei.dir";
+    private static final String KEY_FACES_FEI_MIRROR = "faces.fei.mirror";
     private static final long DEFAULT_FACES_SEED = 42L;
     private static final int DEFAULT_FACES_TRAIN_PER_PERSON = 5;
 
@@ -366,6 +367,17 @@ public class SettingsStore {
      */
     public String loadFacesFeiDir() {
         return path(KEY_FACES_FEI_DIR);
+    }
+
+    /**
+     * Режим зеркальных копий в обучении faces-fei (строки +mirror, этап 5б): ключ faces.fei.mirror или переменная
+     * окружения FACES_FEI_MIRROR. По умолчанию выключен — набор строк и отчёты прежние.
+     *
+     * @return true, если значение — «true» (без учёта регистра)
+     */
+    public boolean loadFacesFeiMirror() {
+        String raw = path(KEY_FACES_FEI_MIRROR);
+        return raw != null && Boolean.parseBoolean(raw.trim());
     }
 
     /**
