@@ -17,6 +17,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
+import java.util.function.Supplier;
 import java.util.zip.GZIPInputStream;
 import svd.recognizer.storage.SettingsStore;
 import svd.recognizer.faces.GalleryEvaluation.Impostors;
@@ -123,11 +124,93 @@ public final class FeiScores {
         double apply(double best, double second) {
             double v = switch (this) {
                 case NONE -> best;
-                case RATIO -> second == 0 && best == 0 ? 1 : best / second;
+                case RATIO -> ratio(best, second, false, () -> "d₁ = " + best + ", d₂ = " + second, null);
                 case MARGIN -> best - second;
             };
             return Double.isNaN(v) ? Double.POSITIVE_INFINITY : v;
         }
+
+        /** Оценка попытки; у RATIO — по правилу вырожденных случаев с указанием попытки в ошибке. */
+        double apply(Row r) {
+            return this == RATIO ? ratio(r, null) : apply(r.best(), r.second());
+        }
+    }
+
+    /** Нижняя граница отношения ρ_min (случай 1). */
+    static final double RHO_MIN = 1e-12;
+    /** Допуск округления 1 − cos ниже нуля (случай 5). */
+    static final double COS_EPS = 1e-12;
+    /** Методы с расстоянием 1 − cos (случай 5) — по подстроке имени. */
+    static final String COSINE = "-cos-";
+    /** Случаи правила отношения (индексы счётчиков; номер случая — индекс + 1). */
+    static final int CASE_TINY = 0;
+    static final int CASE_BOTH_ZERO = 1;
+    static final int CASE_DATA = 2;
+    static final int CASE_NO_SECOND = 3;
+    static final int CASE_COS = 4;
+    static final int CASE_SD_ZERO = 5;
+    static final int CASES = 6;
+
+    /** Отношение попытки по правилу вырожденных случаев (см. {@link #ratio(double, double, boolean, Supplier, int[])}). */
+    static double ratio(Row r, int[] cases) {
+        return ratio(r.best(), r.second(), r.method().contains(COSINE), () -> attempt(r), cases);
+    }
+
+    /**
+     * Отношение r = d₁/d₂ (лучший / второй кандидат, по определению d₁ ≤ d₂) — правило вырожденных случаев, общее для
+     * строк *-ratio разбора и объединения FeiFusion (перейдёт в программу, PLAN.md, п. 5):
+     * <ol>
+     * <li>d₁ = 0, d₂ > 0 — проба совпала с моделью лучшего, наибольшая уверенность: r ограничивается снизу ρ_min = 1e-12
+     * (оценка конечна, порядок сохраняется); так же — любое r < ρ_min;</li>
+     * <li>d₁ = d₂ = 0 — проба одинаково близка к двум людям, различить нельзя: r = 1 (худшая оценка);</li>
+     * <li>d₂ = 0 при d₁ > 0, d₁ > d₂, отрицательное расстояние (кроме п. 5), NaN — ошибка данных или кода: исключение
+     * с указанием попытки;</li>
+     * <li>d₂ = +∞ (нет второго кандидата) — отношение не определено: отказ, r = +∞;</li>
+     * <li>расстояние 1 − cos (cosine) в пределах округления меньше нуля (≥ −1e-12) — приводится к 0, дальше пп. 1–2;
+     * меньше −1e-12 — п. 3;</li>
+     * <li>(FeiFusion) стандартное отклонение log r части по пороговым s = 0 — нормировка не определена: исключение.</li>
+     * </ol>
+     *
+     * @param where попытка для текста ошибки
+     * @param cases счётчики случаев [CASES] или null
+     */
+    static double ratio(double d1, double d2, boolean cosine, Supplier<String> where, int[] cases) {
+        if (Double.isNaN(d1) || Double.isNaN(d2)) throw dataError("NaN", where);
+        if (cosine && ((d1 < 0 && d1 >= -COS_EPS) || (d2 < 0 && d2 >= -COS_EPS))) {
+            if (d1 < 0 && d1 >= -COS_EPS) d1 = 0;
+            if (d2 < 0 && d2 >= -COS_EPS) d2 = 0;
+            count(cases, CASE_COS);
+        }
+        if (d1 < 0 || d2 < 0) throw dataError("отрицательное расстояние", where);
+        if (d2 == Double.POSITIVE_INFINITY) {
+            count(cases, CASE_NO_SECOND);
+            return Double.POSITIVE_INFINITY;
+        }
+        if (d1 > d2) throw dataError("d₁ > d₂", where);
+        if (d2 == 0) {
+            count(cases, CASE_BOTH_ZERO);
+            return 1;
+        }
+        double r = d1 / d2;
+        if (r < RHO_MIN) {
+            count(cases, CASE_TINY);
+            return RHO_MIN;
+        }
+        return r;
+    }
+
+    private static void count(int[] cases, int c) {
+        if (cases != null) cases[c]++;
+    }
+
+    private static IllegalStateException dataError(String what, Supplier<String> where) {
+        return new IllegalStateException("Отношение d₁/d₂ (случай 3, ошибка данных или кода): " + what + "; попытка " + where.get());
+    }
+
+    /** Попытка для текста ошибки: метод, s, j, роль, человек, снимок, d₁, d₂. */
+    static String attempt(Row r) {
+        return String.format(Locale.ROOT, "%s s=%d j=%d %s %s №%d (d₁ = %s, d₂ = %s)", r.method(), r.s(), r.j(), r.role(), r.person(), r.image(),
+                num(r.best()), num(r.second()));
     }
 
     /** Новая строка из файла: идентификатор, исходный метод, оценка. */
@@ -263,7 +346,7 @@ public final class FeiScores {
         }
 
         double score(Row r) {
-            return t.apply(r.best(), r.second());
+            return t.apply(r);
         }
 
         int frr(int k) {
@@ -304,6 +387,8 @@ public final class FeiScores {
         /** Выбор модели по позе пробы (+pose; faces.fei.pose.r0): поза снимков и r0; pose null — выключен. */
         FeiPose pose;
         double r0 = Double.NaN;
+        /** Объединение по решениям (faces.fei.fusion; части — строки *-ratio+pose); null — выключено. */
+        FeiFusion fusion;
         /** Строки сетки r0 (справочно, не для выбора): в основные таблицы и бутстреп не входят. */
         final Set<String> grid = new LinkedHashSet<>();
         /** Группы базовых методов POSE_BASES: «метод s j» → попытки (ждут свою отражённую группу). */
@@ -388,7 +473,11 @@ public final class FeiScores {
                 String id = x + e.getValue();
                 List<Row> chosen = choose(base, group, pose, r0, id);
                 addTo(id, Transform.NONE, chosen);
-                for (NewRow n : poseRows(e.getValue())) if (n.base().equals(id)) addTo(n.id(), n.t(), chosen);
+                for (NewRow n : poseRows(e.getValue())) {
+                    if (!n.base().equals(id)) continue;
+                    addTo(n.id(), n.t(), chosen);
+                    if (fusion != null) fusion.part(n.id(), chosen);
+                }
                 if (x.equals("2c-mlda") && e.getKey().equals(FeiMethods.MIRROR)) {
                     for (double g : POSE_GRID) {
                         String gid = gridId(g);
@@ -427,6 +516,10 @@ public final class FeiScores {
             a.pose = sel;
             a.r0 = FeiPose.r0(rawR0, "+pose");
         }
+        if (settings.loadFacesFeiFusion()) {
+            if (rawR0 == null) throw new IllegalStateException("faces.fei.fusion: части — строки +pose, задайте faces.fei.pose.r0 / FACES_FEI_POSE_R0");
+            a.fusion = new FeiFusion(b > 0 ? new FeiBootstrap(sel.persons()) : null);
+        }
         try (BufferedReader in = new BufferedReader(new InputStreamReader(new GZIPInputStream(Files.newInputStream(file), 1 << 16),
                 StandardCharsets.UTF_8))) {
             a.read(in);
@@ -442,6 +535,14 @@ public final class FeiScores {
             FarMethods.write(dir.resolve(FeiBootstrap.FILE), FeiBootstrap.report(r, a.header, file.toString()));
             new java.io.PrintStream(System.out, true, StandardCharsets.UTF_8).println(String.format(Locale.ROOT,
                     "Бутстреп: B = %d, seed = %d, %.0f с; отчёт %s", b, seed, (System.nanoTime() - t0) / 1e9, dir.resolve(FeiBootstrap.FILE)));
+        }
+        if (a.fusion != null) {
+            long t0 = System.nanoTime();
+            a.fusion.finish();
+            FeiBootstrap.Result r = b > 0 ? a.fusion.bootstrap(b, new SettingsStore().loadFacesSeed() + FeiBootstrap.SEED_OFFSET) : null;
+            FarMethods.write(dir.resolve(FeiFusion.FILE), a.fusion.report(r, a.header, file.toString(), a.r0));
+            new java.io.PrintStream(System.out, true, StandardCharsets.UTF_8).println(String.format(Locale.ROOT,
+                    "Объединение по решениям: %.0f с; отчёт %s", (System.nanoTime() - t0) / 1e9, dir.resolve(FeiFusion.FILE)));
         }
     }
 

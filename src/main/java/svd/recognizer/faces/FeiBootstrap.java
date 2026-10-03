@@ -107,7 +107,7 @@ final class FeiBootstrap {
         List<double[]> thr = new ArrayList<>();
         List<double[]> ctrl = new ArrayList<>();
         for (Row r : group) {
-            double sc = t.apply(r.best(), r.second());
+            double sc = t.apply(r);
             if (Double.isNaN(sc)) throw new IllegalArgumentException("NaN в оценке: " + id + " " + r);
             switch (r.role()) {
                 case FeiScores.OWN -> {

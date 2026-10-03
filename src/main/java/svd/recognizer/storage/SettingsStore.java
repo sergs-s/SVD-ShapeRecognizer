@@ -65,6 +65,7 @@ public class SettingsStore {
     private static final String KEY_FACES_FEI_MIRROR = "faces.fei.mirror";
     private static final String KEY_FACES_FEI_BOOTSTRAP = "faces.fei.bootstrap";
     private static final String KEY_FACES_FEI_POSE_R0 = "faces.fei.pose.r0";
+    private static final String KEY_FACES_FEI_FUSION = "faces.fei.fusion";
     private static final long DEFAULT_FACES_SEED = 42L;
     private static final int DEFAULT_FACES_TRAIN_PER_PERSON = 5;
 
@@ -391,6 +392,24 @@ public class SettingsStore {
      */
     public String loadFacesFeiPoseR0() {
         return path(KEY_FACES_FEI_POSE_R0);
+    }
+
+    /**
+     * Объединение по решениям в разборе файла оценок faces-fei-scores (fei_fusion.txt, PLAN.md п. 4.2, шаг (а1)): ключ
+     * faces.fei.fusion или переменная окружения FACES_FEI_FUSION — true / false. По умолчанию выключено. Требует
+     * faces.fei.pose.r0 (части — строки +pose).
+     *
+     * @return true — включено
+     */
+    public boolean loadFacesFeiFusion() {
+        String raw = path(KEY_FACES_FEI_FUSION);
+        if (raw == null || raw.trim().equalsIgnoreCase("false")) {
+            return false;
+        }
+        if (raw.trim().equalsIgnoreCase("true")) {
+            return true;
+        }
+        throw new IllegalStateException(KEY_FACES_FEI_FUSION + ": ожидалось true или false, задано " + raw);
     }
 
     /**
