@@ -409,6 +409,13 @@ mvn compile exec:java@faces-fei-scores  # разбор файла оценок F
   FACES_EXPORT_DIR=D:/data/SVD-faces-data mvn compile exec:java@faces-fei-norm
   "-Dexec.args=<каталог векторов> <файл оценок>"` → `fei_norm.txt` (около
   30 с; контроль векторов по файлу оценок; SHA-256 векторов в отчёте).
+  LBP (п. 4.2, с `6f88b1d`): ключ `faces.fei.lbp` / `FACES_FEI_LBP` = `true`
+  (по умолчанию выключен) — строки `5-lbp-chi` (L0, χ²) и `5-lbp-mlda` (L1,
+  корень гистограмм + MLDA) и их +mirror; сравнение с A по векторам:
+  `mvn compile exec:java@faces-fei-compare "-Dexec.args=<векторы A> <оценки A>
+  <векторы LBP> <оценки LBP>"` → `fei_lbp.txt` (около 10 с). Долгий прогон —
+  `java` напрямую (`Start-Process -WindowStyle Hidden -RedirectStandardOutput`,
+  classpath — `mvn dependency:build-classpath`), без cmd и mvn.
 - **Продолжение после обрыва (требование Хозяина 02.10.2026):** долгие
   прогоны (faces-fei и подобные) должны периодически – после каждой
   законченной части, например конфигурации, – сохранять на диск

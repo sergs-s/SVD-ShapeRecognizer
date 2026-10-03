@@ -1248,3 +1248,34 @@ argmin сырых d. Шаг 0 – PLAN.md, п. 5.5 «Обучение базы»
   при FAR 1 %) – по критерию остаётся база log(d₁/d₂); у B нормировки
   помогают, но Z и ZT поднимают FAR контроля. Таблица и выводы – PLAN.md,
   п. 4.2, «Нормировка оценки».
+
+## LBP-гистограммы как вход, L0 и L1 (Вася, 03.10.2026)
+
+План подтверждён Хозяином 03.10: кадр «а» без CLAHE; гистограмма блока на
+сумму 1; полный прогон `faces.fei.mirror=true` + LBP, java напрямую
+(`Start-Process`, Hidden, журнал в файл); контроль векторов A нового прогона
+против `fei_c6c2efa`.
+
+- Код `6f88b1d`: `LbpFeature`, `ChiSquareScorer`, ключ `faces.fei.lbp`
+  (строки `5-lbp-chi`, `5-lbp-mlda` и +mirror – после всех прежних; вход –
+  поле `Feature` в `FeiMethods.Base`, не константа `IlluminationNorm`:
+  `FarMethods` перебирает `values()`); `FeiScores` – строки *-ratio, +mirror,
+  +pose для LBP; `FeiNorm` – загрузка части по имени метода; `FeiCompare`
+  (`faces-fei-compare`, `fei_lbp.txt`); `LbpFeatureTest`; `mvn test` 107/0/0.
+  Обещанный в плане тест «без ключа список строк FeiMethods прежний» не
+  написан (FeiMethods требует кадров); проверено прогоном: прежние строки
+  оценок = `fei_90ab914`.
+- По ходу: упавший пакетный perl-скрипт с последующим `mv` затёр
+  `FeiMethods.java` (0 строк); незакоммиченных правок в нём не было,
+  восстановлен из HEAD, дальше – только точечные правки.
+- Прогон: `java -Xmx6g … FeiMethods` (NetBeans JDK, classpath из
+  `dependency:build-classpath`), `FACES_FEI_MIRROR=true FACES_FEI_LBP=true
+  FACES_FEI_VECTORS=2c-mlda,5-lbp-chi,5-lbp-mlda`, 16:18–19:03, 9895 с, без
+  продолжения. Векторы 2c-mlda и +mirror = `fei_c6c2efa` (содержимое), прежние
+  строки `fei_scores.tsv.gz` = `fei_90ab914`; в `fei_methods.txt` кроме строк
+  коммитов – новые строки LBP и «Лучший по правилу» (теперь 5-lbp-mlda).
+- Данные: `SVD-faces-data/reports/fei_6f88b1d/` – `fei_lbp.txt`,
+  `fei_methods.txt`, `fei_time.txt`, `fei_scores.tsv.gz`; векторы LBP – вне git.
+- Итог: L1 – 1,8 % [1,1; 2,7] при FAR 1 % (A 24,3 %), L0 – 15,5 %; FAR
+  контроля L1 – 2,69 % (↑4,94). Таблица, выводы и оговорки – PLAN.md, п. 4.2,
+  «LBP-гистограммы».
