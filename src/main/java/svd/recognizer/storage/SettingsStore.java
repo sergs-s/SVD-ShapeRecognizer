@@ -67,6 +67,7 @@ public class SettingsStore {
     private static final String KEY_FACES_FEI_POSE_R0 = "faces.fei.pose.r0";
     private static final String KEY_FACES_FEI_FUSION = "faces.fei.fusion";
     private static final String KEY_FACES_FEI_DECOMPOSE = "faces.fei.decompose";
+    private static final String KEY_FACES_FEI_VECTORS = "faces.fei.vectors";
     private static final long DEFAULT_FACES_SEED = 42L;
     private static final int DEFAULT_FACES_TRAIN_PER_PERSON = 5;
 
@@ -411,6 +412,17 @@ public class SettingsStore {
             return true;
         }
         throw new IllegalStateException(KEY_FACES_FEI_FUSION + ": ожидалось true или false, задано " + raw);
+    }
+
+    /**
+     * Полные векторы расстояний faces-fei (fei_vectors_&lt;метод&gt;.tsv.gz, п. 4.2 «Нормировка оценки»): ключ faces.fei.vectors
+     * или переменная окружения FACES_FEI_VECTORS — базовые методы через запятую (их строки +mirror / +mirror-turn
+     * добавляются при включённых зеркалах). Разбор и проверка — FeiMethods.vectorIds. По умолчанию не пишутся.
+     *
+     * @return значение как есть или null, если не задано
+     */
+    public String loadFacesFeiVectors() {
+        return path(KEY_FACES_FEI_VECTORS);
     }
 
     /**

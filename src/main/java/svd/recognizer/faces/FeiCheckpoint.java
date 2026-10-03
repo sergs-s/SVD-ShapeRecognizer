@@ -58,6 +58,8 @@ final class FeiCheckpoint {
     }
 
     final Path dir;
+    /** Пишутся ли части векторов (faces.fei.vectors): тогда при продолжении нужны и они. */
+    boolean vectors;
 
     FeiCheckpoint(Path dir) {
         this.dir = dir;
@@ -83,18 +85,65 @@ final class FeiCheckpoint {
         }
         for (int c = 0; c < s.done; c++) {
             if (!Files.exists(part(c))) throw new IllegalStateException("Контрольная точка неполна: нет " + part(c) + "; удалите " + dir);
+            if (vectors && !Files.exists(vectorPart(c))) {
+                throw new IllegalStateException("Контрольная точка неполна: нет " + vectorPart(c) + "; удалите " + dir);
+            }
         }
         return s;
     }
 
     /** Сохранить оценки законченной конфигурации c (до сохранения состояния). */
     void savePart(int c, String text) throws IOException {
+        writeGz(part(c), text);
+    }
+
+    /** Сохранить векторы законченной конфигурации c (до оценок и состояния). */
+    void saveVectors(int c, String text) throws IOException {
+        writeGz(vectorPart(c), text);
+    }
+
+    private void writeGz(Path target, String text) throws IOException {
         Files.createDirectories(dir);
-        Path tmp = dir.resolve(part(c).getFileName() + ".tmp");
+        Path tmp = dir.resolve(target.getFileName() + ".tmp");
         try (Writer w = new OutputStreamWriter(new GZIPOutputStream(Files.newOutputStream(tmp), 1 << 16), StandardCharsets.UTF_8)) {
             w.write(text);
         }
-        move(tmp, part(c));
+        move(tmp, target);
+    }
+
+    Path vectorPart(int c) {
+        return dir.resolve(String.format(Locale.ROOT, "vec_%02d.tsv.gz", c));
+    }
+
+    /**
+     * Файлы векторов: для каждого метода — outDir/fei_vectors_&lt;метод&gt;.tsv.gz, шапка метода и его строки из частей 0…n−1
+     * подряд (строка относится к методу по первому столбцу).
+     */
+    void assembleVectors(Path outDir, List<String> methods, java.util.function.Function<String, String> header, int n) throws IOException {
+        java.util.Map<String, Writer> out = new LinkedHashMap<>();
+        try {
+            for (String m : methods) {
+                Path tmp = outDir.resolve(FeiVectors.file(m) + ".tmp");
+                Writer w = new OutputStreamWriter(new GZIPOutputStream(Files.newOutputStream(tmp), 1 << 16), StandardCharsets.UTF_8);
+                out.put(m, w);
+                w.write(header.apply(m));
+            }
+            for (int c = 0; c < n; c++) {
+                try (java.io.BufferedReader in = new java.io.BufferedReader(new java.io.InputStreamReader(
+                        new GZIPInputStream(Files.newInputStream(vectorPart(c)), 1 << 16), StandardCharsets.UTF_8), 1 << 16)) {
+                    String l;
+                    while ((l = in.readLine()) != null) {
+                        Writer w = out.get(l.substring(0, l.indexOf('\t')));
+                        if (w == null) throw new IllegalStateException("Часть векторов " + vectorPart(c) + ": метод не из списка: " + l.substring(0, 80));
+                        w.write(l);
+                        w.write('\n');
+                    }
+                }
+            }
+        } finally {
+            for (Writer w : out.values()) w.close();
+        }
+        for (String m : methods) move(outDir.resolve(FeiVectors.file(m) + ".tmp"), outDir.resolve(FeiVectors.file(m)));
     }
 
     /** Сохранить состояние (после части). */

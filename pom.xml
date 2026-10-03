@@ -213,6 +213,14 @@
                             <mainClass>svd.recognizer.faces.FeiScores</mainClass>
                         </configuration>
                     </execution>
+                    <!-- П. 4.2, нормировка оценки по полным векторам (faces.fei.vectors):
+                         mvn compile exec:java@faces-fei-norm "-Dexec.args=<каталог векторов> <файл оценок>" (отчёт fei_norm.txt) -->
+                    <execution>
+                        <id>faces-fei-norm</id>
+                        <configuration>
+                            <mainClass>svd.recognizer.faces.FeiNorm</mainClass>
+                        </configuration>
+                    </execution>
                 </executions>
             </plugin>
         </plugins>

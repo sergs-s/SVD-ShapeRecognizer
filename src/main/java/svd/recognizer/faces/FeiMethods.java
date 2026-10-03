@@ -159,6 +159,47 @@ public final class FeiMethods {
             for (int i = 0; i < k.size(); i++) mirrorVectors.put(k.get(i), out[i]);
         }
         register();
+        vectorIds = vectorIds(settings.loadFacesFeiVectors());
+    }
+
+    /** Строки, для которых пишутся полные векторы расстояний (faces.fei.vectors); пусто — не пишутся. */
+    final List<String> vectorIds;
+
+    /**
+     * Методы полных векторов: перечисленные базовые методы и их строки +mirror / +mirror-turn, если эти режимы включены;
+     * не базовый метод или нет такого — ошибка.
+     */
+    List<String> vectorIds(String raw) {
+        List<String> out = new ArrayList<>();
+        if (raw == null || raw.isBlank()) return out;
+        Set<String> baseIds = new HashSet<>();
+        for (Base b : bases) baseIds.add(b.id());
+        for (String m : raw.split(",")) {
+            String id = m.trim();
+            if (!baseIds.contains(id)) throw new IllegalStateException("faces.fei.vectors: " + id + " — не базовый метод faces-fei");
+            out.add(id);
+            for (String suffix : new String[] {MIRROR, MIRROR_TURN}) if (baseIds.contains(id + suffix)) out.add(id + suffix);
+        }
+        return out;
+    }
+
+    /** Полные векторы конфигурации (строки FeiVectors) по методам vectorIds — те же попытки и порядок, что в scoresText. */
+    String vectorsText(FeiProtocol.Split sp, int j, Map<String, Map<String, double[]>> sc) {
+        List<String> gallery = sp.gallery();
+        StringBuilder b = new StringBuilder();
+        for (String id : vectorIds) {
+            Map<String, double[]> s = sc.get(id);
+            int n = FeiProtocol.NUMBERS[j];
+            for (String person : gallery) b.append(FeiVectors.line(id, sp.index(), j, FeiScores.OWN, person, n, person, s.get(key(person, n))));
+            for (String role : new String[] {FeiScores.THR, FeiScores.CTRL}) {
+                for (String person : role.equals(FeiScores.THR) ? sp.threshold() : sp.control()) {
+                    for (Map.Entry<Integer, String> e : keys.get(person).entrySet()) {
+                        b.append(FeiVectors.line(id, sp.index(), j, role, person, e.getKey(), FeiScores.NONE, s.get(e.getValue())));
+                    }
+                }
+            }
+        }
+        return b.toString();
     }
 
     /** Методы этапа 4 (параметры те же) и 4-wpca; порядок — порядок таблицы. */
@@ -291,9 +332,13 @@ public final class FeiMethods {
         Files.createDirectories(outDir);
         int n = Math.min(limit, CONFIGS);
         // Контрольная точка: отпечаток — код, данные, ключи, seed, число конфигураций.
-        String fingerprint = FeiCheckpoint.fingerprint(dir, String.format(Locale.ROOT, "ключи: faces.fei.mirror %s, faces.fei.pose.r0 %s, "
-                + "seed %d, конфигураций %d", settings.loadFacesFeiMirror(), fm.mirrorTurn ? Double.toString(fm.r0) : "-", fm.seed, n));
+        String keysText = String.format(Locale.ROOT, "ключи: faces.fei.mirror %s, faces.fei.pose.r0 %s, seed %d, конфигураций %d",
+                settings.loadFacesFeiMirror(), fm.mirrorTurn ? Double.toString(fm.r0) : "-", fm.seed, n);
+        // Без faces.fei.vectors отпечаток — прежний.
+        if (!fm.vectorIds.isEmpty()) keysText += ", faces.fei.vectors " + String.join(",", fm.vectorIds);
+        String fingerprint = FeiCheckpoint.fingerprint(dir, keysText);
         fm.checkpoint = new FeiCheckpoint(outDir.resolve(FeiCheckpoint.DIR));
+        fm.checkpoint.vectors = !fm.vectorIds.isEmpty();
         FeiCheckpoint.State st = fm.checkpoint.load(fingerprint);
         double loadS = (System.nanoTime() - start) / 1e9;
         if (st == null) {
@@ -311,6 +356,12 @@ public final class FeiMethods {
         String header = FeiScores.header(st.code, st.source, n, new ArrayList<>(fm.about.keySet()),
                 fm.mirrorTurn ? List.of(FeiScores.R0_HEADER + fm.r0) : List.of());
         fm.checkpoint.assemble(outDir.resolve(FeiScores.FILE), header, n);
+        if (!fm.vectorIds.isEmpty()) {
+            String vecKeys = String.format(Locale.ROOT, "faces.fei.mirror = %s, faces.fei.vectors = %s, seed %d", settings.loadFacesFeiMirror(),
+                    settings.loadFacesFeiVectors(), fm.seed);
+            FeiCheckpoint.State s0 = st;
+            fm.checkpoint.assembleVectors(outDir, fm.vectorIds, m -> FeiVectors.header(s0.code, s0.source, vecKeys, n, m, fm.splits), n);
+        }
         FarMethods.write(outDir.resolve("fei_methods.txt"), fm.report(st.code, st.source, limit));
         fm.timeText.append(String.format(Locale.ROOT, "Всего %.0f с%s.%n", (System.nanoTime() - start) / 1e9,
                 fm.timeText.indexOf("Продолжено") >= 0 ? " (последний запуск)" : ""));
@@ -455,6 +506,7 @@ public final class FeiMethods {
                     FeiProtocol.NUMBERS[j], (System.nanoTime() - t0) / 1e9));
             if (checkpoint != null) {
                 try {
+                    if (!vectorIds.isEmpty()) checkpoint.saveVectors(c, vectorsText(sp, j, sc));
                     checkpoint.savePart(c, text);
                     state.done = c + 1;
                     state.results = new LinkedHashMap<>(results);
