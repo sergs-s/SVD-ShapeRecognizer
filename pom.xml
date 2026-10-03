@@ -221,6 +221,14 @@
                             <mainClass>svd.recognizer.faces.FeiNorm</mainClass>
                         </configuration>
                     </execution>
+                    <!-- П. 4.2, LBP против A по полным векторам: mvn compile exec:java@faces-fei-compare
+                         "-Dexec.args=<векторы A> <оценки A> <векторы LBP> <оценки LBP>" (отчёт fei_lbp.txt) -->
+                    <execution>
+                        <id>faces-fei-compare</id>
+                        <configuration>
+                            <mainClass>svd.recognizer.faces.FeiCompare</mainClass>
+                        </configuration>
+                    </execution>
                 </executions>
             </plugin>
         </plugins>

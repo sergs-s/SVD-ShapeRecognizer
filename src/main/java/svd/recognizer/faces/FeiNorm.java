@@ -97,6 +97,8 @@ public final class FeiNorm {
     /** Итог части: строки вариантов (точка, реплики), ранги, контроль. */
     static final class Part {
         String label;
+        /** Базовый метод (строки X и X+mirror). */
+        String base;
         String id;
         List<Conf> confs = new ArrayList<>();
         int[] lCases = new int[2];
@@ -307,10 +309,16 @@ public final class FeiNorm {
     /** Часть i: векторы X и X+mirror, контроль, попытки по позе, Z-суммы. */
     static Part load(int i, Path dir, Map<String, Row> ref, Map<String, List<Row>> groups, FeiPose pose, double r0, Map<String, Integer> persons)
             throws IOException {
+        return load(PART_BASES[i], FeiFusion.PARTS.get(i), FeiFusion.letter(i), dir, ref, groups, pose, r0, persons);
+    }
+
+    /** Часть по базовому методу x (строки x и x+mirror), строка id (*-ratio+pose) и метка label. */
+    static Part load(String x, String id, String label, Path dir, Map<String, Row> ref, Map<String, List<Row>> groups, FeiPose pose, double r0,
+                     Map<String, Integer> persons) throws IOException {
         Part part = new Part();
-        part.label = FeiFusion.letter(i);
-        part.id = FeiFusion.PARTS.get(i);
-        String x = PART_BASES[i];
+        part.label = label;
+        part.id = id;
+        part.base = x;
         String[] ms = {x, x + FeiMethods.MIRROR};
         boolean cosine = x.contains(FeiScores.COSINE);
         FeiVectors.Loaded[] f = new FeiVectors.Loaded[2];
@@ -426,7 +434,7 @@ public final class FeiNorm {
     /** База по векторам = FeiScores.Stat строки *-ratio+pose из файла оценок (ошибки и FAR контроля); иначе исключение. */
     @SuppressWarnings("unchecked")
     static void controlBase(Part part, Map<String, List<Row>> groups, FeiPose pose, double r0) {
-        String x = PART_BASES[FeiFusion.PARTS.indexOf(part.id)];
+        String x = part.base;
         Stat st = new Stat(part.id, Transform.RATIO);
         for (Conf c : part.confs) {
             List<Row> b = groups.get(x + "\t" + c.s + "\t" + c.j);
@@ -459,11 +467,16 @@ public final class FeiNorm {
 
     // ---------------------------------------------------------------- расчёт
 
-    @SuppressWarnings("unchecked")
     static void evaluate(Part part, int persons, int b, long seed) {
+        evaluate(part, persons, b, seed, NV);
+    }
+
+    /** Варианты 0…nv − 1 (nv = 1 — только база). */
+    @SuppressWarnings("unchecked")
+    static void evaluate(Part part, int persons, int b, long seed, int nv) {
         int[] u = FeiBootstrap.unit(persons);
         int[][] w = b > 0 ? FeiBootstrap.weights(persons, b, seed) : null;
-        for (int v = 0; v < NV; v++) {
+        for (int v = 0; v < nv; v++) {
             Object[] pc = cfgs(part.confs, v, null);
             List<FeiDecompose.Cfg> dc = (List<FeiDecompose.Cfg>) pc[0];
             List<FeiBootstrap.Cfg> bc = (List<FeiBootstrap.Cfg>) pc[1];

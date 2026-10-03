@@ -222,6 +222,16 @@ public final class FeiScores {
             new NewRow("4-wpca-cos-0-ratio", "4-wpca-cos-0", Transform.RATIO, "d₁/d₂ над 4-wpca-cos-0"),
             new NewRow("3-znorm-lda-margin", "3-znorm-lda", Transform.MARGIN, "z₁ − z₂ над 3-znorm-lda"));
 
+    /** d₁/d₂ над строками LBP (п. 4.2, faces.fei.lbp); появляются, только если основа есть в файле. */
+    static final List<NewRow> LBP_ROWS = List.of(
+            new NewRow("5-lbp-chi-ratio", FeiMethods.LBP_CHI, Transform.RATIO, "d₁/d₂ над 5-lbp-chi"),
+            new NewRow("5-lbp-mlda-ratio", FeiMethods.LBP_MLDA, Transform.RATIO, "d₁/d₂ над 5-lbp-mlda"),
+            new NewRow("5-lbp-chi-ratio+mirror", FeiMethods.LBP_CHI + FeiMethods.MIRROR, Transform.RATIO, "d₁/d₂ над 5-lbp-chi+mirror"),
+            new NewRow("5-lbp-mlda-ratio+mirror", FeiMethods.LBP_MLDA + FeiMethods.MIRROR, Transform.RATIO, "d₁/d₂ над 5-lbp-mlda+mirror"),
+            new NewRow("5-lbp-chi-ratio+mirror-turn", FeiMethods.LBP_CHI + FeiMethods.MIRROR_TURN, Transform.RATIO, "d₁/d₂ над 5-lbp-chi+mirror-turn"),
+            new NewRow("5-lbp-mlda-ratio+mirror-turn", FeiMethods.LBP_MLDA + FeiMethods.MIRROR_TURN, Transform.RATIO,
+                    "d₁/d₂ над 5-lbp-mlda+mirror-turn"));
+
     /** То же для строк +mirror (этап 5б, faces.fei.mirror); появляются, только если основа есть в файле. */
     static final List<NewRow> MIRROR_ROWS = List.of(
             new NewRow("2a95-fisher-ratio+mirror", "2a95-fisher+mirror", Transform.RATIO, "d₁/d₂ над 2a95-fisher+mirror"),
@@ -234,7 +244,8 @@ public final class FeiScores {
     /** Шапка файла оценок: порог позы прогона (faces.fei.mirror = turn). */
     static final String R0_HEADER = "# Поза: r0 = ";
     /** Методы файла, для которых строится выбор модели по позе пробы (+pose): X или X+mirror. */
-    static final List<String> POSE_BASES = List.of("1-clahe-eps", "1-clahe-ratio", "2a95-fisher", "2c-mlda", "4-wpca-cos-0");
+    static final List<String> POSE_BASES = List.of("1-clahe-eps", "1-clahe-ratio", "2a95-fisher", "2c-mlda", "4-wpca-cos-0", FeiMethods.LBP_CHI,
+            FeiMethods.LBP_MLDA);
     /** Источник отражённой модели → суффикс строки выбора по позе. */
     static final Map<String, String> POSE_SOURCES = Map.of(FeiMethods.MIRROR, "+pose", FeiMethods.MIRROR_TURN, "+pose-turn");
     /** Справочная сетка r0 для 2c-mlda-ratio+pose (не для выбора). */
@@ -246,6 +257,7 @@ public final class FeiScores {
         for (NewRow n : NEW_ROWS) {
             if (n.t() == Transform.RATIO) out.add(new NewRow(n.id() + suffix, n.base() + suffix, n.t(), n.about() + suffix));
         }
+        for (NewRow n : LBP_ROWS.subList(0, 2)) out.add(new NewRow(n.id() + suffix, n.base() + suffix, n.t(), n.about() + suffix));
         return out;
     }
 
@@ -454,6 +466,7 @@ public final class FeiScores {
             addTo(first.method(), Transform.NONE, group);
             for (NewRow n : NEW_ROWS) if (n.base().equals(first.method())) addTo(n.id(), n.t(), group);
             for (NewRow n : MIRROR_ROWS) if (n.base().equals(first.method())) addTo(n.id(), n.t(), group);
+            for (NewRow n : LBP_ROWS) if (n.base().equals(first.method())) addTo(n.id(), n.t(), group);
             if (pose != null) pose(first);
             group.clear();
         }
@@ -593,6 +606,11 @@ public final class FeiScores {
         if (a.stats.keySet().stream().anyMatch(id -> id.endsWith(FeiMethods.MIRROR_TURN))) {
             t.append("Строки +mirror-turn (faces.fei.mirror = turn): отражаются только обучающие снимки с |r| > r0 (шапка файла), анфас — без "
                     + "отражения.\n");
+        }
+        if (LBP_ROWS.stream().anyMatch(n -> a.stats.containsKey(n.id()))) {
+            t.append("Строки LBP (faces.fei.lbp): ");
+            for (NewRow n : LBP_ROWS) if (a.stats.containsKey(n.id())) t.append(n.id()).append(" — ").append(n.about()).append("; ");
+            t.append("в конце таблиц.\n");
         }
         if (a.pose != null) {
             t.append("Строки +pose / +pose-turn (faces.fei.pose.r0 = ").append(a.r0).append("): выбор модели по позе пробы, без "

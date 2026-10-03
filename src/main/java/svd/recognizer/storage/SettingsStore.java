@@ -68,6 +68,7 @@ public class SettingsStore {
     private static final String KEY_FACES_FEI_FUSION = "faces.fei.fusion";
     private static final String KEY_FACES_FEI_DECOMPOSE = "faces.fei.decompose";
     private static final String KEY_FACES_FEI_VECTORS = "faces.fei.vectors";
+    private static final String KEY_FACES_FEI_LBP = "faces.fei.lbp";
     private static final long DEFAULT_FACES_SEED = 42L;
     private static final int DEFAULT_FACES_TRAIN_PER_PERSON = 5;
 
@@ -423,6 +424,23 @@ public class SettingsStore {
      */
     public String loadFacesFeiVectors() {
         return path(KEY_FACES_FEI_VECTORS);
+    }
+
+    /**
+     * Строки LBP в faces-fei (п. 4.2, «LBP-гистограммы»; 5-lbp-chi, 5-lbp-mlda и их +mirror): ключ faces.fei.lbp или
+     * переменная окружения FACES_FEI_LBP — true / false. По умолчанию выключено.
+     *
+     * @return true — включено
+     */
+    public boolean loadFacesFeiLbp() {
+        String raw = path(KEY_FACES_FEI_LBP);
+        if (raw == null || raw.trim().equalsIgnoreCase("false")) {
+            return false;
+        }
+        if (raw.trim().equalsIgnoreCase("true")) {
+            return true;
+        }
+        throw new IllegalStateException(KEY_FACES_FEI_LBP + ": ожидалось true или false, задано " + raw);
     }
 
     /**

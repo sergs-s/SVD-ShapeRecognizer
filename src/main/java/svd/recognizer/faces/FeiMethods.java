@@ -48,7 +48,14 @@ public final class FeiMethods {
     static final double[] WPCA_C = {0, 0.1, 1};
 
     /** Базовый метод: оценщик обучается на своих (и, если cohortInTraining, на когорте). */
-    record Base(String id, String about, IlluminationNorm norm, GalleryScorer scorer, boolean cohortInTraining, Mirror mirror) {}
+    record Base(String id, String about, IlluminationNorm norm, GalleryScorer scorer, boolean cohortInTraining, Mirror mirror, Feature feature) {}
+
+    /** Вход метода: пиксели после нормализации освещения norm; гистограммы LBP (LbpFeature); их квадратный корень. */
+    enum Feature { PIXELS, LBP, LBP_SQRT }
+
+    /** Строки LBP (п. 4.2, ключ faces.fei.lbp): L0 — χ², L1 — корень гистограмм + MLDA. */
+    static final String LBP_CHI = "5-lbp-chi";
+    static final String LBP_MLDA = "5-lbp-mlda";
 
     /** Зеркальные копии в обучении: нет; все обучающие снимки (+mirror); только с |r| > r0 (+mirror-turn). */
     enum Mirror { NONE, ALL, TURN }
@@ -115,6 +122,12 @@ public final class FeiMethods {
     final double r0;
     /** Векторы CLAHE отражённых кадров (только при mirror или mirrorTurn). */
     final Map<String, double[]> mirrorVectors = new HashMap<>();
+    /** Строки LBP (faces.fei.lbp) и векторы LBP: гистограммы и их корень, исходных и отражённых кадров. */
+    final boolean lbp;
+    final Map<String, double[]> lbpVectors = new HashMap<>();
+    final Map<String, double[]> lbpSqrtVectors = new HashMap<>();
+    final Map<String, double[]> lbpMirror = new HashMap<>();
+    final Map<String, double[]> lbpSqrtMirror = new HashMap<>();
 
     final List<Base> bases = new ArrayList<>();
     final List<Derived> derived = new ArrayList<>();
@@ -157,6 +170,30 @@ public final class FeiMethods {
                 m.release();
             });
             for (int i = 0; i < k.size(); i++) mirrorVectors.put(k.get(i), out[i]);
+        }
+        lbp = settings.loadFacesFeiLbp();
+        if (lbp) {
+            // Гистограммы LBP кадра «а» без нормализации освещения; отражённые — LBP отражённого кадра заново.
+            List<String> k = new ArrayList<>(frames.keySet());
+            boolean withMirror = mirror || mirrorTurn;
+            double[][] out = new double[k.size()][];
+            double[][] mout = new double[k.size()][];
+            IntStream.range(0, k.size()).parallel().forEach(i -> {
+                out[i] = LbpFeature.histogram(frames.get(k.get(i)));
+                if (withMirror) {
+                    Mat m = FaceMirror.mirror(frames.get(k.get(i)));
+                    mout[i] = LbpFeature.histogram(m);
+                    m.release();
+                }
+            });
+            for (int i = 0; i < k.size(); i++) {
+                lbpVectors.put(k.get(i), out[i]);
+                lbpSqrtVectors.put(k.get(i), LbpFeature.sqrt(out[i]));
+                if (withMirror) {
+                    lbpMirror.put(k.get(i), mout[i]);
+                    lbpSqrtMirror.put(k.get(i), LbpFeature.sqrt(mout[i]));
+                }
+            }
         }
         register();
         vectorIds = vectorIds(settings.loadFacesFeiVectors());
@@ -256,6 +293,12 @@ public final class FeiMethods {
         if (mirror) mirrorRows(MIRROR, Mirror.ALL, "; обучение + отражённые кадры");
         // +mirror-turn: отражаются только обучающие снимки с |r| > r0 (анфас — без отражения).
         if (mirrorTurn) mirrorRows(MIRROR_TURN, Mirror.TURN, "; обучение + отражённые кадры с |r| > r0 = " + r0);
+        // LBP (п. 4.2, faces.fei.lbp): строки — после всех прежних, прежние не меняются.
+        if (lbp) {
+            lbpRows("", Mirror.NONE, "");
+            if (mirror) lbpRows(MIRROR, Mirror.ALL, "; обучение + отражённые кадры (LBP отражённого кадра)");
+            if (mirrorTurn) lbpRows(MIRROR_TURN, Mirror.TURN, "; обучение + отражённые кадры с |r| > r0 = " + r0);
+        }
     }
 
     private void mirrorRows(String suffix, Mirror mode, String note) {
@@ -289,8 +332,20 @@ public final class FeiMethods {
         base(id, text, norm, scorer, cohort, Mirror.NONE);
     }
 
+    /** Строки LBP: L0 (χ², ближайший снимок, без когорты) и L1 (корень гистограмм + MLDA, свои + когорта 20). */
+    private void lbpRows(String suffix, Mirror mode, String note) {
+        base(LBP_CHI + suffix, "LBP u2 (8, 2), сетка 7×7, кадр а без нормализации освещения; χ², ближайший снимок человека" + note,
+                IlluminationNorm.NONE, new ChiSquareScorer(), false, mode, Feature.LBP);
+        base(LBP_MLDA + suffix, "корень гистограмм LBP (как " + LBP_CHI + ") + MLDA, обучение — свои + когорта 20" + note, IlluminationNorm.NONE,
+                new MldaScorer(), true, mode, Feature.LBP_SQRT);
+    }
+
     private void base(String id, String text, IlluminationNorm norm, GalleryScorer scorer, boolean cohort, Mirror mirrored) {
-        bases.add(new Base(id, text, norm, scorer, cohort, mirrored));
+        base(id, text, norm, scorer, cohort, mirrored, Feature.PIXELS);
+    }
+
+    private void base(String id, String text, IlluminationNorm norm, GalleryScorer scorer, boolean cohort, Mirror mirrored, Feature feature) {
+        bases.add(new Base(id, text, norm, scorer, cohort, mirrored, feature));
         about.put(id, text);
     }
 
@@ -336,6 +391,7 @@ public final class FeiMethods {
                 settings.loadFacesFeiMirror(), fm.mirrorTurn ? Double.toString(fm.r0) : "-", fm.seed, n);
         // Без faces.fei.vectors отпечаток — прежний.
         if (!fm.vectorIds.isEmpty()) keysText += ", faces.fei.vectors " + String.join(",", fm.vectorIds);
+        if (fm.lbp) keysText += ", faces.fei.lbp true";
         String fingerprint = FeiCheckpoint.fingerprint(dir, keysText);
         fm.checkpoint = new FeiCheckpoint(outDir.resolve(FeiCheckpoint.DIR));
         fm.checkpoint.vectors = !fm.vectorIds.isEmpty();
@@ -460,7 +516,11 @@ public final class FeiMethods {
 
     /** Обучающие классы конфигурации: свои (7 снимков), затем (withCohort) люди когорты со всеми снимками. */
     List<List<double[]>> classes(FeiProtocol.Split sp, int j, IlluminationNorm norm, boolean withCohort) {
-        Map<String, double[]> vec = vectors.get(norm);
+        return classes(sp, j, vectors.get(norm), withCohort);
+    }
+
+    /** То же по векторам снимков входа метода. */
+    List<List<double[]>> classes(FeiProtocol.Split sp, int j, Map<String, double[]> vec, boolean withCohort) {
         List<List<double[]>> out = new ArrayList<>();
         for (String p : sp.gallery()) {
             List<double[]> list = new ArrayList<>();
@@ -478,17 +538,36 @@ public final class FeiMethods {
      * в обучении — все её снимки и их отражения; TURN: отражения только снимков с |r| > r0, FeiMethods.mirrorKeys).
      */
     List<List<double[]>> mirrorClasses(FeiProtocol.Split sp, int j, boolean withCohort, Mirror mode) {
-        List<List<double[]>> base = classes(sp, j, IlluminationNorm.CLAHE, withCohort);
+        return mirrorClasses(sp, j, withCohort, mode, Feature.PIXELS);
+    }
+
+    /** То же для входа feature: пиксели — CLAHE и mirrorVectors; LBP — гистограммы (или их корень) исходных и отражённых кадров. */
+    List<List<double[]>> mirrorClasses(FeiProtocol.Split sp, int j, boolean withCohort, Mirror mode, Feature feature) {
+        Map<String, double[]> mirrored = switch (feature) {
+            case PIXELS -> mirrorVectors;
+            case LBP -> lbpMirror;
+            case LBP_SQRT -> lbpSqrtMirror;
+        };
+        List<List<double[]>> base = classes(sp, j, input(feature, IlluminationNorm.CLAHE), withCohort);
         List<List<String>> ks = new ArrayList<>();
         for (String p : sp.gallery()) ks.add(mirrorKeys(p, keys.get(p), FeiProtocol.trainNumbers(j), mode, pose, r0));
         if (withCohort) for (String p : sp.cohort()) ks.add(mirrorKeys(p, keys.get(p), keys.get(p).keySet(), mode, pose, r0));
         List<List<double[]>> out = new ArrayList<>();
         for (int c = 0; c < base.size(); c++) {
             List<double[]> list = new ArrayList<>(base.get(c));
-            for (String k : ks.get(c)) list.add(mirrorVectors.get(k));
+            for (String k : ks.get(c)) list.add(mirrored.get(k));
             out.add(list);
         }
         return out;
+    }
+
+    /** Векторы снимков входа метода: пиксели — по нормализации norm, LBP — гистограммы или их корень. */
+    Map<String, double[]> input(Feature feature, IlluminationNorm norm) {
+        return switch (feature) {
+            case PIXELS -> vectors.get(norm);
+            case LBP -> lbpVectors;
+            case LBP_SQRT -> lbpSqrtVectors;
+        };
     }
 
     /** Все конфигурации (limit — первые limit, для отладки). */
@@ -539,8 +618,8 @@ public final class FeiMethods {
         for (Base b : bases) {
             long t0 = System.nanoTime();
             boolean mirrored = b.mirror() != Mirror.NONE;
-            List<List<double[]>> cls = mirrored ? mirrorClasses(sp, j, b.cohortInTraining(), b.mirror())
-                    : classes(sp, j, b.norm(), b.cohortInTraining());
+            List<List<double[]>> cls = mirrored ? mirrorClasses(sp, j, b.cohortInTraining(), b.mirror(), b.feature())
+                    : classes(sp, j, input(b.feature(), b.norm()), b.cohortInTraining());
             GalleryScorer.ScoreModel model;
             if (b.scorer() instanceof WpcaScorer && mirrored) {
                 // +mirror: своя PCA на отражённых классах.
@@ -554,7 +633,7 @@ public final class FeiMethods {
             } else {
                 model = b.scorer().fit(cls, g);
             }
-            Map<String, double[]> vec = vectors.get(b.norm());
+            Map<String, double[]> vec = input(b.feature(), b.norm());
             double[][] out = new double[probes.size()][];
             GalleryScorer.ScoreModel m = model;
             IntStream.range(0, probes.size()).parallel().forEach(i -> out[i] = m.scores(vec.get(probes.get(i))));
