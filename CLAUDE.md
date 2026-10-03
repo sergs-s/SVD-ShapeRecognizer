@@ -449,6 +449,11 @@ mvn compile exec:java@faces-fei-scores  # разбор файла оценок F
   FACES_FEI_BOOTSTRAP=2000 FACES_EXPORT_DIR=D:/data/SVD-faces-data mvn
   compile exec:java@faces-fei-scores "-Dexec.args=<файл оценок>"` (около
   10 с, воспроизводится побайтно).
+  Разложение ошибки своих (п. 4.2, с `3562f8d`, `FeiDecompose`): ключ
+  `faces.fei.decompose` / `FACES_FEI_DECOMPOSE` = `true` (по умолчанию
+  выключен, требует `faces.fei.pose.r0`) → `fei_decompose.txt` (группы
+  своих A, B, C при FAR 1 % и 5 %, бутстреп при `FACES_FEI_BOOTSTRAP`);
+  прочие отчёты не меняются.
 - Подписи на картинках OpenCV (`putText`) — только латиницей: шрифты
   Hershey не рисуют кириллицу.
 - Отчёты, полученные на разных ОС, сравниваются без учёта CR: `%n` в
