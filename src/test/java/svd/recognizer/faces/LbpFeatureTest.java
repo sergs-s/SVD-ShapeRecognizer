@@ -90,4 +90,46 @@ public class LbpFeatureTest {
         assertArrayEquals(new int[] {0, 2, 0, 0}, t[1]);
         assertArrayEquals(new int[] {1, 0, 0, 1}, t[2]);
     }
+
+    @Test
+    public void masks() {
+        LbpFeature.Mask in = LbpFeature.Mask.INNER;
+        LbpFeature.Mask out = LbpFeature.Mask.RING;
+        assertEquals(25, in.blocks());
+        assertEquals(24, out.blocks());
+        for (int by = 0; by < 7; by++) {
+            for (int bx = 0; bx < 7; bx++) {
+                assertTrue(in.has(by, bx) != out.has(by, bx));
+                assertEquals(by == 0 || by == 6 || bx == 0 || bx == 6, out.has(by, bx));
+            }
+        }
+        // Вектор: значение = номер блока; выборка — блоки маски по строкам, гистограммы целиком.
+        double[] v = new double[LbpFeature.LENGTH];
+        for (int i = 0; i < v.length; i++) v[i] = i / LbpFeature.BINS + (i % LbpFeature.BINS) / 1000.0;
+        double[] vi = LbpFeature.select(v, in);
+        double[] vo = LbpFeature.select(v, out);
+        assertEquals(1475, vi.length);
+        assertEquals(1416, vo.length);
+        assertEquals(8, vi[0], 0);
+        assertEquals(9 + 0.001, vi[LbpFeature.BINS + 1], 0);
+        assertEquals(40, vi[vi.length - 1] - 0.058, 1e-12);
+        assertEquals(0, vo[0], 0);
+        assertEquals(7, vo[7 * LbpFeature.BINS], 0);
+        assertEquals(13, vo[8 * LbpFeature.BINS], 0);
+        assertEquals(48 + 0.058, vo[vo.length - 1], 1e-12);
+    }
+
+    @Test
+    public void lbpModes() {
+        assertTrue(FeiMethods.lbpModes(null).isEmpty());
+        assertTrue(FeiMethods.lbpModes("false").isEmpty());
+        assertEquals(java.util.EnumSet.of(FeiMethods.Lbp.ON), FeiMethods.lbpModes("TRUE"));
+        assertEquals(java.util.EnumSet.of(FeiMethods.Lbp.MASK, FeiMethods.Lbp.ONLY), FeiMethods.lbpModes("mask, only"));
+        try {
+            FeiMethods.lbpModes("yes");
+            org.junit.Assert.fail();
+        } catch (IllegalStateException expected) {
+            assertTrue(expected.getMessage().contains("yes"));
+        }
+    }
 }

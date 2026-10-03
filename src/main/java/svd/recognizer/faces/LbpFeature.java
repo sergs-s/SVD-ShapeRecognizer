@@ -120,6 +120,40 @@ final class LbpFeature {
         return histogram(img, w, h);
     }
 
+    /**
+     * Маска блоков сетки 7×7 (п. 4.2, «LBP: внутренние и краевые блоки»; фиксирована заранее, на FEI не подбирается):
+     * INNER — строки и столбцы блоков 1–5 (25 блоков), RING — краевое кольцо (строка или столбец 0 или 6, 24 блока).
+     */
+    enum Mask {
+        INNER, RING;
+
+        boolean has(int by, int bx) {
+            boolean in = by >= 1 && by <= GRID - 2 && bx >= 1 && bx <= GRID - 2;
+            return this == INNER ? in : !in;
+        }
+
+        int blocks() {
+            int n = 0;
+            for (int by = 0; by < GRID; by++) for (int bx = 0; bx < GRID; bx++) if (has(by, bx)) n++;
+            return n;
+        }
+    }
+
+    /** Гистограммы блоков маски (вектор длины LENGTH, по строкам блоков) — в том же порядке, сцеплены: blocks()·59. */
+    static double[] select(double[] v, Mask mask) {
+        if (v.length != LENGTH) throw new IllegalArgumentException("LBP: длина вектора " + v.length + " вместо " + LENGTH);
+        double[] out = new double[mask.blocks() * BINS];
+        int k = 0;
+        for (int by = 0; by < GRID; by++) {
+            for (int bx = 0; bx < GRID; bx++) {
+                if (!mask.has(by, bx)) continue;
+                System.arraycopy(v, (by * GRID + bx) * BINS, out, k, BINS);
+                k += BINS;
+            }
+        }
+        return out;
+    }
+
     /** Поэлементный квадратный корень (L1). */
     static double[] sqrt(double[] v) {
         double[] s = new double[v.length];

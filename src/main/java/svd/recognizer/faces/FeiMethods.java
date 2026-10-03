@@ -51,11 +51,36 @@ public final class FeiMethods {
     record Base(String id, String about, IlluminationNorm norm, GalleryScorer scorer, boolean cohortInTraining, Mirror mirror, Feature feature) {}
 
     /** Вход метода: пиксели после нормализации освещения norm; гистограммы LBP (LbpFeature); их квадратный корень. */
-    enum Feature { PIXELS, LBP, LBP_SQRT }
+    enum Feature { PIXELS, LBP, LBP_SQRT, LBP_SQRT_IN, LBP_SQRT_OUT }
 
     /** Строки LBP (п. 4.2, ключ faces.fei.lbp): L0 — χ², L1 — корень гистограмм + MLDA. */
     static final String LBP_CHI = "5-lbp-chi";
     static final String LBP_MLDA = "5-lbp-mlda";
+    /** L1 по внутренним блокам (LbpFeature.Mask.INNER) и по краевому кольцу (RING); faces.fei.lbp = mask. */
+    static final String LBP_MLDA_IN = "5-lbp-mlda-in";
+    static final String LBP_MLDA_OUT = "5-lbp-mlda-out";
+
+    /** Режимы ключа faces.fei.lbp: строки LBP (true), маски внутренние / краевые (mask), только строки LBP-MLDA (only). */
+    enum Lbp { ON, MASK, ONLY }
+
+    /**
+     * Режимы из значения ключа faces.fei.lbp: список через запятую из true, mask, only, без учёта регистра; null, пусто или
+     * false — нет режимов; прочее — ошибка. mask и only включают строки LBP и без true.
+     */
+    static Set<Lbp> lbpModes(String raw) {
+        Set<Lbp> m = java.util.EnumSet.noneOf(Lbp.class);
+        if (raw == null || raw.isBlank()) return m;
+        for (String v : raw.split(",")) {
+            switch (v.trim().toLowerCase(Locale.ROOT)) {
+                case "true" -> m.add(Lbp.ON);
+                case "mask" -> m.add(Lbp.MASK);
+                case "only" -> m.add(Lbp.ONLY);
+                case "false" -> { }
+                default -> throw new IllegalStateException("faces.fei.lbp: неизвестное значение «" + v.trim() + "» (true, mask, only)");
+            }
+        }
+        return m;
+    }
 
     /** Зеркальные копии в обучении: нет; все обучающие снимки (+mirror); только с |r| > r0 (+mirror-turn). */
     enum Mirror { NONE, ALL, TURN }
@@ -128,6 +153,12 @@ public final class FeiMethods {
     final Map<String, double[]> lbpSqrtVectors = new HashMap<>();
     final Map<String, double[]> lbpMirror = new HashMap<>();
     final Map<String, double[]> lbpSqrtMirror = new HashMap<>();
+    /** faces.fei.lbp = mask: корень гистограмм по маскам INNER / RING, исходных и отражённых кадров (куски векторов L1). */
+    final boolean lbpMask;
+    /** faces.fei.lbp = only: считаются только строки LBP-MLDA (прочие методы и производные строки пропускаются). */
+    final boolean lbpOnly;
+    final Map<LbpFeature.Mask, Map<String, double[]>> lbpMasked = new java.util.EnumMap<>(LbpFeature.Mask.class);
+    final Map<LbpFeature.Mask, Map<String, double[]>> lbpMaskedMirror = new java.util.EnumMap<>(LbpFeature.Mask.class);
 
     final List<Base> bases = new ArrayList<>();
     final List<Derived> derived = new ArrayList<>();
@@ -171,7 +202,10 @@ public final class FeiMethods {
             });
             for (int i = 0; i < k.size(); i++) mirrorVectors.put(k.get(i), out[i]);
         }
-        lbp = settings.loadFacesFeiLbp();
+        Set<Lbp> lbpModes = lbpModes(settings.loadFacesFeiLbp());
+        lbp = !lbpModes.isEmpty();
+        lbpMask = lbpModes.contains(Lbp.MASK);
+        lbpOnly = lbpModes.contains(Lbp.ONLY);
         if (lbp) {
             // Гистограммы LBP кадра «а» без нормализации освещения; отражённые — LBP отражённого кадра заново.
             List<String> k = new ArrayList<>(frames.keySet());
@@ -192,6 +226,16 @@ public final class FeiMethods {
                 if (withMirror) {
                     lbpMirror.put(k.get(i), mout[i]);
                     lbpSqrtMirror.put(k.get(i), LbpFeature.sqrt(mout[i]));
+                }
+            }
+            if (lbpMask) {
+                for (LbpFeature.Mask m : LbpFeature.Mask.values()) {
+                    Map<String, double[]> v = new HashMap<>();
+                    lbpSqrtVectors.forEach((key, x) -> v.put(key, LbpFeature.select(x, m)));
+                    lbpMasked.put(m, v);
+                    Map<String, double[]> mv = new HashMap<>();
+                    lbpSqrtMirror.forEach((key, x) -> mv.put(key, LbpFeature.select(x, m)));
+                    lbpMaskedMirror.put(m, mv);
                 }
             }
         }
@@ -241,6 +285,13 @@ public final class FeiMethods {
 
     /** Методы этапа 4 (параметры те же) и 4-wpca; порядок — порядок таблицы. */
     private void register() {
+        if (lbpOnly) {
+            // faces.fei.lbp = only: только строки LBP-MLDA (L1 и, при mask, по маскам) и их +mirror / +mirror-turn.
+            lbpRows("", Mirror.NONE, "");
+            if (mirror) lbpRows(MIRROR, Mirror.ALL, "; обучение + отражённые кадры (LBP отражённого кадра)");
+            if (mirrorTurn) lbpRows(MIRROR_TURN, Mirror.TURN, "; обучение + отражённые кадры с |r| > r0 = " + r0);
+            return;
+        }
         IlluminationNorm cl = IlluminationNorm.CLAHE;
         base("1-clahe-eps", "CLAHE + подпространство на человека (k = 4), ε", cl, new SubspaceScorer(false), false);
         derived("1-clahe-ratio", "CLAHE + подпространство, ε₁/ε₂", Kind.RATIO, "1-clahe-eps");
@@ -332,12 +383,23 @@ public final class FeiMethods {
         base(id, text, norm, scorer, cohort, Mirror.NONE);
     }
 
-    /** Строки LBP: L0 (χ², ближайший снимок, без когорты) и L1 (корень гистограмм + MLDA, свои + когорта 20). */
+    /**
+     * Строки LBP: L0 (χ², ближайший снимок, без когорты) и L1 (корень гистограмм + MLDA, свои + когорта 20); при mask —
+     * L1 по внутренним блокам и по краевому кольцу; при only — без L0.
+     */
     private void lbpRows(String suffix, Mirror mode, String note) {
-        base(LBP_CHI + suffix, "LBP u2 (8, 2), сетка 7×7, кадр а без нормализации освещения; χ², ближайший снимок человека" + note,
-                IlluminationNorm.NONE, new ChiSquareScorer(), false, mode, Feature.LBP);
+        if (!lbpOnly) {
+            base(LBP_CHI + suffix, "LBP u2 (8, 2), сетка 7×7, кадр а без нормализации освещения; χ², ближайший снимок человека" + note,
+                    IlluminationNorm.NONE, new ChiSquareScorer(), false, mode, Feature.LBP);
+        }
         base(LBP_MLDA + suffix, "корень гистограмм LBP (как " + LBP_CHI + ") + MLDA, обучение — свои + когорта 20" + note, IlluminationNorm.NONE,
                 new MldaScorer(), true, mode, Feature.LBP_SQRT);
+        if (lbpMask) {
+            base(LBP_MLDA_IN + suffix, "как " + LBP_MLDA + ", только внутренние блоки (строки и столбцы 1–5 сетки 7×7, 25 блоков, вектор 1475)"
+                    + note, IlluminationNorm.NONE, new MldaScorer(), true, mode, Feature.LBP_SQRT_IN);
+            base(LBP_MLDA_OUT + suffix, "как " + LBP_MLDA + ", только краевое кольцо (24 блока, вектор 1416)" + note, IlluminationNorm.NONE,
+                    new MldaScorer(), true, mode, Feature.LBP_SQRT_OUT);
+        }
     }
 
     private void base(String id, String text, IlluminationNorm norm, GalleryScorer scorer, boolean cohort, Mirror mirrored) {
@@ -391,7 +453,8 @@ public final class FeiMethods {
                 settings.loadFacesFeiMirror(), fm.mirrorTurn ? Double.toString(fm.r0) : "-", fm.seed, n);
         // Без faces.fei.vectors отпечаток — прежний.
         if (!fm.vectorIds.isEmpty()) keysText += ", faces.fei.vectors " + String.join(",", fm.vectorIds);
-        if (fm.lbp) keysText += ", faces.fei.lbp true";
+        // При faces.fei.lbp = true — прежний текст; mask / only — значение ключа.
+        if (fm.lbp) keysText += ", faces.fei.lbp " + (fm.lbpMask || fm.lbpOnly ? settings.loadFacesFeiLbp().trim().toLowerCase(Locale.ROOT) : "true");
         String fingerprint = FeiCheckpoint.fingerprint(dir, keysText);
         fm.checkpoint = new FeiCheckpoint(outDir.resolve(FeiCheckpoint.DIR));
         fm.checkpoint.vectors = !fm.vectorIds.isEmpty();
@@ -547,6 +610,8 @@ public final class FeiMethods {
             case PIXELS -> mirrorVectors;
             case LBP -> lbpMirror;
             case LBP_SQRT -> lbpSqrtMirror;
+            case LBP_SQRT_IN -> lbpMaskedMirror.get(LbpFeature.Mask.INNER);
+            case LBP_SQRT_OUT -> lbpMaskedMirror.get(LbpFeature.Mask.RING);
         };
         List<List<double[]>> base = classes(sp, j, input(feature, IlluminationNorm.CLAHE), withCohort);
         List<List<String>> ks = new ArrayList<>();
@@ -567,6 +632,8 @@ public final class FeiMethods {
             case PIXELS -> vectors.get(norm);
             case LBP -> lbpVectors;
             case LBP_SQRT -> lbpSqrtVectors;
+            case LBP_SQRT_IN -> lbpMasked.get(LbpFeature.Mask.INNER);
+            case LBP_SQRT_OUT -> lbpMasked.get(LbpFeature.Mask.RING);
         };
     }
 
@@ -812,7 +879,7 @@ public final class FeiMethods {
     /** Строки таблицы: все, кроме условных 4-sum-blk-both+wpca; условная — лучшей wpca, если та обходит 3-znorm-lda. */
     List<String> tableIds() {
         List<String> ids = new ArrayList<>(about.keySet().stream().filter(id -> !id.startsWith("4-sum-blk-both+") && !isMirror(id)).toList());
-        if (wpcaBeats()) ids.add(blkWpcaId(best(wpcaIds())));
+        if (!wpcaIds().isEmpty() && wpcaBeats()) ids.add(blkWpcaId(best(wpcaIds())));
         // +mirror — в конце таблицы; в выборе лучшего по правилу и условной строке не участвуют.
         ids.addAll(about.keySet().stream().filter(FeiMethods::isMirror).toList());
         return ids;
@@ -872,6 +939,15 @@ public final class FeiMethods {
                     + "|r| = r0 — без отражения), у своих и у когорты в обучении (2c-mlda, 4-wpca); строки — в конце таблиц, в выборе\n"
                     + "лучшего не участвуют.\n");
         }
+        if (lbpMask) {
+            t.append("Режим mask (faces.fei.lbp, п. 4.2, «LBP: внутренние и краевые блоки»): " + LBP_MLDA_IN + " и " + LBP_MLDA_OUT + " — как "
+                    + LBP_MLDA + ", вход — корень гистограмм только\nвнутренних блоков (строки и столбцы 1–5 сетки 7×7) или только краевого "
+                    + "кольца (строка или столбец 0 или 6); маски заданы заранее.\n");
+        }
+        if (lbpOnly) {
+            t.append("Режим only (faces.fei.lbp): считаются только строки LBP-MLDA; прочих методов в таблицах нет, лучший по правилу —\n"
+                    + "среди этих строк.\n");
+        }
 
         t.append("\n=== Сводка (основная таблица FEI) ===\n");
         t.append("метод | суть | ошибки своих α=0,05 (FRR + под чужим) | α=0 | анфас / поворот α=0,05 | анфас / поворот α=0 | "
@@ -882,10 +958,12 @@ public final class FeiMethods {
         String best = best(ids.stream().filter(id -> !isMirror(id)).toList());
         t.append(String.format(Locale.ROOT, "%nЛучший по правилу (наименьшая ошибка своих при α = 0,05, при равенстве — α = 0; FAR контроля не "
                 + "участвует): %s — %s.%n", best, pctOf(results.get(best).errors(A05), results.get(best).att)));
-        String bw = best(wpcaIds());
-        t.append(String.format(Locale.ROOT, "Лучшая строка wpca: %s (%s) против 3-znorm-lda (%s): %s.%n", bw, pctOf(results.get(bw).errors(A05),
-                results.get(bw).att), pctOf(results.get("3-znorm-lda").errors(A05), results.get("3-znorm-lda").att),
-                wpcaBeats() ? "обходит — добавлена строка " + blkWpcaId(bw) : "не обходит — строка 4-sum-blk-both+wpca не добавляется"));
+        if (!lbpOnly) {
+            String bw = best(wpcaIds());
+            t.append(String.format(Locale.ROOT, "Лучшая строка wpca: %s (%s) против 3-znorm-lda (%s): %s.%n", bw, pctOf(results.get(bw).errors(A05),
+                    results.get(bw).att), pctOf(results.get("3-znorm-lda").errors(A05), results.get("3-znorm-lda").att),
+                    wpcaBeats() ? "обходит — добавлена строка " + blkWpcaId(bw) : "не обходит — строка 4-sum-blk-both+wpca не добавляется"));
+        }
 
         t.append("\n=== FAR на пороговых (набор порога, справочно) ===\n");
         t.append("метод | θ α=0,05 мед. | люди α=0,05: худш. / мед. | попытки α=0,05 сумма | θ α=0 мед.\n");

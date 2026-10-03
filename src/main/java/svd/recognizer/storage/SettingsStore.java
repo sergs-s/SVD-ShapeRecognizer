@@ -428,19 +428,14 @@ public class SettingsStore {
 
     /**
      * Строки LBP в faces-fei (п. 4.2, «LBP-гистограммы»; 5-lbp-chi, 5-lbp-mlda и их +mirror): ключ faces.fei.lbp или
-     * переменная окружения FACES_FEI_LBP — true / false. По умолчанию выключено.
+     * переменная окружения FACES_FEI_LBP — список через запятую: true (строки LBP), mask (ещё строки 5-lbp-mlda-in и
+     * 5-lbp-mlda-out — внутренние блоки и краевое кольцо), only (считаются только строки LBP-MLDA). Разбор и проверка —
+     * FeiMethods.lbpModes. По умолчанию выключено.
      *
-     * @return true — включено
+     * @return значение как есть или null, если не задано
      */
-    public boolean loadFacesFeiLbp() {
-        String raw = path(KEY_FACES_FEI_LBP);
-        if (raw == null || raw.trim().equalsIgnoreCase("false")) {
-            return false;
-        }
-        if (raw.trim().equalsIgnoreCase("true")) {
-            return true;
-        }
-        throw new IllegalStateException(KEY_FACES_FEI_LBP + ": ожидалось true или false, задано " + raw);
+    public String loadFacesFeiLbp() {
+        return path(KEY_FACES_FEI_LBP);
     }
 
     /**

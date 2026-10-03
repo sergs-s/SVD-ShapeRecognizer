@@ -222,7 +222,9 @@
                         </configuration>
                     </execution>
                     <!-- П. 4.2, LBP против A по полным векторам: mvn compile exec:java@faces-fei-compare
-                         "-Dexec.args=<векторы A> <оценки A> <векторы LBP> <оценки LBP>" (отчёт fei_lbp.txt) -->
+                         "-Dexec.args=<векторы A> <оценки A> <векторы LBP> <оценки LBP>" (отчёт fei_lbp.txt);
+                         маски LBP: "-Dexec.args=mask <векторы A> <оценки A> <векторы L> <оценки L> <векторы L1 прежние>"
+                         (отчёт fei_lbp_mask.txt) -->
                     <execution>
                         <id>faces-fei-compare</id>
                         <configuration>

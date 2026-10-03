@@ -230,7 +230,16 @@ public final class FeiScores {
             new NewRow("5-lbp-mlda-ratio+mirror", FeiMethods.LBP_MLDA + FeiMethods.MIRROR, Transform.RATIO, "d₁/d₂ над 5-lbp-mlda+mirror"),
             new NewRow("5-lbp-chi-ratio+mirror-turn", FeiMethods.LBP_CHI + FeiMethods.MIRROR_TURN, Transform.RATIO, "d₁/d₂ над 5-lbp-chi+mirror-turn"),
             new NewRow("5-lbp-mlda-ratio+mirror-turn", FeiMethods.LBP_MLDA + FeiMethods.MIRROR_TURN, Transform.RATIO,
-                    "d₁/d₂ над 5-lbp-mlda+mirror-turn"));
+                    "d₁/d₂ над 5-lbp-mlda+mirror-turn"),
+            new NewRow("5-lbp-mlda-in-ratio", FeiMethods.LBP_MLDA_IN, Transform.RATIO, "d₁/d₂ над 5-lbp-mlda-in"),
+            new NewRow("5-lbp-mlda-out-ratio", FeiMethods.LBP_MLDA_OUT, Transform.RATIO, "d₁/d₂ над 5-lbp-mlda-out"),
+            new NewRow("5-lbp-mlda-in-ratio+mirror", FeiMethods.LBP_MLDA_IN + FeiMethods.MIRROR, Transform.RATIO, "d₁/d₂ над 5-lbp-mlda-in+mirror"),
+            new NewRow("5-lbp-mlda-out-ratio+mirror", FeiMethods.LBP_MLDA_OUT + FeiMethods.MIRROR, Transform.RATIO,
+                    "d₁/d₂ над 5-lbp-mlda-out+mirror"),
+            new NewRow("5-lbp-mlda-in-ratio+mirror-turn", FeiMethods.LBP_MLDA_IN + FeiMethods.MIRROR_TURN, Transform.RATIO,
+                    "d₁/d₂ над 5-lbp-mlda-in+mirror-turn"),
+            new NewRow("5-lbp-mlda-out-ratio+mirror-turn", FeiMethods.LBP_MLDA_OUT + FeiMethods.MIRROR_TURN, Transform.RATIO,
+                    "d₁/d₂ над 5-lbp-mlda-out+mirror-turn"));
 
     /** То же для строк +mirror (этап 5б, faces.fei.mirror); появляются, только если основа есть в файле. */
     static final List<NewRow> MIRROR_ROWS = List.of(
@@ -245,7 +254,7 @@ public final class FeiScores {
     static final String R0_HEADER = "# Поза: r0 = ";
     /** Методы файла, для которых строится выбор модели по позе пробы (+pose): X или X+mirror. */
     static final List<String> POSE_BASES = List.of("1-clahe-eps", "1-clahe-ratio", "2a95-fisher", "2c-mlda", "4-wpca-cos-0", FeiMethods.LBP_CHI,
-            FeiMethods.LBP_MLDA);
+            FeiMethods.LBP_MLDA, FeiMethods.LBP_MLDA_IN, FeiMethods.LBP_MLDA_OUT);
     /** Источник отражённой модели → суффикс строки выбора по позе. */
     static final Map<String, String> POSE_SOURCES = Map.of(FeiMethods.MIRROR, "+pose", FeiMethods.MIRROR_TURN, "+pose-turn");
     /** Справочная сетка r0 для 2c-mlda-ratio+pose (не для выбора). */
@@ -257,7 +266,7 @@ public final class FeiScores {
         for (NewRow n : NEW_ROWS) {
             if (n.t() == Transform.RATIO) out.add(new NewRow(n.id() + suffix, n.base() + suffix, n.t(), n.about() + suffix));
         }
-        for (NewRow n : LBP_ROWS.subList(0, 2)) out.add(new NewRow(n.id() + suffix, n.base() + suffix, n.t(), n.about() + suffix));
+        for (NewRow n : LBP_ROWS) if (!FeiMethods.isMirror(n.id())) out.add(new NewRow(n.id() + suffix, n.base() + suffix, n.t(), n.about() + suffix));
         return out;
     }
 
