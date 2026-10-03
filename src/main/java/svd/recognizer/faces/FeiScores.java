@@ -389,6 +389,8 @@ public final class FeiScores {
         double r0 = Double.NaN;
         /** Объединение по решениям (faces.fei.fusion; части — строки *-ratio+pose); null — выключено. */
         FeiFusion fusion;
+        /** Разложение ошибки своих (faces.fei.decompose; части — строки *-ratio+pose); null — выключено. */
+        FeiDecompose decompose;
         /** Строки сетки r0 (справочно, не для выбора): в основные таблицы и бутстреп не входят. */
         final Set<String> grid = new LinkedHashSet<>();
         /** Группы базовых методов POSE_BASES: «метод s j» → попытки (ждут свою отражённую группу). */
@@ -477,6 +479,7 @@ public final class FeiScores {
                     if (!n.base().equals(id)) continue;
                     addTo(n.id(), n.t(), chosen);
                     if (fusion != null) fusion.part(n.id(), chosen);
+                    if (decompose != null) decompose.part(n.id(), chosen);
                 }
                 if (x.equals("2c-mlda") && e.getKey().equals(FeiMethods.MIRROR)) {
                     for (double g : POSE_GRID) {
@@ -520,6 +523,10 @@ public final class FeiScores {
             if (rawR0 == null) throw new IllegalStateException("faces.fei.fusion: части — строки +pose, задайте faces.fei.pose.r0 / FACES_FEI_POSE_R0");
             a.fusion = new FeiFusion(b > 0 ? new FeiBootstrap(sel.persons()) : null);
         }
+        if (settings.loadFacesFeiDecompose()) {
+            if (rawR0 == null) throw new IllegalStateException("faces.fei.decompose: части — строки +pose, задайте faces.fei.pose.r0 / FACES_FEI_POSE_R0");
+            a.decompose = new FeiDecompose(sel, a.r0, b > 0 ? new FeiBootstrap(sel.persons()) : null);
+        }
         try (BufferedReader in = new BufferedReader(new InputStreamReader(new GZIPInputStream(Files.newInputStream(file), 1 << 16),
                 StandardCharsets.UTF_8))) {
             a.read(in);
@@ -543,6 +550,14 @@ public final class FeiScores {
             FarMethods.write(dir.resolve(FeiFusion.FILE), a.fusion.report(r, a.header, file.toString(), a.r0));
             new java.io.PrintStream(System.out, true, StandardCharsets.UTF_8).println(String.format(Locale.ROOT,
                     "Объединение по решениям: %.0f с; отчёт %s", (System.nanoTime() - t0) / 1e9, dir.resolve(FeiFusion.FILE)));
+        }
+        if (a.decompose != null) {
+            long t0 = System.nanoTime();
+            long seed = new SettingsStore().loadFacesSeed() + FeiBootstrap.SEED_OFFSET;
+            double[][][][][] reps = b > 0 ? a.decompose.bootstrap(b, seed) : null;
+            FarMethods.write(dir.resolve(FeiDecompose.FILE), a.decompose.report(reps, b, seed, a.header, file.toString()));
+            new java.io.PrintStream(System.out, true, StandardCharsets.UTF_8).println(String.format(Locale.ROOT,
+                    "Разложение ошибки своих: %.0f с; отчёт %s", (System.nanoTime() - t0) / 1e9, dir.resolve(FeiDecompose.FILE)));
         }
     }
 

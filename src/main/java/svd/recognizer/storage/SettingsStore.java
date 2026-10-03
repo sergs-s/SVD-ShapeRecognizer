@@ -66,6 +66,7 @@ public class SettingsStore {
     private static final String KEY_FACES_FEI_BOOTSTRAP = "faces.fei.bootstrap";
     private static final String KEY_FACES_FEI_POSE_R0 = "faces.fei.pose.r0";
     private static final String KEY_FACES_FEI_FUSION = "faces.fei.fusion";
+    private static final String KEY_FACES_FEI_DECOMPOSE = "faces.fei.decompose";
     private static final long DEFAULT_FACES_SEED = 42L;
     private static final int DEFAULT_FACES_TRAIN_PER_PERSON = 5;
 
@@ -410,6 +411,24 @@ public class SettingsStore {
             return true;
         }
         throw new IllegalStateException(KEY_FACES_FEI_FUSION + ": ожидалось true или false, задано " + raw);
+    }
+
+    /**
+     * Разложение ошибки своих в разборе файла оценок faces-fei-scores (fei_decompose.txt, PLAN.md п. 4.2): ключ
+     * faces.fei.decompose или переменная окружения FACES_FEI_DECOMPOSE — true / false. По умолчанию выключено. Требует
+     * faces.fei.pose.r0 (части — строки +pose).
+     *
+     * @return true — включено
+     */
+    public boolean loadFacesFeiDecompose() {
+        String raw = path(KEY_FACES_FEI_DECOMPOSE);
+        if (raw == null || raw.trim().equalsIgnoreCase("false")) {
+            return false;
+        }
+        if (raw.trim().equalsIgnoreCase("true")) {
+            return true;
+        }
+        throw new IllegalStateException(KEY_FACES_FEI_DECOMPOSE + ": ожидалось true или false, задано " + raw);
     }
 
     /**
