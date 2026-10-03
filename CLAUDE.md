@@ -238,6 +238,14 @@ mvn compile exec:java@faces-fei-scores  # разбор файла оценок F
   состава галереи (второй кандидат), поэтому порог калибруется заново при
   любом изменении списка людей; при галерее из одного человека скоринг не
   определён; порог, подобранный на ORL, на свою базу не переносится.
+- Правило вырожденных случаев отношения r = d₁/d₂ (по определению d₁ ≤ d₂;
+  решение Хозяина 03.10.2026; одна функция `FeiScores.ratio` для строк
+  *-ratio и объединений, перейдёт в программу): 1) d₁ = 0, d₂ > 0 (и любое
+  r < ρ_min) – r = ρ_min = 1e-12; 2) d₁ = d₂ = 0 – r = 1 (худшая оценка);
+  3) d₂ = 0 при d₁ > 0, d₁ > d₂, отрицательное расстояние (кроме п. 5), NaN –
+  исключение с указанием попытки; 4) d₂ = +∞ – отказ (+∞); 5) 1 − cos в
+  пределах округления ниже нуля (≥ −1e-12) – к 0, дальше пп. 1–2, ниже
+  −1e-12 – п. 3; 6) s = 0 у части объединения в конфигурации – исключение.
 - Оценка на ORL: `mvn compile exec:java@faces-eval`, отчёт в `reports/faces/`
   (в `.gitignore`); база — путь `faces.dataset.dir` в `settings.properties`.
 
@@ -431,6 +439,16 @@ mvn compile exec:java@faces-fei-scores  # разбор файла оценок F
   "-Dexec.args=<файл оценок>"` при заданном `FACES_EXPORT_DIR` (люди FEI
   из `fei_selection.tsv`) → ещё и `fei_bootstrap.txt` (около 2 с на 59
   строк, воспроизводится побайтно).
+  Объединение по решениям (шаг (а1) п. 4.2, с `c1b3f67`, `FeiFusion`): ключ
+  `faces.fei.fusion` / `FACES_FEI_FUSION` = `true` (по умолчанию выключен,
+  в `settings.properties` не задан; требует `faces.fei.pose.r0`) →
+  `fei_fusion.txt` (части 2c-mlda-ratio+pose, 4-wpca-cos-0-ratio+pose,
+  2a95-fisher-ratio+pose; A+B, A+C, A+B+C; при `FACES_FEI_BOOTSTRAP` – и
+  бутстреп с парными разностями); `fei_scores.txt` и `fei_bootstrap.txt` не
+  меняются. Команда: `FACES_FEI_POSE_R0=0.12 FACES_FEI_FUSION=true
+  FACES_FEI_BOOTSTRAP=2000 FACES_EXPORT_DIR=D:/data/SVD-faces-data mvn
+  compile exec:java@faces-fei-scores "-Dexec.args=<файл оценок>"` (около
+  10 с, воспроизводится побайтно).
 - Подписи на картинках OpenCV (`putText`) — только латиницей: шрифты
   Hershey не рисуют кириллицу.
 - Отчёты, полученные на разных ОС, сравниваются без учёта CR: `%n` в
