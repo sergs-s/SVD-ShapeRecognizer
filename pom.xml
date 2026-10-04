@@ -241,6 +241,14 @@
                     </execution>
                     <!-- П. 4.2, калибровка порога (П0–П3): mvn compile exec:java@faces-fei-threshold
                          "-Dexec.args=<файл оценок> <файл перекрёстной оценки>" (отчёт fei_threshold.txt) -->
+                    <!-- П. 5.5, сверка на других базах: mvn compile exec:java@faces-xbase "-Dexec.args=gt"
+                         (контроль пути: "-Dexec.args=fei-check <файл оценок FEI>"); отчёт reports/faces/xbase/ -->
+                    <execution>
+                        <id>faces-xbase</id>
+                        <configuration>
+                            <mainClass>svd.recognizer.faces.XBaseEval</mainClass>
+                        </configuration>
+                    </execution>
                     <execution>
                         <id>faces-fei-threshold</id>
                         <configuration>
