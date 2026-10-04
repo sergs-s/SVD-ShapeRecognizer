@@ -69,6 +69,7 @@ public class SettingsStore {
     private static final String KEY_FACES_FEI_DECOMPOSE = "faces.fei.decompose";
     private static final String KEY_FACES_FEI_VECTORS = "faces.fei.vectors";
     private static final String KEY_FACES_FEI_LBP = "faces.fei.lbp";
+    private static final String KEY_FACES_CALTECH_DIR = "faces.caltech.dir";
     private static final String KEY_FACES_FEI_CV = "faces.fei.cv";
     private static final String KEY_FACES_FEI_CV_THREADS = "faces.fei.cv.threads";
     private static final long DEFAULT_FACES_SEED = 42L;
@@ -456,6 +457,16 @@ public class SettingsStore {
             return true;
         }
         throw new IllegalStateException(KEY_FACES_FEI_DECOMPOSE + ": ожидалось true или false, задано " + raw);
+    }
+
+    /**
+     * Каталог Caltech Face Dataset 1999 (ручная разметка личностей, CaltechLabeler): ключ faces.caltech.dir или
+     * переменная окружения FACES_CALTECH_DIR. Пути по умолчанию нет.
+     *
+     * @return путь или null, если не задан
+     */
+    public String loadFacesCaltechDir() {
+        return path(KEY_FACES_CALTECH_DIR);
     }
 
     /**

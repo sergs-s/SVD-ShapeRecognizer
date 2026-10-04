@@ -115,6 +115,14 @@
                             <mainClass>svd.recognizer.faces.EyeLabeler</mainClass>
                         </configuration>
                     </execution>
+                    <!-- Ручная разметка личностей Caltech1999: mvn compile exec:java@faces-caltech
+                         (каталог — faces.caltech.dir / FACES_CALTECH_DIR; листы проверки: -Dexec.args=sheet) -->
+                    <execution>
+                        <id>faces-caltech</id>
+                        <configuration>
+                            <mainClass>svd.recognizer.faces.CaltechLabeler</mainClass>
+                        </configuration>
+                    </execution>
                     <!-- Порог YuNet на своей базе: mvn compile exec:java@faces-own-yunet -->
                     <execution>
                         <id>faces-own-yunet</id>
