@@ -109,6 +109,16 @@ public class FeiThresholdTest {
     }
 
     @Test
+    public void tolerance() {
+        // Допуск: номинал + 10 % от него — 1,1 % при 1 %, 5,5 % при 5 %.
+        assertTrue(FeiThreshold.withinTolerance(110, 10000, 0.01));
+        assertFalse(FeiThreshold.withinTolerance(111, 10000, 0.01));
+        assertTrue(FeiThreshold.withinTolerance(154, 14032, 0.01));
+        assertTrue(FeiThreshold.withinTolerance(550, 10000, 0.05));
+        assertFalse(FeiThreshold.withinTolerance(551, 10000, 0.05));
+    }
+
+    @Test
     public void cvParts() {
         List<String> g = new ArrayList<>();
         for (int i = 0; i < 100; i++) g.add("p" + i);
