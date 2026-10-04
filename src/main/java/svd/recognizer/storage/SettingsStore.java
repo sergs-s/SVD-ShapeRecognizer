@@ -69,6 +69,8 @@ public class SettingsStore {
     private static final String KEY_FACES_FEI_DECOMPOSE = "faces.fei.decompose";
     private static final String KEY_FACES_FEI_VECTORS = "faces.fei.vectors";
     private static final String KEY_FACES_FEI_LBP = "faces.fei.lbp";
+    private static final String KEY_FACES_FEI_CV = "faces.fei.cv";
+    private static final String KEY_FACES_FEI_CV_THREADS = "faces.fei.cv.threads";
     private static final long DEFAULT_FACES_SEED = 42L;
     private static final int DEFAULT_FACES_TRAIN_PER_PERSON = 5;
 
@@ -454,6 +456,35 @@ public class SettingsStore {
             return true;
         }
         throw new IllegalStateException(KEY_FACES_FEI_DECOMPOSE + ": ожидалось true или false, задано " + raw);
+    }
+
+    /**
+     * Перекрёстная оценка по галерее в faces-fei (п. 4.2, «Калибровка порога», П2): ключ faces.fei.cv или переменная
+     * окружения FACES_FEI_CV — список базовых методов через запятую (их +mirror / +mirror-turn — тоже), only — без
+     * основных строк. Разбор и проверка — FeiMethods. По умолчанию выключено.
+     *
+     * @return значение как есть или null, если не задано
+     */
+    public String loadFacesFeiCv() {
+        return path(KEY_FACES_FEI_CV);
+    }
+
+    /**
+     * Число потоков перекрёстной оценки (части галереи обучаются параллельно): ключ faces.fei.cv.threads или переменная
+     * окружения FACES_FEI_CV_THREADS. По умолчанию 5 (по числу частей); 1 — последовательно. На результат не влияет.
+     *
+     * @return число потоков ≥ 1
+     */
+    public int loadFacesFeiCvThreads() {
+        String raw = path(KEY_FACES_FEI_CV_THREADS);
+        if (raw == null) {
+            return 5;
+        }
+        int t = Integer.parseInt(raw.trim());
+        if (t < 1) {
+            throw new IllegalStateException(KEY_FACES_FEI_CV_THREADS + " < 1: " + raw);
+        }
+        return t;
     }
 
     /**

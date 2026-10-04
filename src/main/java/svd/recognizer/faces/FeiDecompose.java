@@ -57,6 +57,16 @@ final class FeiDecompose {
         /** Пороговые: r по возрастанию и человек каждого снимка. */
         int[] thrP;
         double[] thrR;
+        /** Контрольные чужие: человек и r каждого снимка (порядок файла); анфас (|r| ≤ r0) у пороговых и контрольных. */
+        int[] ctrlP;
+        double[] ctrlR;
+        int thrFrontal;
+        int ctrlFrontal;
+        /** Чужих без позы в отборе (у данных FEI — 0). */
+        int poseUnknown;
+        /** Разбиение и индекс контрольного снимка конфигурации. */
+        int s;
+        int j;
     }
 
     private final List<String> parts;
@@ -90,6 +100,8 @@ final class FeiDecompose {
         stats[i].add(rows);
         Cfg c = new Cfg();
         c.numberFrontal = FeiProtocol.frontal(rows.get(0).j());
+        c.s = rows.get(0).s();
+        c.j = rows.get(0).j();
         List<Row> own = rows.stream().filter(Row::own).toList();
         int n = own.size();
         c.ownP = new int[n];
@@ -115,6 +127,20 @@ final class FeiDecompose {
         thr.sort((x, y) -> Double.compare(x[1], y[1]));
         c.thrP = thr.stream().mapToInt(x -> (int) x[0]).toArray();
         c.thrR = thr.stream().mapToDouble(x -> x[1]).toArray();
+        List<double[]> ctrl = new ArrayList<>();
+        for (Row r : rows) {
+            // Поза чужих — только справочно (FeiThreshold); нет в отборе — считается отдельно.
+            java.util.Map<Integer, Double> pr = pose.r.get(r.person());
+            Double rr = pr == null ? null : pr.get(r.image());
+            if (rr == null && !r.own()) c.poseUnknown++;
+            boolean front = rr != null && Math.abs(rr) <= r0;
+            if (r.role().equals(FeiScores.THR) && front) c.thrFrontal++;
+            if (!r.role().equals(FeiScores.CTRL)) continue;
+            if (front) c.ctrlFrontal++;
+            ctrl.add(new double[] {boot == null ? -1 : boot.person(r.person()), FeiScores.ratio(r, null)});
+        }
+        c.ctrlP = ctrl.stream().mapToInt(x -> (int) x[0]).toArray();
+        c.ctrlR = ctrl.stream().mapToDouble(x -> x[1]).toArray();
         cfgs.get(i).add(c);
     }
 

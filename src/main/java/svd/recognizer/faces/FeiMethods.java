@@ -241,6 +241,178 @@ public final class FeiMethods {
         }
         register();
         vectorIds = vectorIds(settings.loadFacesFeiVectors());
+        String cvRaw = settings.loadFacesFeiCv();
+        cvOnly = cvRaw != null && Arrays.stream(cvRaw.split(",")).anyMatch(v -> v.trim().equalsIgnoreCase(CV_ONLY));
+        cvIds = cvIds(cvRaw);
+        cvThreads = settings.loadFacesFeiCvThreads();
+        if (cvOnly && cvIds.isEmpty()) throw new IllegalStateException("faces.fei.cv: only без методов");
+        if (cvOnly && !vectorIds.isEmpty()) throw new IllegalStateException("faces.fei.cv = only: полные векторы (faces.fei.vectors) не пишутся");
+    }
+
+    // ---------------------------------------------------------------- перекрёстная оценка по галерее (П2)
+
+    /** Частей галереи (п. 4.2, «Калибровка порога», П2; фиксировано заранее). */
+    static final int CV_PARTS = 5;
+    /** Seed разбиения галереи разбиения s на части: faces.seed + CV_SEED_OFFSET + s. */
+    static final long CV_SEED_OFFSET = 8000;
+    static final String CV_FILE = "fei_cv_scores.tsv.gz";
+    /** Роль строки файла перекрёстной оценки: cv0…cv4 — номер части. */
+    static final String CV_ROLE = "cv";
+    static final String CV_ONLY = "only";
+
+    /** Методы перекрёстной оценки (faces.fei.cv): базовые и их +mirror / +mirror-turn; пусто — выключено. */
+    final List<String> cvIds;
+    /** faces.fei.cv содержит only: основные строки не считаются (только перекрёстная оценка). */
+    final boolean cvOnly;
+    final int cvThreads;
+
+    /**
+     * Методы перекрёстной оценки: перечисленные базовые методы (оценщик — MLDA: вызовы OpenCV в потоках исключены) и их
+     * +mirror / +mirror-turn, если они есть; only пропускается; прочее — ошибка.
+     */
+    List<String> cvIds(String raw) {
+        List<String> out = new ArrayList<>();
+        if (raw == null || raw.isBlank()) return out;
+        Map<String, Base> byId = new HashMap<>();
+        for (Base b : bases) byId.put(b.id(), b);
+        for (String m : raw.split(",")) {
+            String id = m.trim();
+            if (id.equalsIgnoreCase(CV_ONLY)) continue;
+            Base b = byId.get(id);
+            if (b == null || isMirror(id)) throw new IllegalStateException("faces.fei.cv: " + id + " — не базовый метод faces-fei");
+            if (!(b.scorer() instanceof MldaScorer)) throw new IllegalStateException("faces.fei.cv: " + id + " — не MLDA");
+            out.add(id);
+            for (String suffix : new String[] {MIRROR, MIRROR_TURN}) if (byId.containsKey(id + suffix)) out.add(id + suffix);
+        }
+        return out;
+    }
+
+    /**
+     * Части галереи разбиения s: перестановка своих (java.util.Random, seed + CV_SEED_OFFSET + s), подряд по
+     * gallery.size() / CV_PARTS человек.
+     */
+    static List<List<String>> cvParts(List<String> gallery, long seed, int s) {
+        if (gallery.size() % CV_PARTS != 0) throw new IllegalArgumentException("Своих " + gallery.size() + " не делится на " + CV_PARTS);
+        List<String> perm = new ArrayList<>(gallery);
+        java.util.Collections.shuffle(perm, new java.util.Random(seed + CV_SEED_OFFSET + s));
+        int size = gallery.size() / CV_PARTS;
+        List<List<String>> out = new ArrayList<>();
+        for (int q = 0; q < CV_PARTS; q++) out.add(List.copyOf(perm.subList(q * size, (q + 1) * size)));
+        return out;
+    }
+
+    /**
+     * Обучающие классы метода b по галерее gallery (подмножество своих разбиения) и когорте cohort (пусто — без неё) —
+     * как classes / mirrorClasses основной строки.
+     */
+    List<List<double[]>> cvClasses(List<String> gallery, List<String> cohort, int j, Base b) {
+        boolean mirrored = b.mirror() != Mirror.NONE;
+        Map<String, double[]> vec = mirrored ? input(b.feature(), IlluminationNorm.CLAHE) : input(b.feature(), b.norm());
+        Map<String, double[]> mir = !mirrored ? null : switch (b.feature()) {
+            case PIXELS -> mirrorVectors;
+            case LBP -> lbpMirror;
+            case LBP_SQRT -> lbpSqrtMirror;
+            case LBP_SQRT_IN -> lbpMaskedMirror.get(LbpFeature.Mask.INNER);
+            case LBP_SQRT_OUT -> lbpMaskedMirror.get(LbpFeature.Mask.RING);
+        };
+        List<List<double[]>> out = new ArrayList<>();
+        for (String p : gallery) {
+            List<double[]> list = new ArrayList<>();
+            for (int n : FeiProtocol.trainNumbers(j)) list.add(vec.get(key(p, n)));
+            if (mirrored) for (String k : mirrorKeys(p, keys.get(p), FeiProtocol.trainNumbers(j), b.mirror(), pose, r0)) list.add(mir.get(k));
+            out.add(list);
+        }
+        for (String p : cohort) {
+            List<double[]> list = new ArrayList<>(keysOf(List.of(p)).stream().map(vec::get).toList());
+            if (mirrored) for (String k : mirrorKeys(p, keys.get(p), keys.get(p).keySet(), b.mirror(), pose, r0)) list.add(mir.get(k));
+            out.add(list);
+        }
+        return out;
+    }
+
+    /** Контроль: классы cvClasses по всей галерее — те же векторы (те же объекты) и порядок, что у основной строки; иначе ошибка. */
+    void checkCvClasses(FeiProtocol.Split sp, int j, Base b) {
+        List<List<double[]>> main = b.mirror() != Mirror.NONE ? mirrorClasses(sp, j, b.cohortInTraining(), b.mirror(), b.feature())
+                : classes(sp, j, input(b.feature(), b.norm()), b.cohortInTraining());
+        List<List<double[]>> cv = cvClasses(sp.gallery(), b.cohortInTraining() ? sp.cohort() : List.of(), j, b);
+        boolean same = main.size() == cv.size();
+        for (int c = 0; same && c < main.size(); c++) {
+            same = main.get(c).size() == cv.get(c).size();
+            for (int i = 0; same && i < main.get(c).size(); i++) same = main.get(c).get(i) == cv.get(c).get(i);
+        }
+        if (!same) throw new IllegalStateException("Перекрёстная оценка: классы без части ≠ классам основной строки " + b.id());
+    }
+
+    /**
+     * Часть q: модель метода b обучена без людей части (свои — остальные 80, когорта — как у основной строки); «чужие» — все 8
+     * снимков (NUMBERS) людей части, оценки по 80 своим; строки файла оценок с ролью cv&lt;q&gt;.
+     */
+    String cvPart(FeiProtocol.Split sp, int j, Base b, List<String> part, int q) {
+        Set<String> out = new HashSet<>(part);
+        List<String> gallery = sp.gallery().stream().filter(p -> !out.contains(p)).toList();
+        GalleryScorer.ScoreModel m = b.scorer().fit(cvClasses(gallery, b.cohortInTraining() ? sp.cohort() : List.of(), j, b), gallery.size());
+        Map<String, double[]> vec = input(b.feature(), b.norm());
+        StringBuilder t = new StringBuilder();
+        for (String p : sp.gallery()) {
+            if (!out.contains(p)) continue;
+            for (int n : FeiProtocol.NUMBERS) {
+                t.append(FeiScores.line(b.id(), sp.index(), j, CV_ROLE + q, p, n, -1, gallery, m.scores(vec.get(key(p, n))), false));
+            }
+        }
+        return t.toString();
+    }
+
+    /** Перекрёстная оценка конфигурации: методы cvIds × части 0…4 (части — в cvThreads потоках), порядок фиксирован. */
+    String cvText(FeiProtocol.Split sp, int j) {
+        List<List<String>> parts = cvParts(sp.gallery(), seed, sp.index());
+        List<Base> bs = new ArrayList<>();
+        for (String id : cvIds) for (Base b : bases) if (b.id().equals(id)) bs.add(b);
+        for (Base b : bs) checkCvClasses(sp, j, b);
+        List<java.util.concurrent.Callable<String>> tasks = new ArrayList<>();
+        for (Base b : bs) for (int q = 0; q < CV_PARTS; q++) {
+            int qq = q;
+            tasks.add(() -> cvPart(sp, j, b, parts.get(qq), qq));
+        }
+        StringBuilder t = new StringBuilder();
+        if (cvThreads == 1) {
+            for (java.util.concurrent.Callable<String> c : tasks) {
+                try {
+                    t.append(c.call());
+                } catch (Exception e) {
+                    throw new IllegalStateException(e);
+                }
+            }
+            return t.toString();
+        }
+        java.util.concurrent.ExecutorService ex = java.util.concurrent.Executors.newFixedThreadPool(cvThreads);
+        try {
+            for (java.util.concurrent.Future<String> f : ex.invokeAll(tasks)) t.append(f.get());
+        } catch (InterruptedException | java.util.concurrent.ExecutionException e) {
+            throw new IllegalStateException("Перекрёстная оценка: " + e, e);
+        } finally {
+            ex.shutdownNow();
+        }
+        return t.toString();
+    }
+
+    /** Шапка файла перекрёстной оценки: части галереи по разбиениям. */
+    String cvHeader(String code, String data, int configs) {
+        StringBuilder t = new StringBuilder();
+        t.append("# Перекрёстная оценка по галерее faces-fei (FeiMethods, faces.fei.cv; PLAN.md, п. 4.2, «Калибровка порога», П2)\n");
+        t.append("# Код: коммит ").append(code).append('\n');
+        t.append("# Данные: ").append(data).append('\n');
+        t.append(String.format(Locale.ROOT, "# Конфигураций: %d из %d; части: %d, seed %d + %d + s (java.util.Random, перестановка своих разбиения)%n",
+                configs, FeiProtocol.CONFIGS, CV_PARTS, seed, CV_SEED_OFFSET));
+        t.append("# Роль cv<q>: снимок человека части q (все 8 снимков №4–7, 11–14) против модели, обученной без части q (свои — остальные, "
+                + "когорта — как у основной строки); argmin по оставшимся своим; меньше — ближе\n");
+        t.append("# Методы (").append(cvIds.size()).append("): ").append(String.join(", ", cvIds)).append('\n');
+        for (FeiProtocol.Split sp : splits) {
+            List<List<String>> parts = cvParts(sp.gallery(), seed, sp.index());
+            for (int q = 0; q < CV_PARTS; q++) t.append("# Часть s=").append(sp.index()).append(" q=").append(q).append(": ")
+                    .append(String.join(",", parts.get(q))).append('\n');
+        }
+        t.append(FeiScores.COLUMNS).append('\n');
+        return t.toString();
     }
 
     /** Строки, для которых пишутся полные векторы расстояний (faces.fei.vectors); пусто — не пишутся. */
@@ -455,9 +627,12 @@ public final class FeiMethods {
         if (!fm.vectorIds.isEmpty()) keysText += ", faces.fei.vectors " + String.join(",", fm.vectorIds);
         // При faces.fei.lbp = true — прежний текст; mask / only — значение ключа.
         if (fm.lbp) keysText += ", faces.fei.lbp " + (fm.lbpMask || fm.lbpOnly ? settings.loadFacesFeiLbp().trim().toLowerCase(Locale.ROOT) : "true");
+        // Без faces.fei.cv отпечаток — прежний; число потоков на результат не влияет и в отпечаток не входит.
+        if (!fm.cvIds.isEmpty()) keysText += ", faces.fei.cv " + String.join(",", fm.cvIds) + (fm.cvOnly ? ",only" : "");
         String fingerprint = FeiCheckpoint.fingerprint(dir, keysText);
         fm.checkpoint = new FeiCheckpoint(outDir.resolve(FeiCheckpoint.DIR));
         fm.checkpoint.vectors = !fm.vectorIds.isEmpty();
+        fm.checkpoint.cv = !fm.cvIds.isEmpty();
         FeiCheckpoint.State st = fm.checkpoint.load(fingerprint);
         double loadS = (System.nanoTime() - start) / 1e9;
         if (st == null) {
@@ -472,6 +647,18 @@ public final class FeiMethods {
         }
         fm.state = st;
         fm.run(st.done, limit);
+        if (!fm.cvIds.isEmpty()) {
+            fm.checkpoint.assemble(outDir.resolve(CV_FILE), fm.cvHeader(st.code, st.source, n), n, fm.checkpoint::cvPart);
+        }
+        if (fm.cvOnly) {
+            // Только перекрёстная оценка: файла оценок, векторов и fei_methods.txt нет.
+            fm.timeText.append(String.format(Locale.ROOT, "Всего %.0f с%s.%n", (System.nanoTime() - start) / 1e9,
+                    fm.timeText.indexOf("Продолжено") >= 0 ? " (последний запуск)" : ""));
+            FarMethods.write(outDir.resolve("fei_time.txt"), fm.timeText);
+            fm.checkpoint.delete();
+            System.out.print(fm.timeText);
+            return;
+        }
         String header = FeiScores.header(st.code, st.source, n, new ArrayList<>(fm.about.keySet()),
                 fm.mirrorTurn ? List.of(FeiScores.R0_HEADER + fm.r0) : List.of());
         fm.checkpoint.assemble(outDir.resolve(FeiScores.FILE), header, n);
@@ -645,14 +832,22 @@ public final class FeiMethods {
             FeiProtocol.Split sp = splits.get(c / FeiProtocol.NUMBERS.length);
             int j = c % FeiProtocol.NUMBERS.length;
             long t0 = System.nanoTime();
-            Map<String, Map<String, double[]>> sc = scoreConfig(sp, j);
-            for (String id : about.keySet()) results.get(id).add(this, sp, j, sc.get(id));
-            String text = scoresText(sp, j, sc);
+            // faces.fei.cv = only: основные строки не считаются (в отчётах их нет).
+            Map<String, Map<String, double[]>> sc = cvOnly ? null : scoreConfig(sp, j);
+            if (!cvOnly) for (String id : about.keySet()) results.get(id).add(this, sp, j, sc.get(id));
+            String text = cvOnly ? "" : scoresText(sp, j, sc);
+            String cv = null;
+            if (!cvIds.isEmpty()) {
+                long t1 = System.nanoTime();
+                cv = cvText(sp, j);
+                timeText.append(String.format(Locale.ROOT, "  перекрёстная оценка (%d потоков): %.1f с%n", cvThreads, (System.nanoTime() - t1) / 1e9));
+            }
             timeText.append(String.format(Locale.ROOT, "Конфигурация %d (разбиение %d, контроль №%d): %.0f с.%n", c, sp.index(),
                     FeiProtocol.NUMBERS[j], (System.nanoTime() - t0) / 1e9));
             if (checkpoint != null) {
                 try {
                     if (!vectorIds.isEmpty()) checkpoint.saveVectors(c, vectorsText(sp, j, sc));
+                    if (cv != null) checkpoint.saveCv(c, cv);
                     checkpoint.savePart(c, text);
                     state.done = c + 1;
                     state.results = new LinkedHashMap<>(results);

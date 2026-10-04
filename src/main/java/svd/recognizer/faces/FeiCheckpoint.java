@@ -60,6 +60,8 @@ final class FeiCheckpoint {
     final Path dir;
     /** Пишутся ли части векторов (faces.fei.vectors): тогда при продолжении нужны и они. */
     boolean vectors;
+    /** Пишутся ли части перекрёстной оценки по галерее (faces.fei.cv): тогда при продолжении нужны и они. */
+    boolean cv;
 
     FeiCheckpoint(Path dir) {
         this.dir = dir;
@@ -85,6 +87,7 @@ final class FeiCheckpoint {
         }
         for (int c = 0; c < s.done; c++) {
             if (!Files.exists(part(c))) throw new IllegalStateException("Контрольная точка неполна: нет " + part(c) + "; удалите " + dir);
+            if (cv && !Files.exists(cvPart(c))) throw new IllegalStateException("Контрольная точка неполна: нет " + cvPart(c) + "; удалите " + dir);
             if (vectors && !Files.exists(vectorPart(c))) {
                 throw new IllegalStateException("Контрольная точка неполна: нет " + vectorPart(c) + "; удалите " + dir);
             }
@@ -109,6 +112,15 @@ final class FeiCheckpoint {
             w.write(text);
         }
         move(tmp, target);
+    }
+
+    /** Сохранить оценки перекрёстной оценки по галерее законченной конфигурации c (до оценок и состояния). */
+    void saveCv(int c, String text) throws IOException {
+        writeGz(cvPart(c), text);
+    }
+
+    Path cvPart(int c) {
+        return dir.resolve(String.format(Locale.ROOT, "cv_%02d.tsv.gz", c));
     }
 
     Path vectorPart(int c) {
@@ -162,11 +174,16 @@ final class FeiCheckpoint {
 
     /** Итоговый файл оценок: шапка и части 0…n−1 подряд (содержимое — как при записи без контрольных точек). */
     void assemble(Path file, String header, int n) throws IOException {
+        assemble(file, header, n, this::part);
+    }
+
+    /** То же по частям parts(c) (оценки — part, перекрёстная оценка — cvPart). */
+    void assemble(Path file, String header, int n, java.util.function.IntFunction<Path> parts) throws IOException {
         Path tmp = file.resolveSibling(file.getFileName() + ".tmp");
         try (Writer w = new OutputStreamWriter(new GZIPOutputStream(Files.newOutputStream(tmp), 1 << 16), StandardCharsets.UTF_8)) {
             w.write(header);
             for (int c = 0; c < n; c++) {
-                try (InputStream in = new GZIPInputStream(Files.newInputStream(part(c)), 1 << 16)) {
+                try (InputStream in = new GZIPInputStream(Files.newInputStream(parts.apply(c)), 1 << 16)) {
                     w.write(new String(in.readAllBytes(), StandardCharsets.UTF_8));
                 }
             }

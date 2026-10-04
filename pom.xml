@@ -231,6 +231,14 @@
                             <mainClass>svd.recognizer.faces.FeiCompare</mainClass>
                         </configuration>
                     </execution>
+                    <!-- П. 4.2, калибровка порога (П0–П3): mvn compile exec:java@faces-fei-threshold
+                         "-Dexec.args=<файл оценок> <файл перекрёстной оценки>" (отчёт fei_threshold.txt) -->
+                    <execution>
+                        <id>faces-fei-threshold</id>
+                        <configuration>
+                            <mainClass>svd.recognizer.faces.FeiThreshold</mainClass>
+                        </configuration>
+                    </execution>
                 </executions>
             </plugin>
         </plugins>
