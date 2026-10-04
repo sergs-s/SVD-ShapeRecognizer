@@ -1323,3 +1323,39 @@ argmin сырых d. Шаг 0 – PLAN.md, п. 5.5 «Обучение базы»
   10,6 % (анфас 4,6, поворот 22,9). Разности L1-in − L1 +1,9 *, L1-out − L1
   +8,8 *, L1-in − A −20,6 *. Таблица и вывод – PLAN.md, п. 4.2, «LBP:
   внутренние и краевые блоки».
+
+## Калибровка порога: способы П0–П3 (Вася, 04.10.2026)
+
+Решения Хозяина 04.10: план подтверждён; допуск по FAR контроля – по обоим
+вариантам (L1, L1-in), выбор – по ошибке своих L1 при FAR 1 %; seed частей
+8042 + s; П1 при недопустимом нуле – порог ниже наименьшей оценки, случаи
+считаются; параллельность частей – проверить побайтно против
+последовательного, OpenCV – не из потоков; в отчёте – объём «чужих»;
+оговорка «d₁/d₂ у чужих П2 по 80» – в отчёт и PLAN.md.
+
+- Код `b8ba7d7`: `faces.fei.cv` (методы MLDA, `only`), `faces.fei.cv.threads`
+  (по умолчанию 5); `FeiMethods.cvParts` / `cvClasses` / `cvText` – части
+  обучаются в потоках, только чистая Java (векторы LBP готовы заранее);
+  контроль в каждой конфигурации: классы без части по всей галерее – те же
+  объекты, что у основной строки; `FeiCheckpoint` – части `cv_NN`;
+  `FeiDecompose.Cfg` – контрольные чужие, s, j, позы чужих; `FeiThreshold`
+  (`faces-fei-threshold`); `FeiThresholdTest`; `mvn test` 115/0/0.
+- Отладка 1 конфигурации: 1 поток – 471 с, 5 потоков – 176 с; файлы
+  `fei_cv_scores` побайтно одинаковы; основные строки = `fei_630f21a`.
+- Регресс: `fei_scores.txt`, `fei_bootstrap.txt`, `fei_fusion.txt`,
+  `fei_decompose.txt` (по `fei_1b31f21`), `fei_norm.txt`, `fei_lbp.txt`,
+  `fei_lbp_mask.txt` – побайтно прежние, кроме строки коммита.
+- Прогон: `java -Xmx12g … FeiMethods` (`Start-Process`, Hidden),
+  `FACES_FEI_MIRROR=true FACES_FEI_LBP=mask,only
+  FACES_FEI_CV=5-lbp-mlda,5-lbp-mlda-in,only`, 10:25–12:13, 6516 с, без
+  продолжения. В шапке `fei_cv_scores.tsv.gz` коммит `38af3fb` (документы
+  поверх кода `b8ba7d7`).
+- Разбор: `FACES_FEI_POSE_R0=0.12 FACES_FEI_BOOTSTRAP=2000 faces-fei-threshold
+  "<fei_630f21a/fei_scores.tsv.gz> <fei_b8ba7d7/fei_cv_scores.tsv.gz>"`
+  (около 3 с). Контроль П0 = `fei_lbp.txt` (L1) и `fei_lbp_mask.txt` (L1-in).
+- Данные: `SVD-faces-data/reports/fei_b8ba7d7/` – `fei_cv_scores.tsv.gz`,
+  `fei_threshold.txt`, `fei_time.txt`.
+- Итог: по критерию выбран П3 (единственный допустимый у обоих вариантов):
+  L1 – 6,0 % [2,8; 8,0] при FAR 1 %, FAR контроля 0,53 % (↑1,51) и 2,92 % при
+  5 %. Таблица и вывод – PLAN.md, п. 4.2, «Калибровка порога: способы
+  задания порога»; процедура – п. 5.5.
