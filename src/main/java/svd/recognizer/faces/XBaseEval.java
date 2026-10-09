@@ -68,7 +68,11 @@ public final class XBaseEval {
 
     /** Варианты: метод (имя строки файла оценок), метка, вход. */
     enum V {
-        A("2c-mlda", "A"), L1(FeiMethods.LBP_MLDA, "L1"), L1IN(FeiMethods.LBP_MLDA_IN, "L1-in");
+        A("2c-mlda", "A"), L1(FeiMethods.LBP_MLDA, "L1"), L1IN(FeiMethods.LBP_MLDA_IN, "L1-in"),
+        /** Диагностика GT (gt-diag): L0 — χ² до ближайшего снимка (как 5-lbp-chi FEI), L0-mean — χ² до средней гистограммы. */
+        L0(FeiMethods.LBP_CHI, "L0"), L0MEAN(FeiMethods.LBP_CHI + "-mean", "L0-mean"),
+        /** Диагностика GT: SFace — справочный предел (как 0-sface FarMethods), без зеркал и выбора по позе. */
+        SFACE("0-sface", "SFace");
 
         final String id;
         final String label;
@@ -119,8 +123,26 @@ public final class XBaseEval {
                     mir.get(V.L1IN).put(e.getKey(), LbpFeature.select(sm, LbpFeature.Mask.INNER));
                 }
             }
+            if (vs.contains(V.L0) || vs.contains(V.L0MEAN)) {
+                // L0 и L0-mean: гистограммы LBP без корня (как 5-lbp-chi FEI).
+                double[] h = LbpFeature.histogram(e.getValue(), lbpNorm, params);
+                double[] hm = LbpFeature.histogram(m, lbpNorm, params);
+                for (V v : new V[] {V.L0, V.L0MEAN}) {
+                    if (!vs.contains(v)) continue;
+                    vec.get(v).put(e.getKey(), h);
+                    mir.get(v).put(e.getKey(), hm);
+                }
+            }
             m.release();
         }
+    }
+
+    /** Признаки SFace (вариант SFACE) по кадрам alignCrop 112×112 (ключ — Sample.file().toString()); отражений нет. */
+    void sfaceVectors(Map<String, Mat> sfaceFrames, org.opencv.objdetect.FaceRecognizerSF sface) {
+        Map<String, double[]> v = new HashMap<>();
+        for (Map.Entry<String, Mat> e : sfaceFrames.entrySet()) v.put(e.getKey(), GalleryEvaluation.vector(e.getValue(), Variant.SFACE, sface));
+        vec.put(V.SFACE, v);
+        mir.put(V.SFACE, new HashMap<>());
     }
 
     /**
@@ -128,8 +150,11 @@ public final class XBaseEval {
      * при mirror — затем отражения); как FeiMethods.classes / mirrorClasses (+mirror, Mirror.ALL).
      */
     GalleryScorer.ScoreModel fit(V v, boolean mirror, List<List<String>> gallery, List<List<String>> cohort) {
+        if (v == V.SFACE && mirror) throw new IllegalArgumentException("SFace: модели +mirror нет");
         List<List<double[]>> cls = new ArrayList<>();
-        for (List<List<String>> group : List.of(gallery, cohort)) {
+        // L0, L0-mean, SFace — без обучения: когорта не нужна (оценщик берёт только классы галереи).
+        boolean mlda = v == V.A || v == V.L1 || v == V.L1IN;
+        for (List<List<String>> group : mlda ? List.of(gallery, cohort) : List.of(gallery)) {
             for (List<String> keys : group) {
                 List<double[]> list = new ArrayList<>();
                 for (String k : keys) list.add(vec.get(v).get(k));
@@ -137,7 +162,13 @@ public final class XBaseEval {
                 cls.add(list);
             }
         }
-        return new MldaScorer().fit(cls, gallery.size());
+        GalleryScorer scorer = switch (v) {
+            case L0 -> new ChiSquareScorer(false);
+            case L0MEAN -> new ChiSquareScorer(true);
+            case SFACE -> new SFaceScorer();
+            default -> new MldaScorer();
+        };
+        return scorer.fit(cls, gallery.size());
     }
 
     /** Попытка: роль, человек, снимок, ключ, индекс истинного в галерее (−1 — чужой). */
@@ -247,6 +278,8 @@ public final class XBaseEval {
             gt(export, dir, feiKeys, selLines, settings, out);
         } else if (a[0].equals("gt-in")) {
             gtIn(export, dir, feiKeys, selLines, settings, out);
+        } else if (a[0].equals("gt-diag")) {
+            gtDiag(export, dir, feiKeys, selLines, settings, out);
         } else {
             throw new IllegalArgumentException("XBaseEval: неизвестный режим " + a[0]);
         }
@@ -351,6 +384,8 @@ public final class XBaseEval {
         /** Нормировки перед LBP кроме none (faces.lbp.norm, в порядке ключа) и их векторы L1, L1-in. */
         IlluminationNorm.NormParams params;
         final Map<IlluminationNorm, XBaseEval> xn = new LinkedHashMap<>();
+        /** gt-diag: модель SFace (путь и SHA-256). */
+        String sfaceModel;
     }
 
     /** Итоги одного протокола: строки оценок, итоги вариантов и сведения для отчёта. */
@@ -367,6 +402,12 @@ public final class XBaseEval {
 
     static Gt prepare(FarExport.Loaded export, Path dir, Map<String, Map<Integer, String>> feiKeys, List<String> selLines, SettingsStore settings)
             throws IOException {
+        return prepare(export, dir, feiKeys, selLines, settings, false);
+    }
+
+    /** То же; diag — ещё векторы L0, L0-mean (гистограммы LBP) и SFace (кадры sface/gt экспорта) для gt-diag. */
+    static Gt prepare(FarExport.Loaded export, Path dir, Map<String, Map<Integer, String>> feiKeys, List<String> selLines, SettingsStore settings,
+                      boolean diag) throws IOException {
         Gt g = new Gt();
         g.dir = dir;
         g.seed = settings.loadFacesSeed();
@@ -438,7 +479,7 @@ public final class XBaseEval {
         export.data().fei().values().forEach(fei::addAll);
         fr.putAll(frames(export, fei, cohortKeySet));
         g.params = IlluminationNorm.NormParams.of(settings);
-        g.x.vectors(fr, Set.of(V.values()), g.params);
+        g.x.vectors(fr, BASE_VARIANTS, g.params);
         // Нормировки перед LBP (faces.lbp.norm): none — всегда (прежние отчёты), прочие — только L1 и L1-in.
         for (IlluminationNorm n : IlluminationNorm.lbpNorms(settings.loadFacesLbpNorm())) {
             if (n == IlluminationNorm.NONE) continue;
@@ -446,16 +487,41 @@ public final class XBaseEval {
             xx.vectors(fr, NORM_VARIANTS, g.params, n);
             g.xn.put(n, xx);
         }
+        if (diag) {
+            // L0 и L0-mean — в тот же набор векторов (A и L1 — общие с прежними отчётами); когорта им не нужна.
+            Map<String, Mat> gtFr = new LinkedHashMap<>(fr);
+            gtFr.keySet().retainAll(g.samples.keySet());
+            XBaseEval h = new XBaseEval();
+            h.vectors(gtFr, java.util.EnumSet.of(V.L0, V.L0MEAN), g.params);
+            g.x.vec.putAll(h.vec);
+            g.x.mir.putAll(h.mir);
+            // SFace: кадры alignCrop 112×112 экспорта (sface/gt), модель faces.models.dir.
+            Path model = Paths.get(settings.loadFacesModelsDir()).resolve(FaceAlignment.SFACE_FILE);
+            g.sfaceModel = model + " (" + FeiThreshold.sha(model) + ")";
+            org.opencv.objdetect.FaceRecognizerSF sface = org.opencv.objdetect.FaceRecognizerSF.create(model.toString(), "");
+            Map<String, Mat> sf = new LinkedHashMap<>();
+            for (Sample s : g.samples.values().stream().sorted((u, w) -> u.file().toString().compareTo(w.file().toString())).toList()) {
+                Mat c = export.frame(s, Variant.SFACE);
+                if (c == null) throw new IllegalStateException("Нет кадра SFace снимка: " + s.file());
+                sf.put(s.file().toString(), c);
+            }
+            g.x.sfaceVectors(sf, sface);
+            sf.values().forEach(Mat::release);
+        }
         fr.values().forEach(Mat::release);
         return g;
     }
 
     /** Варианты отчёта по нормировкам перед LBP (A от нормировки не зависит и не нужна). */
     static final Set<V> NORM_VARIANTS = java.util.EnumSet.of(V.L1, V.L1IN);
+    /** Варианты прежних отчётов gt и gt-in. */
+    static final Set<V> BASE_VARIANTS = java.util.EnumSet.of(V.A, V.L1, V.L1IN);
+    /** Варианты диагностики gt-diag (PLAN.md п. 4.2, «Диагностика L0 и SFace»): A и L1 справочно, L0, L0-mean, SFace. */
+    static final Set<V> DIAG_VARIANTS = java.util.EnumSet.of(V.A, V.L1, V.L0, V.L0MEAN, V.SFACE);
 
     /** Протокол с галереей galleryKeys и пробами своих probeKeys (контроль, когорта, части П2 — общие). */
     static Eval evaluate(Gt gt, Map<String, List<String>> galleryKeys, Map<String, List<String>> probeKeys) {
-        return evaluate(gt, gt.x, java.util.EnumSet.allOf(V.class), galleryKeys, probeKeys);
+        return evaluate(gt, gt.x, BASE_VARIANTS, galleryKeys, probeKeys);
     }
 
     /** То же для векторов x и вариантов vs (по порядку V). */
@@ -476,7 +542,7 @@ public final class XBaseEval {
 
         List<Callable<String>> tasks = new ArrayList<>();
         for (V v : vs) {
-            for (boolean m : new boolean[] {false, true}) {
+            for (boolean m : v == V.SFACE ? new boolean[] {false} : new boolean[] {false, true}) {
                 String method = v.id + (m ? FeiMethods.MIRROR : "");
                 tasks.add(() -> x.lines(method, 0, 0, x.fit(v, m, fullGallery, cohort), v, own, mainProbes));
                 for (int q = 0; q < FeiMethods.CV_PARTS; q++) {
@@ -717,7 +783,7 @@ public final class XBaseEval {
         t.append("\n=== Сводка: ошибка своих, % (межсессионно / внутри сессии) ===\n");
         t.append("вариант | способ | FAR 1 %: межсессионно | внутри сессии | FAR 5 %: межсессионно | внутри сессии | FAR контроля 1 %: межс. / внутри | "
                 + "5 %: межс. / внутри\n");
-        for (int v = 0; v < V.values().length; v++) {
+        for (int v = 0; v < BASE_VARIANTS.size(); v++) {
             FeiThreshold.Res c = cross.results.get(v);
             FeiThreshold.Res w = in.results.get(v);
             for (int m = 2; m < FeiThreshold.M; m++) {
@@ -730,7 +796,7 @@ public final class XBaseEval {
 
         t.append("\n=== Доля верного кандидата (группы (i) + (ii), не зависит от порога), всего ===\n");
         t.append("вариант | межсессионно | внутри сессии | разность межс. − внутри, п. п.\n");
-        for (int v = 0; v < V.values().length; v++) {
+        for (int v = 0; v < BASE_VARIANTS.size(); v++) {
             Object[] c = correct(cross.results.get(v), 2);
             Object[] w = correct(in.results.get(v), 2);
             String d = g.b > 0 ? FeiBootstrap.diff((double) c[0] - (double) w[0], FeiNorm.diff((double[]) c[1], (double[]) w[1]), 1) : "";
@@ -766,6 +832,54 @@ public final class XBaseEval {
         System.out.print(t);
         normReport(g, in, gal, pro, "gt_in", " — контроль внутри сессии", "внутри сессии", LbpNormReport.Kind.WITHIN, out);
         frameSheet(export, g, out.resolve("gt_frames.png"));
+    }
+
+    /**
+     * Диагностика межсессионного провала на GT (PLAN.md, п. 4.2, «Диагностика L0 и SFace»): L0 (χ² до ближайшего снимка,
+     * как 5-lbp-chi FEI), L0-mean (χ² до средней гистограммы), SFace (как 0-sface FarMethods), L1 и A справочно — межсессионно
+     * и внутри сессии (то же деление, что gt-in), те же веса бутстрепа; отчёт xbase_gt_diag.txt, оценки
+     * xbase_gt_diag_scores.tsv.gz и xbase_gt_in_diag_scores.tsv.gz. Прежние отчёты не пишутся и не меняются.
+     */
+    static void gtDiag(FarExport.Loaded export, Path dir, Map<String, Map<Integer, String>> feiKeys, List<String> selLines, SettingsStore settings,
+                       Path out) throws IOException {
+        Gt g = prepare(export, dir, feiKeys, selLines, settings, true);
+        Eval cross = evaluate(g, g.x, DIAG_VARIANTS, g.galleryKeys, g.probeKeys);
+        List<Map<String, List<String>>> split = withinSplit(g.own, g.galleryKeys, g.seed);
+        Eval in = evaluate(g, g.x, DIAG_VARIANTS, split.get(0), split.get(1));
+        writeScores(out.resolve("xbase_gt_diag_scores.tsv.gz"), " — диагностика L0 и SFace, межсессионно", g, cross);
+        writeScores(out.resolve("xbase_gt_in_diag_scores.tsv.gz"), " — диагностика L0 и SFace, внутри сессии", g, in);
+        Map<String, FeiThreshold.Res> cm = new LinkedHashMap<>();
+        Map<String, FeiThreshold.Res> wm = new LinkedHashMap<>();
+        for (FeiThreshold.Res r : cross.results) cm.put(r.label, r);
+        for (FeiThreshold.Res r : in.results) wm.put(r.label, r);
+        StringBuilder t = new StringBuilder();
+        t.append("PLAN.md п. 4.2: диагностика межсессионного провала на GT — L0, L0-mean и SFace (XBaseEval gt-diag)\n");
+        t.append("Код: коммит ").append(FarMethods.commit()).append('\n');
+        t.append("Данные: экспорт ").append(dir).append(", коммит данных ").append(FarMethods.dataCommit(dir))
+                .append(" (a/gt — кадр а 92×112; sface/gt — alignCrop 112×112; когорта L1 и A — a/fei)\n");
+        t.append("Методы (нормировка none; протокол GT как в xbase_gt.txt и xbase_gt_in.txt; выбор модели по позе пробы r0 = ").append(g.r0)
+                .append(";\nоценка d₁/d₂ — FeiScores.ratio; порог П2 / П3 по «чужим» галереи, 5 частей):\n"
+                        + "  L0 = 5-lbp-chi-ratio+pose — гистограммы LBP u2 (8, 2), 7×7, на сумму 1, без корня; χ² до ближайшего снимка галереи\n"
+                        + "       человека (как 5-lbp-chi FEI); без обучения и когорты; +mirror — к снимкам галереи добавлены их отражения;\n"
+                        + "  L0-mean = 5-lbp-chi-mean-ratio+pose — то же, χ² до средней гистограммы снимков галереи человека (при +mirror —\n"
+                        + "       вместе с отражениями);\n"
+                        + "  SFace = 0-sface-ratio+pose — справочный предел, в рабочее ПО не идёт: признак FaceRecognizerSF по кадру sface/gt, шаблон\n"
+                        + "       — нормированное среднее признаков галереи человека, оценка 1 − cos (как 0-sface FarMethods); зеркал и выбора по\n"
+                        + "       позе нет (одна модель);\n"
+                        + "  L1, A — как в xbase_gt.txt (справочно; строки оценок — те же, что в прежних файлах оценок).\n");
+        t.append("Модель SFace: ").append(g.sfaceModel).append('\n');
+        t.append(String.format(Locale.ROOT, "Межсессионно: пробы своих %d, «чужие» П2/П3 %d снимков; внутри сессии: пробы своих %d, «чужие» П2/П3 %d; "
+                + "контроль — %d снимков %d людей; свои — %d человек.%n", cross.probes.stream().filter(p -> p.role().equals(OWN)).count(), cross.cvImages,
+                in.probes.stream().filter(p -> p.role().equals(OWN)).count(), in.cvImages, cross.ctrlImages, g.ctrl.size(), g.own.size()));
+        if (g.b > 0) {
+            t.append(String.format(Locale.ROOT, "Бутстреп по людям Georgia Tech целиком: B = %d, seed = %d, людей %d; одни веса для всех методов и обоих "
+                    + "режимов.%n", g.b, g.seed + FeiBootstrap.SEED_OFFSET, g.persons.size()));
+        }
+        t.append(String.format(Locale.ROOT, "Обучение и оценки: межсессионно %.0f с, внутри сессии %.0f с, потоков %d.%n", cross.fitS, in.fitS, g.threads));
+        t.append("Оговорка: 30 своих — различимы только крупные эффекты; внутри сессии снимки почти дубли (оценка «внутри» оптимистична).\n");
+        LbpNormReport.diag(t, cm, wm, List.of("L0-mean", "L0", "SFace", "L1", "A"), "L1", List.of("L0-mean", "L0", "SFace"), g.b);
+        FarMethods.write(out.resolve("xbase_gt_diag.txt"), t);
+        System.out.print(t);
     }
 
     /**
@@ -818,7 +932,7 @@ public final class XBaseEval {
 
     /** Строка модели по позе: анфас (|r| ≤ r0) — X, иначе X+mirror. */
     static Row choose(Map<String, Row> rows, V v, String role, String person, int image, boolean frontal) {
-        String method = v.id + (frontal ? "" : FeiMethods.MIRROR);
+        String method = v.id + (frontal || v == V.SFACE ? "" : FeiMethods.MIRROR);
         Row r = rows.get(method + "\t" + role + "\t" + person + "\t" + image);
         if (r == null) throw new IllegalStateException("Нет строки оценок " + method + " " + role + " " + person + " №" + image);
         return r;

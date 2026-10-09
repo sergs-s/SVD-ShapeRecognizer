@@ -112,68 +112,144 @@ final class LbpNormReport {
         if (norms.get(0) != IlluminationNorm.NONE) throw new IllegalArgumentException("Первая нормировка отчёта — не none");
 
         t.append("\n=== Ошибка своих, разложение, верный кандидат ===\n");
-        t.append("нормировка | вариант | способ | порог | ошибка своих всего | анфас | поворот | (i) | (ii) | (iii) | (iv) | верный кандидат (i)+(ii)\n");
+        t.append("нормировка | вариант | способ | порог | ").append(ERR_HEAD).append('\n');
         for (IlluminationNorm n : norms) {
             for (FeiThreshold.Res r : res.get(n)) {
                 for (int m : MS) {
-                    for (int k = 0; k < FeiThreshold.KS; k++) {
-                        List<String> c = new ArrayList<>(List.of(n.id, r.label, FeiThreshold.METHODS[m], FAR_NAME[k]));
-                        for (int sp = 0; sp < FeiThreshold.SP; sp++) c.add(FeiThreshold.errCell(r, m, k, sp, b));
-                        double[] cnt = r.counts[m][k][0];
-                        double all = Arrays.stream(cnt).sum();
-                        for (int g = FeiDecompose.G_OK; g <= FeiDecompose.G_WRONG_ACC; g++) c.add(FeiNorm.cell(cnt[g], all, b > 0 ? r.shareRep[m][k][0][g] : null));
-                        c.add(FeiNorm.cell(cnt[FeiDecompose.G_OK] + cnt[FeiDecompose.G_REJ], all, correctRep(r, m, k)));
-                        t.append(String.join(" | ", c)).append('\n');
-                    }
+                    for (int k = 0; k < FeiThreshold.KS; k++) t.append(errRow(List.of(n.id, r.label, FeiThreshold.METHODS[m], FAR_NAME[k]), r, m, k, b));
                 }
             }
         }
 
         t.append("\n=== FAR контроля ===\n");
-        t.append("по снимкам: x/n = % [2,5; 97,5] ↑95 (бутстреп); КП_eff — верхняя 95 % граница Клоппера – Пирсона по n_eff = n/deff (как П1);\n"
-                + "по людям: принят хотя бы один снимок человека (единица — человек в конфигурации), КП — верхняя 95 % граница; допуск — точка по\n"
-                + "снимкам не выше 1,1 % при FAR 1 % и 5,5 % при FAR 5 %.\n");
-        t.append("нормировка | вариант | способ | порог | по снимкам | КП_eff (deff; n_eff) | по людям (КП) | допуск\n");
+        t.append(FAR_NOTE);
+        t.append("нормировка | вариант | способ | порог | ").append(FAR_HEAD).append('\n');
         for (IlluminationNorm n : norms) {
             for (FeiThreshold.Res r : res.get(n)) {
                 for (int m : MS) {
-                    for (int k = 0; k < FeiThreshold.KS; k++) {
-                        List<String> c = new ArrayList<>(List.of(n.id, r.label, FeiThreshold.METHODS[m], FAR_NAME[k]));
-                        c.add(farSnap(r, m, k, b));
-                        double[] e = farEff(r, m, k);
-                        c.add(String.format(Locale.ROOT, "↑%.2f %% (%.2f; %.1f)", 100 * e[4], e[2], e[3]));
-                        int[] p = farPeople(r, m, k);
-                        c.add(String.format(Locale.ROOT, "%d/%d = %.1f %% (↑%.1f %%)", p[0], p[1], 100.0 * p[0] / p[1],
-                                100 * FaceEvaluation.binomialUpperBound(p[0], p[1], FeiThreshold.CONFIDENCE)));
-                        c.add(admissible(r, m, k) ? "да" : "нет");
-                        t.append(String.join(" | ", c)).append('\n');
-                    }
+                    for (int k = 0; k < FeiThreshold.KS; k++) t.append(farRow(List.of(n.id, r.label, FeiThreshold.METHODS[m], FAR_NAME[k]), r, m, k, b));
                 }
             }
         }
 
         if (b > 0) {
             t.append("\n=== Парные разности с none, п. п. (те же реплики; «*» — интервал [2,5; 97,5] не содержит 0) ===\n");
-            t.append("пара | вариант | способ | ошибка FAR 1 % всего | анфас | поворот | ошибка FAR 5 % всего | верный кандидат | FAR контроля 1 % | "
-                    + "FAR контроля 5 %\n");
+            t.append("пара | вариант | способ | ").append(DIFF_HEAD).append('\n');
             for (IlluminationNorm n : norms.subList(1, norms.size())) {
                 for (int v = 0; v < res.get(n).size(); v++) {
                     FeiThreshold.Res a = res.get(n).get(v);
                     FeiThreshold.Res z = res.get(IlluminationNorm.NONE).get(v);
-                    for (int m : MS) {
-                        List<String> c = new ArrayList<>(List.of(n.id + " − none", a.label, FeiThreshold.METHODS[m]));
-                        for (int sp = 0; sp < FeiThreshold.SP; sp++) c.add(errDiff(a, z, m, 0, sp));
-                        c.add(errDiff(a, z, m, 1, 0));
-                        c.add(FeiBootstrap.diff(correct(a, m, 0) - correct(z, m, 0), FeiNorm.diff(correctRep(a, m, 0), correctRep(z, m, 0)), 1));
-                        for (int k = 0; k < FeiThreshold.KS; k++) {
-                            c.add(FeiBootstrap.diff(FeiThreshold.farPct(a, m, k) - FeiThreshold.farPct(z, m, k), FeiNorm.diff(a.farRep[m][k], z.farRep[m][k]), 2));
-                        }
-                        t.append(String.join(" | ", c)).append('\n');
-                    }
+                    for (int m : MS) t.append(diffRow(List.of(n.id + " − none", a.label, FeiThreshold.METHODS[m]), a, z, m));
                 }
             }
         }
         conditions(t, res, norms, b, kind);
+    }
+
+    /**
+     * Таблицы диагностики межсессионного провала на GT (PLAN.md, п. 4.2, «Диагностика L0 и SFace»): методы order в двух
+     * режимах (cross — межсессионно, within — внутри сессии), те же веса бутстрепа; парные разности «межс. − внутри» по
+     * каждому методу; для методов compared против ref — разность падений (межс. − внутри)_X − (межс. − внутри)_ref и
+     * разность уровней межсессионно X − ref (ошибка своих всего при FAR 1 и 5 %, верный кандидат; П2 и П3).
+     */
+    static void diag(StringBuilder t, Map<String, FeiThreshold.Res> cross, Map<String, FeiThreshold.Res> within, List<String> order, String ref,
+                     List<String> compared, int b) {
+        String[] modes = {"межсессионно", "внутри сессии"};
+        List<Map<String, FeiThreshold.Res>> both = List.of(cross, within);
+        t.append("\n=== Ошибка своих, разложение, верный кандидат ===\n");
+        t.append("режим | метод | способ | порог | ").append(ERR_HEAD).append('\n');
+        for (int i = 0; i < 2; i++) {
+            for (String l : order) {
+                for (int m : MS) for (int k = 0; k < FeiThreshold.KS; k++) t.append(errRow(List.of(modes[i], l, FeiThreshold.METHODS[m], FAR_NAME[k]), both.get(i).get(l), m, k, b));
+            }
+        }
+        t.append("\n=== FAR контроля ===\n");
+        t.append(FAR_NOTE);
+        t.append("режим | метод | способ | порог | ").append(FAR_HEAD).append('\n');
+        for (int i = 0; i < 2; i++) {
+            for (String l : order) {
+                for (int m : MS) for (int k = 0; k < FeiThreshold.KS; k++) t.append(farRow(List.of(modes[i], l, FeiThreshold.METHODS[m], FAR_NAME[k]), both.get(i).get(l), m, k, b));
+            }
+        }
+        if (b == 0) return;
+        t.append("\n=== Падение по каждому методу: межсессионно − внутри сессии, п. п. (те же реплики; «*» — интервал [2,5; 97,5] не содержит 0) ===\n");
+        t.append("метод | способ | ").append(DIFF_HEAD).append('\n');
+        for (String l : order) for (int m : MS) t.append(diffRow(List.of(l, FeiThreshold.METHODS[m]), cross.get(l), within.get(l), m));
+
+        t.append("\n=== Главное: разность падений и уровней против ").append(ref).append(", п. п. (те же реплики) ===\n");
+        t.append("падение X − падение ").append(ref).append(" = (межс. − внутри)_X − (межс. − внутри)_").append(ref).append("; уровень — межсессионно X − ")
+                .append(ref).append(";\nверный кандидат от порога не зависит (одинаков при FAR 1 и 5 %).\n");
+        t.append("величина | способ | ошибка своих FAR 1 % | ошибка своих FAR 5 % | верный кандидат\n");
+        FeiThreshold.Res cr = cross.get(ref);
+        FeiThreshold.Res wr = within.get(ref);
+        for (String x : compared) {
+            FeiThreshold.Res cx = cross.get(x);
+            FeiThreshold.Res wx = within.get(x);
+            for (int m : MS) {
+                List<String> drop = new ArrayList<>(List.of("падение " + x + " − падение " + ref, FeiThreshold.METHODS[m]));
+                List<String> level = new ArrayList<>(List.of("межсессионно " + x + " − " + ref, FeiThreshold.METHODS[m]));
+                for (int k = 0; k < FeiThreshold.KS; k++) {
+                    double d = (FeiThreshold.err(cx, m, k, 0) - FeiThreshold.err(wx, m, k, 0)) - (FeiThreshold.err(cr, m, k, 0) - FeiThreshold.err(wr, m, k, 0));
+                    drop.add(FeiBootstrap.diff(d, dd(cx.errRep[m][k][0], wx.errRep[m][k][0], cr.errRep[m][k][0], wr.errRep[m][k][0]), 1));
+                    level.add(FeiBootstrap.diff(FeiThreshold.err(cx, m, k, 0) - FeiThreshold.err(cr, m, k, 0), FeiNorm.diff(cx.errRep[m][k][0], cr.errRep[m][k][0]), 1));
+                }
+                double dc = (correct(cx, m, 0) - correct(wx, m, 0)) - (correct(cr, m, 0) - correct(wr, m, 0));
+                drop.add(FeiBootstrap.diff(dc, dd(correctRep(cx, m, 0), correctRep(wx, m, 0), correctRep(cr, m, 0), correctRep(wr, m, 0)), 1));
+                level.add(FeiBootstrap.diff(correct(cx, m, 0) - correct(cr, m, 0), FeiNorm.diff(correctRep(cx, m, 0), correctRep(cr, m, 0)), 1));
+                t.append(String.join(" | ", drop)).append('\n');
+                t.append(String.join(" | ", level)).append('\n');
+            }
+        }
+    }
+
+    /** Реплики (a − b) − (c − d). */
+    static double[] dd(double[] a, double[] b, double[] c, double[] d) {
+        double[] s = new double[a.length];
+        for (int q = 0; q < s.length; q++) s[q] = (a[q] - b[q]) - (c[q] - d[q]);
+        return s;
+    }
+
+    static final String ERR_HEAD ="ошибка своих всего | анфас | поворот | (i) | (ii) | (iii) | (iv) | верный кандидат (i)+(ii)";
+    static final String FAR_NOTE = "по снимкам: x/n = % [2,5; 97,5] ↑95 (бутстреп); КП_eff — верхняя 95 % граница Клоппера – Пирсона по n_eff = n/deff (как П1);\n"
+            + "по людям: принят хотя бы один снимок человека (единица — человек в конфигурации), КП — верхняя 95 % граница; допуск — точка по\n"
+            + "снимкам не выше 1,1 % при FAR 1 % и 5,5 % при FAR 5 %.\n";
+    static final String FAR_HEAD = "по снимкам | КП_eff (deff; n_eff) | по людям (КП) | допуск";
+    static final String DIFF_HEAD = "ошибка FAR 1 % всего | анфас | поворот | ошибка FAR 5 % всего | верный кандидат | FAR контроля 1 % | FAR контроля 5 %";
+
+    /** Строка таблицы ошибки своих: head, ошибка всего / анфас / поворот, (i)–(iv), верный кандидат. */
+    static String errRow(List<String> head, FeiThreshold.Res r, int m, int k, int b) {
+        List<String> c = new ArrayList<>(head);
+        for (int sp = 0; sp < FeiThreshold.SP; sp++) c.add(FeiThreshold.errCell(r, m, k, sp, b));
+        double[] cnt = r.counts[m][k][0];
+        double all = Arrays.stream(cnt).sum();
+        for (int g = FeiDecompose.G_OK; g <= FeiDecompose.G_WRONG_ACC; g++) c.add(FeiNorm.cell(cnt[g], all, b > 0 ? r.shareRep[m][k][0][g] : null));
+        c.add(FeiNorm.cell(cnt[FeiDecompose.G_OK] + cnt[FeiDecompose.G_REJ], all, correctRep(r, m, k)));
+        return String.join(" | ", c) + "\n";
+    }
+
+    /** Строка таблицы FAR контроля: head, по снимкам, КП_eff, по людям, допуск. */
+    static String farRow(List<String> head, FeiThreshold.Res r, int m, int k, int b) {
+        List<String> c = new ArrayList<>(head);
+        c.add(farSnap(r, m, k, b));
+        double[] e = farEff(r, m, k);
+        c.add(String.format(Locale.ROOT, "↑%.2f %% (%.2f; %.1f)", 100 * e[4], e[2], e[3]));
+        int[] p = farPeople(r, m, k);
+        c.add(String.format(Locale.ROOT, "%d/%d = %.1f %% (↑%.1f %%)", p[0], p[1], 100.0 * p[0] / p[1],
+                100 * FaceEvaluation.binomialUpperBound(p[0], p[1], FeiThreshold.CONFIDENCE)));
+        c.add(admissible(r, m, k) ? "да" : "нет");
+        return String.join(" | ", c) + "\n";
+    }
+
+    /** Строка парных разностей a − z (те же веса): ошибка FAR 1 % всего / анфас / поворот, FAR 5 %, верный кандидат, FAR контроля. */
+    static String diffRow(List<String> head, FeiThreshold.Res a, FeiThreshold.Res z, int m) {
+        List<String> c = new ArrayList<>(head);
+        for (int sp = 0; sp < FeiThreshold.SP; sp++) c.add(errDiff(a, z, m, 0, sp));
+        c.add(errDiff(a, z, m, 1, 0));
+        c.add(FeiBootstrap.diff(correct(a, m, 0) - correct(z, m, 0), FeiNorm.diff(correctRep(a, m, 0), correctRep(z, m, 0)), 1));
+        for (int k = 0; k < FeiThreshold.KS; k++) {
+            c.add(FeiBootstrap.diff(FeiThreshold.farPct(a, m, k) - FeiThreshold.farPct(z, m, k), FeiNorm.diff(a.farRep[m][k], z.farRep[m][k]), 2));
+        }
+        return String.join(" | ", c) + "\n";
     }
 
     static String farSnap(FeiThreshold.Res r, int m, int k, int b) {
