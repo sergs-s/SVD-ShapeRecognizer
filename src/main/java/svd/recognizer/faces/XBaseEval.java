@@ -237,6 +237,8 @@ public final class XBaseEval {
             System.out.print(text);
         } else if (a[0].equals("gt")) {
             gt(export, dir, feiKeys, selLines, settings, out);
+        } else if (a[0].equals("gt-in")) {
+            gtIn(export, dir, feiKeys, selLines, settings, out);
         } else {
             throw new IllegalArgumentException("XBaseEval: неизвестный режим " + a[0]);
         }
@@ -315,42 +317,76 @@ public final class XBaseEval {
 
     // ---------------------------------------------------------------- Georgia Tech
 
-    static void gt(FarExport.Loaded export, Path dir, Map<String, Map<Integer, String>> feiKeys, List<String> selLines, SettingsStore settings,
-                   Path out) throws IOException {
-        long seed = settings.loadFacesSeed();
+    /** Подготовленные данные GT: отбор по позе, роли, межсессионные галерея и пробы, когорта, векторы. */
+    static final class Gt {
+        long seed;
+        double r0;
+        int b;
+        int threads;
+        double rLimit;
+        Path dir;
+        Map<String, Map<Integer, List<String>>> byPerson = new TreeMap<>();
+        Map<String, Sample> samples = new HashMap<>();
+        Map<String, Double> rOf = new HashMap<>();
+        int total;
+        List<String> dropped = new ArrayList<>();
+        List<String> own = new ArrayList<>();
+        List<String> ctrl = new ArrayList<>();
+        List<String> persons;
+        Map<String, Integer> pIdx = new HashMap<>();
+        Map<String, List<String>> galleryKeys = new LinkedHashMap<>();
+        Map<String, Integer> galleryDateOf = new LinkedHashMap<>();
+        Map<String, List<String>> probeKeys = new LinkedHashMap<>();
+        List<String> cohortP;
+        List<List<String>> cohort = new ArrayList<>();
+        XBaseEval x;
+    }
+
+    /** Итоги одного протокола: строки оценок, итоги вариантов и сведения для отчёта. */
+    static final class Eval {
+        final List<FeiThreshold.Res> results = new ArrayList<>();
+        String lines;
+        List<Probe> probes;
+        List<List<String>> parts;
+        int ctrlImages;
+        int cvImages;
+        final int[] cases = new int[FeiScores.CASES];
+        double fitS;
+    }
+
+    static Gt prepare(FarExport.Loaded export, Path dir, Map<String, Map<Integer, String>> feiKeys, List<String> selLines, SettingsStore settings)
+            throws IOException {
+        Gt g = new Gt();
+        g.dir = dir;
+        g.seed = settings.loadFacesSeed();
         String rawR0 = settings.loadFacesFeiPoseR0();
         if (rawR0 == null) throw new IllegalStateException("XBaseEval: задайте faces.fei.pose.r0 / FACES_FEI_POSE_R0");
-        double r0 = FeiPose.r0(rawR0, "+pose");
-        int b = settings.loadFacesFeiBootstrap();
-        int threads = settings.loadFacesFeiCvThreads();
-        double rLimit = poseLimit(selLines);
+        g.r0 = FeiPose.r0(rawR0, "+pose");
+        g.b = settings.loadFacesFeiBootstrap();
+        g.threads = settings.loadFacesFeiCvThreads();
+        g.rLimit = poseLimit(selLines);
         Map<String, Double> pose = poses(dir.resolve("detections.tsv"));
         Map<String, Integer> sess = sessions(dir.resolve(SESSIONS));
 
         // Снимки GT после отбора по позе: человек → дата → ключи (по номеру снимка).
-        Map<String, Map<Integer, List<String>>> byPerson = new TreeMap<>();
-        Map<String, Sample> samples = new HashMap<>();
-        Map<String, Double> rOf = new HashMap<>();
-        int total = 0;
-        List<String> dropped = new ArrayList<>();
         for (Map.Entry<String, List<Sample>> e : new TreeMap<>(export.data().gt()).entrySet()) {
             List<Sample> list = new ArrayList<>(e.getValue());
             list.sort((x, y) -> x.file().getFileName().toString().compareTo(y.file().getFileName().toString()));
             for (Sample s : list) {
-                total++;
+                g.total++;
                 String name = s.file().getFileName().toString();
                 Double r = pose.get("gt/" + s.person() + "/" + name);
                 if (r == null) throw new IllegalStateException("Нет позы снимка GT " + s.file());
                 String k = s.file().toString();
-                if (Math.abs(r) > rLimit) {
-                    dropped.add(s.person() + "/" + name);
+                if (Math.abs(r) > g.rLimit) {
+                    g.dropped.add(s.person() + "/" + name);
                     continue;
                 }
                 Integer d = sess.get(s.person() + "/" + name);
                 if (d == null) throw new IllegalStateException("Нет сессии снимка GT " + s.file());
-                byPerson.computeIfAbsent(s.person(), x -> new TreeMap<>()).computeIfAbsent(d, x -> new ArrayList<>()).add(k);
-                samples.put(k, s);
-                rOf.put(k, Math.abs(r));
+                g.byPerson.computeIfAbsent(s.person(), x -> new TreeMap<>()).computeIfAbsent(d, x -> new ArrayList<>()).add(k);
+                g.samples.put(k, s);
+                g.rOf.put(k, Math.abs(r));
             }
         }
         // Свои — ≥ 2 датами по всем снимкам (до отбора), как в инвентаризации.
@@ -358,57 +394,58 @@ public final class XBaseEval {
         sess.forEach((pk, d) -> {
             if (d > 0) datesAll.computeIfAbsent(pk.substring(0, pk.indexOf('/')), x -> new HashSet<>()).add(d);
         });
-        List<String> own = new ArrayList<>();
-        List<String> ctrl = new ArrayList<>();
-        for (String p : byPerson.keySet()) (datesAll.getOrDefault(p, Set.of()).size() >= 2 ? own : ctrl).add(p);
-        List<String> persons = new ArrayList<>(byPerson.keySet());
-        Map<String, Integer> pIdx = new HashMap<>();
-        for (int i = 0; i < persons.size(); i++) pIdx.put(persons.get(i), i);
+        for (String p : g.byPerson.keySet()) (datesAll.getOrDefault(p, Set.of()).size() >= 2 ? g.own : g.ctrl).add(p);
+        g.persons = new ArrayList<>(g.byPerson.keySet());
+        for (int i = 0; i < g.persons.size(); i++) g.pIdx.put(g.persons.get(i), i);
 
-        Map<String, List<String>> galleryKeys = new LinkedHashMap<>();
-        Map<String, Integer> galleryDateOf = new LinkedHashMap<>();
-        Map<String, List<String>> probeKeys = new LinkedHashMap<>();
-        for (String p : own) {
-            Map<Integer, List<String>> bd = byPerson.get(p);
-            int g = galleryDate(bd);
-            galleryDateOf.put(p, g);
-            galleryKeys.put(p, bd.get(g));
+        for (String p : g.own) {
+            Map<Integer, List<String>> bd = g.byPerson.get(p);
+            int gd = galleryDate(bd);
+            g.galleryDateOf.put(p, gd);
+            g.galleryKeys.put(p, bd.get(gd));
             List<String> pr = new ArrayList<>();
             bd.forEach((d, ks) -> {
-                if (d != g) pr.addAll(ks);
+                if (d != gd) pr.addAll(ks);
             });
             pr.sort(null);
             if (pr.isEmpty()) throw new IllegalStateException("У своего " + p + " после отбора нет проб");
-            probeKeys.put(p, pr);
+            g.probeKeys.put(p, pr);
         }
-        List<String> cohortP = cohortPersons(feiKeys, seed);
-        List<List<String>> cohort = new ArrayList<>();
+        g.cohortP = cohortPersons(feiKeys, g.seed);
         Set<String> cohortKeySet = new HashSet<>();
-        for (String p : cohortP) {
+        for (String p : g.cohortP) {
             List<String> ks = new ArrayList<>(feiKeys.get(p).values());
-            cohort.add(ks);
+            g.cohort.add(ks);
             cohortKeySet.addAll(ks);
         }
 
         // Векторы: GT после отбора и когорта FEI.
-        XBaseEval x = new XBaseEval();
-        Map<String, Mat> fr = frames(export, samples.values().stream().sorted((u, w) -> u.file().toString().compareTo(w.file().toString()))
+        g.x = new XBaseEval();
+        Map<String, Mat> fr = frames(export, g.samples.values().stream().sorted((u, w) -> u.file().toString().compareTo(w.file().toString()))
                 .toList(), null);
         List<Sample> fei = new ArrayList<>();
         export.data().fei().values().forEach(fei::addAll);
         fr.putAll(frames(export, fei, cohortKeySet));
-        x.vectors(fr, Set.of(V.values()), IlluminationNorm.NormParams.of(settings));
+        g.x.vectors(fr, Set.of(V.values()), IlluminationNorm.NormParams.of(settings));
         fr.values().forEach(Mat::release);
+        return g;
+    }
 
+    /** Протокол с галереей galleryKeys и пробами своих probeKeys (контроль, когорта, части П2 — общие). */
+    static Eval evaluate(Gt gt, Map<String, List<String>> galleryKeys, Map<String, List<String>> probeKeys) {
+        Eval ev = new Eval();
+        XBaseEval x = gt.x;
+        List<String> own = gt.own;
+        List<List<String>> cohort = gt.cohort;
         // Пробы и роли.
         List<Probe> mainProbes = new ArrayList<>();
         for (int i = 0; i < own.size(); i++) {
             String p = own.get(i);
-            for (String k : probeKeys.get(p)) mainProbes.add(new Probe(OWN, p, image(samples.get(k)), k, i));
+            for (String k : probeKeys.get(p)) mainProbes.add(new Probe(OWN, p, image(gt.samples.get(k)), k, i));
         }
-        for (String p : ctrl) for (List<String> ks : byPerson.get(p).values()) for (String k : ks) mainProbes.add(new Probe(CTRL, p, image(samples.get(k)), k, -1));
+        for (String p : gt.ctrl) for (List<String> ks : gt.byPerson.get(p).values()) for (String k : ks) mainProbes.add(new Probe(CTRL, p, image(gt.samples.get(k)), k, -1));
         mainProbes.sort((u, w) -> u.role().equals(w.role()) ? u.key().compareTo(w.key()) : u.role().equals(OWN) ? -1 : 1);
-        List<List<String>> parts = FeiMethods.cvParts(own, seed, CV_S);
+        List<List<String>> parts = FeiMethods.cvParts(own, gt.seed, CV_S);
         List<List<String>> fullGallery = own.stream().map(galleryKeys::get).toList();
 
         List<Callable<String>> tasks = new ArrayList<>();
@@ -421,61 +458,49 @@ public final class XBaseEval {
                     List<String> g = own.stream().filter(p -> !part.contains(p)).toList();
                     List<List<String>> gk = g.stream().map(galleryKeys::get).toList();
                     List<Probe> pr = new ArrayList<>();
-                    for (String p : own) if (part.contains(p)) for (String k : galleryKeys.get(p)) pr.add(new Probe(FeiMethods.CV_ROLE + q, p, image(samples.get(k)), k, -1));
+                    for (String p : own) if (part.contains(p)) for (String k : galleryKeys.get(p)) pr.add(new Probe(FeiMethods.CV_ROLE + q, p, image(gt.samples.get(k)), k, -1));
                     tasks.add(() -> x.lines(method, 0, 0, x.fit(v, m, gk, cohort), v, g, pr));
                 }
             }
         }
         long t1 = System.nanoTime();
-        List<String> res = run(tasks, threads);
-        double fitS = (System.nanoTime() - t1) / 1e9;
+        List<String> res = run(tasks, gt.threads);
+        ev.fitS = (System.nanoTime() - t1) / 1e9;
         StringBuilder all = new StringBuilder();
         res.forEach(all::append);
-
-        // Файл оценок.
-        String header = "# Сверка на других базах (XBaseEval, PLAN.md п. 5.5): Georgia Tech; роли own — свой, ctrl — контрольный чужой, cv<q> — "
-                + "снимок галереи человека части q против модели без части q\n# Код: коммит " + FarMethods.commit() + "\n# Данные: экспорт " + dir
-                + ", коммит данных " + FarMethods.dataCommit(dir) + "\n" + FeiScores.COLUMNS + "\n";
-        try (Writer w = new OutputStreamWriter(new GZIPOutputStream(Files.newOutputStream(out.resolve("xbase_gt_scores.tsv.gz")), 1 << 16),
-                StandardCharsets.UTF_8)) {
-            w.write(header);
-            w.write(all.toString());
-        }
+        ev.lines = all.toString();
+        ev.probes = mainProbes;
+        ev.parts = parts;
 
         // Разбор: модель по позе пробы, конфигурация и «чужие» П2 / П3.
         Map<String, Row> rows = new HashMap<>();
-        for (String l : all.toString().lines().toList()) {
+        for (String l : ev.lines.lines().toList()) {
             Row r = FeiScores.parse(l);
             rows.put(r.method() + "\t" + r.role() + "\t" + r.person() + "\t" + r.image(), r);
         }
-        List<FeiThreshold.Res> results = new ArrayList<>();
-        int[] cases = new int[FeiScores.CASES];
-        int ctrlImages = 0;
-        int cvImages = 0;
         for (V v : V.values()) {
             FeiDecompose.Cfg c = new FeiDecompose.Cfg();
-            List<double[]> ownList = new ArrayList<>();
             List<double[]> ctrlList = new ArrayList<>();
             List<double[]> cvList = new ArrayList<>();
             int cvFront = 0;
             List<Boolean> front = new ArrayList<>();
             List<Row> ownRows = new ArrayList<>();
             for (Probe p : mainProbes) {
-                Row r = choose(rows, v, p.role(), p.person(), p.image(), rOf.get(p.key()) <= r0);
+                Row r = choose(rows, v, p.role(), p.person(), p.image(), gt.rOf.get(p.key()) <= gt.r0);
                 if (p.role().equals(OWN)) {
                     ownRows.add(r);
-                    front.add(rOf.get(p.key()) <= r0);
+                    front.add(gt.rOf.get(p.key()) <= gt.r0);
                 } else {
-                    ctrlList.add(new double[] {pIdx.get(p.person()), FeiScores.ratio(r, null)});
+                    ctrlList.add(new double[] {gt.pIdx.get(p.person()), FeiScores.ratio(r, null)});
                 }
             }
             for (int q = 0; q < FeiMethods.CV_PARTS; q++) {
                 for (String p : parts.get(q)) {
                     for (String k : galleryKeys.get(p)) {
-                        boolean f = rOf.get(k) <= r0;
+                        boolean f = gt.rOf.get(k) <= gt.r0;
                         if (f) cvFront++;
-                        Row r = choose(rows, v, FeiMethods.CV_ROLE + q, p, image(samples.get(k)), f);
-                        cvList.add(new double[] {pIdx.get(p), FeiScores.ratio(r, v == V.L1 ? cases : null)});
+                        Row r = choose(rows, v, FeiMethods.CV_ROLE + q, p, image(gt.samples.get(k)), f);
+                        cvList.add(new double[] {gt.pIdx.get(p), FeiScores.ratio(r, v == V.L1 ? ev.cases : null)});
                     }
                 }
             }
@@ -489,7 +514,7 @@ public final class XBaseEval {
             for (int i = 0; i < n; i++) {
                 Row r = ownRows.get(i);
                 int[] cs = new int[FeiScores.CASES];
-                c.ownP[i] = pIdx.get(r.person());
+                c.ownP[i] = gt.pIdx.get(r.person());
                 c.ownR[i] = FeiScores.ratio(r, cs);
                 c.noSecond[i] = cs[FeiScores.CASE_NO_SECOND] > 0;
                 c.trueInf[i] = Double.isInfinite(r.trueScore());
@@ -500,16 +525,219 @@ public final class XBaseEval {
             c.thrR = new double[0];
             c.ctrlP = ctrlList.stream().mapToInt(d -> (int) d[0]).toArray();
             c.ctrlR = ctrlList.stream().mapToDouble(d -> d[1]).toArray();
-            ctrlImages = c.ctrlR.length;
-            cvImages = cvList.size();
+            ev.ctrlImages = c.ctrlR.length;
+            ev.cvImages = cvList.size();
             FeiThreshold.Imp imp = FeiThreshold.Imp.of(cvList, cvFront);
-            results.add(FeiThreshold.evaluate(v.label, v.ratioId(), List.of(c), List.of(imp), persons.size(), b,
-                    seed + FeiBootstrap.SEED_OFFSET));
+            ev.results.add(FeiThreshold.evaluate(v.label, v.ratioId(), List.of(c), List.of(imp), gt.persons.size(), gt.b,
+                    gt.seed + FeiBootstrap.SEED_OFFSET));
         }
-        StringBuilder t = report(results, own, ctrl, galleryKeys, galleryDateOf, probeKeys, byPerson, parts, cohortP, cohort, rOf, r0, rLimit,
-                total, dropped, ctrlImages, cvImages, cases, b, seed, persons.size(), dir, fitS, threads, mainProbes);
+        return ev;
+    }
+
+    /** Файл оценок протокола (шапка — описание ролей, коммиты). */
+    static void writeScores(Path file, String what, Gt g, Eval ev) throws IOException {
+        String header = "# Сверка на других базах (XBaseEval, PLAN.md п. 5.5): Georgia Tech" + what + "; роли own — свой, ctrl — контрольный чужой, "
+                + "cv<q> — снимок галереи человека части q против модели без части q\n# Код: коммит " + FarMethods.commit() + "\n# Данные: экспорт "
+                + g.dir + ", коммит данных " + FarMethods.dataCommit(g.dir) + "\n" + FeiScores.COLUMNS + "\n";
+        try (Writer w = new OutputStreamWriter(new GZIPOutputStream(Files.newOutputStream(file), 1 << 16), StandardCharsets.UTF_8)) {
+            w.write(header);
+            w.write(ev.lines);
+        }
+    }
+
+    static void gt(FarExport.Loaded export, Path dir, Map<String, Map<Integer, String>> feiKeys, List<String> selLines, SettingsStore settings,
+                   Path out) throws IOException {
+        Gt g = prepare(export, dir, feiKeys, selLines, settings);
+        Eval ev = evaluate(g, g.galleryKeys, g.probeKeys);
+        writeScores(out.resolve("xbase_gt_scores.tsv.gz"), "", g, ev);
+        StringBuilder t = report(ev.results, g.own, g.ctrl, g.galleryKeys, g.galleryDateOf, g.probeKeys, g.byPerson, ev.parts, g.cohortP, g.cohort,
+                g.rOf, g.r0, g.rLimit, g.total, g.dropped, ev.ctrlImages, ev.cvImages, ev.cases, g.b, g.seed, g.persons.size(), dir, ev.fitS,
+                g.threads, ev.probes);
         FarMethods.write(out.resolve("xbase_gt.txt"), t);
         System.out.print(t);
+    }
+
+    // ---------------------------------------------------------------- GT: контроль «внутри сессии»
+
+    /** Seed деления снимков даты галереи пополам: faces.seed + WITHIN_SEED_OFFSET. */
+    static final long WITHIN_SEED_OFFSET = 9100;
+    /** Люди GT для листов кадров: свои с этими номерами по порядку. */
+    static final int[] SHEET_OWN = {0, 5, 10, 15, 20, 25};
+
+    /**
+     * Деление «внутри сессии» (решение Хозяина 04.10.2026): у каждого своего снимки даты галереи (то же правило) по порядку
+     * людей перемешиваются одним java.util.Random(seed + WITHIN_SEED_OFFSET); первые ⌈n/2⌉ — галерея, остальные — пробы
+     * (обе части по возрастанию ключа). Возвращает {галерея, пробы}.
+     */
+    static List<Map<String, List<String>>> withinSplit(List<String> own, Map<String, List<String>> dateKeys, long seed) {
+        java.util.Random rnd = new java.util.Random(seed + WITHIN_SEED_OFFSET);
+        Map<String, List<String>> gal = new LinkedHashMap<>();
+        Map<String, List<String>> pro = new LinkedHashMap<>();
+        for (String p : own) {
+            List<String> ks = new ArrayList<>(dateKeys.get(p));
+            java.util.Collections.shuffle(ks, rnd);
+            int h = (ks.size() + 1) / 2;
+            List<String> g = new ArrayList<>(ks.subList(0, h));
+            List<String> pr = new ArrayList<>(ks.subList(h, ks.size()));
+            g.sort(null);
+            pr.sort(null);
+            if (pr.isEmpty()) throw new IllegalStateException("Внутри сессии: у " + p + " нет проб");
+            gal.put(p, g);
+            pro.put(p, pr);
+        }
+        return List.of(gal, pro);
+    }
+
+    /** Доля верного кандидата (группы (i) + (ii)) варианта при FAR 1 %, всего: {точка %, реплики}. */
+    static Object[] correct(FeiThreshold.Res r, int m) {
+        double[] c = r.counts[m][0][0];
+        double n = Arrays.stream(c).sum();
+        double pt = 100.0 * (c[FeiDecompose.G_OK] + c[FeiDecompose.G_REJ]) / n;
+        double[] reps = null;
+        if (r.shareRep != null) {
+            reps = new double[r.shareRep[m][0][0][0].length];
+            for (int q = 0; q < reps.length; q++) reps[q] = r.shareRep[m][0][0][FeiDecompose.G_OK][q] + r.shareRep[m][0][0][FeiDecompose.G_REJ][q];
+        }
+        return new Object[] {pt, reps, (int) (c[FeiDecompose.G_OK] + c[FeiDecompose.G_REJ]), (int) n};
+    }
+
+    static void gtIn(FarExport.Loaded export, Path dir, Map<String, Map<Integer, String>> feiKeys, List<String> selLines, SettingsStore settings,
+                     Path out) throws IOException {
+        Gt g = prepare(export, dir, feiKeys, selLines, settings);
+        Eval cross = evaluate(g, g.galleryKeys, g.probeKeys);
+        List<Map<String, List<String>>> split = withinSplit(g.own, g.galleryKeys, g.seed);
+        Map<String, List<String>> gal = split.get(0);
+        Map<String, List<String>> pro = split.get(1);
+        Eval in = evaluate(g, gal, pro);
+        writeScores(out.resolve("xbase_gt_in_scores.tsv.gz"), " — контроль внутри сессии", g, in);
+        StringBuilder t = new StringBuilder();
+        t.append("PLAN.md п. 5.5, сверка, шаг 2: Georgia Tech — контроль «внутри сессии» (XBaseEval gt-in)\n");
+        t.append("Код: коммит ").append(FarMethods.commit()).append('\n');
+        t.append("Данные: экспорт ").append(dir).append(", коммит данных ").append(FarMethods.dataCommit(dir)).append('\n');
+        t.append(String.format(Locale.ROOT, "Протокол (решение Хозяина 04.10.2026): те же %d своих, дата галереи — по прежнему правилу (наибольшее число "
+                + "снимков, при\nравенстве — более ранняя); снимки этой даты делятся случайно пополам: java.util.Random(seed %d + %d = %d), люди по порядку,\n"
+                + "первые ⌈n/2⌉ после перемешивания — галерея, остальные — пробы. Остальное без изменений: отбор по позе (осталось %d из %d), "
+                + "когорта FEI\n(%d человек), «чужие» П2/П3 — снимки галереи (теперь — половины даты), 5 частей, контроль — %d односессионных, "
+                + "варианты L1, L1-in, A,\nбутстреп по людям GT, B = %d, seed = %d (те же веса, что у межсессионного — разности парные).%n", g.own.size(),
+                g.seed, WITHIN_SEED_OFFSET, g.seed + WITHIN_SEED_OFFSET, g.total - g.dropped.size(), g.total, g.cohortP.size(), g.ctrl.size(), g.b,
+                g.seed + FeiBootstrap.SEED_OFFSET));
+        t.append("Оговорка: галерея внутри сессии вдвое меньше межсессионной (половина снимков той же даты), «чужих» П2/П3 тоже меньше —\n"
+                + "размеры ниже. Межсессионный протокол пересчитан в этом же запуске (тот же код, что xbase_gt.txt).\n");
+        int[] gs = gal.values().stream().mapToInt(List::size).sorted().toArray();
+        int[] ps = pro.values().stream().mapToInt(List::size).sorted().toArray();
+        int[] cgs = g.galleryKeys.values().stream().mapToInt(List::size).sorted().toArray();
+        int[] cps = g.probeKeys.values().stream().mapToInt(List::size).sorted().toArray();
+        t.append(String.format(Locale.ROOT, "Внутри сессии: галерея %d снимков (на человека %d–%d), пробы своих %d (%d–%d); «чужие» П2/П3 — %d снимков "
+                + "%d людей; контроль — %d снимков %d людей.%n", Arrays.stream(gs).sum(), gs[0], gs[gs.length - 1], Arrays.stream(ps).sum(), ps[0],
+                ps[ps.length - 1], in.cvImages, g.own.size(), in.ctrlImages, g.ctrl.size()));
+        t.append(String.format(Locale.ROOT, "Межсессионно: галерея %d снимков (%d–%d), пробы своих %d (%d–%d); «чужие» П2/П3 — %d снимков %d людей; "
+                + "контроль — %d снимков %d людей.%n", Arrays.stream(cgs).sum(), cgs[0], cgs[cgs.length - 1], Arrays.stream(cps).sum(), cps[0],
+                cps[cps.length - 1], cross.cvImages, g.own.size(), cross.ctrlImages, g.ctrl.size()));
+        t.append("Правило d₁/d₂ у «чужих» П2 (L1; случаи 1–6), внутри сессии: ");
+        for (int k = 0; k < FeiScores.CASES; k++) t.append(k > 0 ? ", " : "").append(k + 1).append(": ").append(in.cases[k]);
+        t.append('\n');
+
+        t.append("\n=== Галереи и пробы своих (внутри сессии) ===\n");
+        t.append("человек | дата галереи | снимков даты | в галерее | проб\n");
+        for (String p : g.own) {
+            t.append(String.join(" | ", p, Integer.toString(g.galleryDateOf.get(p)), Integer.toString(g.galleryKeys.get(p).size()),
+                    Integer.toString(gal.get(p).size()), Integer.toString(pro.get(p).size()))).append('\n');
+        }
+
+        t.append("\n=== Сводка: ошибка своих, % (межсессионно / внутри сессии) ===\n");
+        t.append("вариант | способ | FAR 1 %: межсессионно | внутри сессии | FAR 5 %: межсессионно | внутри сессии | FAR контроля 1 %: межс. / внутри | "
+                + "5 %: межс. / внутри\n");
+        for (int v = 0; v < V.values().length; v++) {
+            FeiThreshold.Res c = cross.results.get(v);
+            FeiThreshold.Res w = in.results.get(v);
+            for (int m = 2; m < FeiThreshold.M; m++) {
+                t.append(String.join(" | ", c.label, FeiThreshold.METHODS[m], FeiThreshold.errCell(c, m, 0, 0, g.b), FeiThreshold.errCell(w, m, 0, 0, g.b),
+                        FeiThreshold.errCell(c, m, 1, 0, g.b), FeiThreshold.errCell(w, m, 1, 0, g.b),
+                        String.format(Locale.ROOT, "%.2f / %.2f %%", FeiThreshold.farPct(c, m, 0), FeiThreshold.farPct(w, m, 0)),
+                        String.format(Locale.ROOT, "%.2f / %.2f %%", FeiThreshold.farPct(c, m, 1), FeiThreshold.farPct(w, m, 1)))).append('\n');
+            }
+        }
+
+        t.append("\n=== Доля верного кандидата (группы (i) + (ii), не зависит от порога), всего ===\n");
+        t.append("вариант | межсессионно | внутри сессии | разность межс. − внутри, п. п.\n");
+        for (int v = 0; v < V.values().length; v++) {
+            Object[] c = correct(cross.results.get(v), 2);
+            Object[] w = correct(in.results.get(v), 2);
+            String d = g.b > 0 ? FeiBootstrap.diff((double) c[0] - (double) w[0], FeiNorm.diff((double[]) c[1], (double[]) w[1]), 1) : "";
+            t.append(String.join(" | ", cross.results.get(v).label, FeiNorm.cell((int) c[2], (int) c[3], (double[]) c[1]),
+                    FeiNorm.cell((int) w[2], (int) w[3], (double[]) w[1]), d)).append('\n');
+        }
+
+        t.append("\n--- Внутри сессии: таблицы как в xbase_gt.txt ---\n");
+        tables(t, in.results, g.b);
+
+        if (g.b > 0) {
+            t.append("\n=== Разности «межсессионно − внутри сессии», п. п. (те же реплики; «*» — интервал не содержит 0) ===\n");
+            t.append("вариант | способ | ошибка FAR 1 % всего | анфас | поворот | FAR 5 % всего | анфас | поворот | FAR контроля 1 % | FAR контроля 5 %\n");
+            for (V v : new V[] {V.L1, V.A}) {
+                FeiThreshold.Res c = cross.results.get(v.ordinal());
+                FeiThreshold.Res w = in.results.get(v.ordinal());
+                for (int m = 2; m < FeiThreshold.M; m++) {
+                    List<String> row = new ArrayList<>(List.of(v.label, FeiThreshold.METHODS[m]));
+                    for (int k : KS) {
+                        for (int sp = 0; sp < FeiThreshold.SP; sp++) {
+                            row.add(FeiBootstrap.diff(FeiThreshold.err(c, m, k, sp) - FeiThreshold.err(w, m, k, sp),
+                                    FeiNorm.diff(c.errRep[m][k][sp], w.errRep[m][k][sp]), 1));
+                        }
+                    }
+                    for (int k : KS) {
+                        row.add(FeiBootstrap.diff(FeiThreshold.farPct(c, m, k) - FeiThreshold.farPct(w, m, k), FeiNorm.diff(c.farRep[m][k], w.farRep[m][k]), 2));
+                    }
+                    t.append(String.join(" | ", row)).append('\n');
+                }
+            }
+        }
+        FarMethods.write(out.resolve("xbase_gt_in.txt"), t);
+        System.out.print(t);
+        frameSheet(export, g, out.resolve("gt_frames.png"));
+    }
+
+    /**
+     * Лист выровненных кадров 92×112 (вне git): 6 своих GT (SHEET_OWN), у каждого по 3 снимка галереи и 3 пробы
+     * межсессионного протокола; увеличение ×2, подписи латиницей (человек, g / p, номер, |r|).
+     */
+    static void frameSheet(FarExport.Loaded export, Gt g, Path file) throws IOException {
+        int sc = 2;
+        int tw = 92 * sc;
+        int th = 112 * sc;
+        int cap = 16;
+        List<String> people = new ArrayList<>();
+        for (int i : SHEET_OWN) people.add(g.own.get(i));
+        Mat sheet = new Mat(people.size() * (th + cap), 6 * tw, org.opencv.core.CvType.CV_8UC3, new org.opencv.core.Scalar(255, 255, 255));
+        for (int row = 0; row < people.size(); row++) {
+            String p = people.get(row);
+            List<String> ks = new ArrayList<>();
+            List<String> tags = new ArrayList<>();
+            for (String k : g.galleryKeys.get(p).subList(0, Math.min(3, g.galleryKeys.get(p).size()))) {
+                ks.add(k);
+                tags.add("g");
+            }
+            for (String k : g.probeKeys.get(p).subList(0, Math.min(3, g.probeKeys.get(p).size()))) {
+                ks.add(k);
+                tags.add("p");
+            }
+            for (int c = 0; c < ks.size(); c++) {
+                Mat f = export.frame(g.samples.get(ks.get(c)), Variant.A);
+                Mat big = new Mat();
+                org.opencv.imgproc.Imgproc.resize(f, big, new org.opencv.core.Size(tw, th), 0, 0, org.opencv.imgproc.Imgproc.INTER_NEAREST);
+                Mat bgr = new Mat();
+                org.opencv.imgproc.Imgproc.cvtColor(big, bgr, org.opencv.imgproc.Imgproc.COLOR_GRAY2BGR);
+                int x0 = c * tw;
+                int y0 = row * (th + cap);
+                bgr.copyTo(sheet.submat(y0, y0 + th, x0, x0 + tw));
+                String text = String.format(Locale.ROOT, "%s %s %02d r=%.2f", p, tags.get(c), image(g.samples.get(ks.get(c))), g.rOf.get(ks.get(c)));
+                org.opencv.imgproc.Imgproc.putText(sheet, text, new org.opencv.core.Point(x0 + 3, y0 + th + 12),
+                        org.opencv.imgproc.Imgproc.FONT_HERSHEY_PLAIN, 0.9, new org.opencv.core.Scalar(0, 0, 0), 1);
+                f.release();
+            }
+        }
+        org.opencv.imgcodecs.Imgcodecs.imwrite(file.toString(), sheet);
+        System.out.println("Лист кадров: " + file);
     }
 
     /** Номер снимка из имени файла GT («01» → 1). */
@@ -583,7 +811,12 @@ public final class XBaseEval {
         int[] ps = probeKeys.values().stream().mapToInt(List::size).sorted().toArray();
         t.append(String.format(Locale.ROOT, "Галерея: снимков %d (на человека %d–%d, медиана %d); проб своих %d (на человека %d–%d, медиана %d).%n",
                 Arrays.stream(gs).sum(), gs[0], gs[gs.length - 1], gs[gs.length / 2], Arrays.stream(ps).sum(), ps[0], ps[ps.length - 1], ps[ps.length / 2]));
+        tables(t, res, b);
+        return t;
+    }
 
+    /** Таблицы: ошибка своих и FAR контроля, разложение (i)–(iv), парные разности L1 − L1-in и L1 − A (способы П2, П3). */
+    static void tables(StringBuilder t, List<FeiThreshold.Res> res, int b) {
         t.append("\n=== Ошибка своих и FAR контроля ===\n");
         t.append("вариант | способ | ошибка своих FAR 1 % | FAR 5 % | анфас FAR 1 % | поворот FAR 1 % | FAR контроля 1 %: точка ↑95; КП | 5 % | "
                 + "θ 1 % / 5 % | «ноль недопустим» 1 % / 5 % (реплик)\n");
@@ -638,6 +871,5 @@ public final class XBaseEval {
                 }
             }
         }
-        return t;
     }
 }
