@@ -224,7 +224,7 @@ final class LbpNormReport {
                         boolean lower = ci[1] < 0;
                         ok &= lower;
                         s.append(s.length() > 0 ? "; " : "").append(String.format(Locale.ROOT, "%s %+.1f [%+.1f; %+.1f] — %s", FeiThreshold.METHODS[m],
-                                FeiThreshold.err(rs.get(0), m, 0, 0) - FeiThreshold.err(zs.get(0), m, 0, 0), ci[0], ci[1], lower ? "значимо ниже" : "не значимо"));
+                                FeiThreshold.err(rs.get(0), m, 0, 0) - FeiThreshold.err(zs.get(0), m, 0, 0), ci[0], ci[1], lower ? "значимо ниже" : "не значимо ниже"));
                     }
                     lines.add("условие 1 (ошибка своих " + rs.get(0).label + " при FAR 1 % значимо ниже, чем при none, П2 и П3): " + (ok ? "ВЫПОЛНЕНО" : "НЕ выполнено")
                             + " (" + s + ")");
