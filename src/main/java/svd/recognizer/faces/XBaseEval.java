@@ -87,8 +87,16 @@ public final class XBaseEval {
     final Map<V, Map<String, double[]>> vec = new HashMap<>();
     final Map<V, Map<String, double[]>> mir = new HashMap<>();
 
-    /** Векторы вариантов vs по кадрам (OpenCV — только здесь, в главном потоке). */
+    /** Векторы вариантов vs по кадрам (OpenCV — только здесь, в главном потоке); LBP — без нормировки освещения. */
     void vectors(Map<String, Mat> frames, Set<V> vs, IlluminationNorm.NormParams params) {
+        vectors(frames, vs, params, IlluminationNorm.NONE);
+    }
+
+    /**
+     * То же с нормировкой освещения перед LBP lbpNorm (faces.lbp.norm; у отражённых кадров — после отражения и повторного
+     * выравнивания); A — всегда CLAHE по пикселям, от lbpNorm не зависит.
+     */
+    void vectors(Map<String, Mat> frames, Set<V> vs, IlluminationNorm.NormParams params, IlluminationNorm lbpNorm) {
         for (V v : vs) {
             vec.put(v, new HashMap<>());
             mir.put(v, new HashMap<>());
@@ -100,8 +108,8 @@ public final class XBaseEval {
                 mir.get(V.A).put(e.getKey(), IlluminationNorm.CLAHE.vector(m, params));
             }
             if (vs.contains(V.L1) || vs.contains(V.L1IN)) {
-                double[] s = LbpFeature.sqrt(LbpFeature.histogram(e.getValue()));
-                double[] sm = LbpFeature.sqrt(LbpFeature.histogram(m));
+                double[] s = LbpFeature.sqrt(LbpFeature.histogram(e.getValue(), lbpNorm, params));
+                double[] sm = LbpFeature.sqrt(LbpFeature.histogram(m, lbpNorm, params));
                 if (vs.contains(V.L1)) {
                     vec.get(V.L1).put(e.getKey(), s);
                     mir.get(V.L1).put(e.getKey(), sm);
@@ -340,6 +348,9 @@ public final class XBaseEval {
         List<String> cohortP;
         List<List<String>> cohort = new ArrayList<>();
         XBaseEval x;
+        /** Нормировки перед LBP кроме none (faces.lbp.norm, в порядке ключа) и их векторы L1, L1-in. */
+        IlluminationNorm.NormParams params;
+        final Map<IlluminationNorm, XBaseEval> xn = new LinkedHashMap<>();
     }
 
     /** Итоги одного протокола: строки оценок, итоги вариантов и сведения для отчёта. */
@@ -426,15 +437,30 @@ public final class XBaseEval {
         List<Sample> fei = new ArrayList<>();
         export.data().fei().values().forEach(fei::addAll);
         fr.putAll(frames(export, fei, cohortKeySet));
-        g.x.vectors(fr, Set.of(V.values()), IlluminationNorm.NormParams.of(settings));
+        g.params = IlluminationNorm.NormParams.of(settings);
+        g.x.vectors(fr, Set.of(V.values()), g.params);
+        // Нормировки перед LBP (faces.lbp.norm): none — всегда (прежние отчёты), прочие — только L1 и L1-in.
+        for (IlluminationNorm n : IlluminationNorm.lbpNorms(settings.loadFacesLbpNorm())) {
+            if (n == IlluminationNorm.NONE) continue;
+            XBaseEval xx = new XBaseEval();
+            xx.vectors(fr, NORM_VARIANTS, g.params, n);
+            g.xn.put(n, xx);
+        }
         fr.values().forEach(Mat::release);
         return g;
     }
 
+    /** Варианты отчёта по нормировкам перед LBP (A от нормировки не зависит и не нужна). */
+    static final Set<V> NORM_VARIANTS = java.util.EnumSet.of(V.L1, V.L1IN);
+
     /** Протокол с галереей galleryKeys и пробами своих probeKeys (контроль, когорта, части П2 — общие). */
     static Eval evaluate(Gt gt, Map<String, List<String>> galleryKeys, Map<String, List<String>> probeKeys) {
+        return evaluate(gt, gt.x, java.util.EnumSet.allOf(V.class), galleryKeys, probeKeys);
+    }
+
+    /** То же для векторов x и вариантов vs (по порядку V). */
+    static Eval evaluate(Gt gt, XBaseEval x, Set<V> vs, Map<String, List<String>> galleryKeys, Map<String, List<String>> probeKeys) {
         Eval ev = new Eval();
-        XBaseEval x = gt.x;
         List<String> own = gt.own;
         List<List<String>> cohort = gt.cohort;
         // Пробы и роли.
@@ -449,7 +475,7 @@ public final class XBaseEval {
         List<List<String>> fullGallery = own.stream().map(galleryKeys::get).toList();
 
         List<Callable<String>> tasks = new ArrayList<>();
-        for (V v : V.values()) {
+        for (V v : vs) {
             for (boolean m : new boolean[] {false, true}) {
                 String method = v.id + (m ? FeiMethods.MIRROR : "");
                 tasks.add(() -> x.lines(method, 0, 0, x.fit(v, m, fullGallery, cohort), v, own, mainProbes));
@@ -478,7 +504,7 @@ public final class XBaseEval {
             Row r = FeiScores.parse(l);
             rows.put(r.method() + "\t" + r.role() + "\t" + r.person() + "\t" + r.image(), r);
         }
-        for (V v : V.values()) {
+        for (V v : vs) {
             FeiDecompose.Cfg c = new FeiDecompose.Cfg();
             List<double[]> ctrlList = new ArrayList<>();
             List<double[]> cvList = new ArrayList<>();
@@ -554,6 +580,50 @@ public final class XBaseEval {
                 g.rOf, g.r0, g.rLimit, g.total, g.dropped, ev.ctrlImages, ev.cvImages, ev.cases, g.b, g.seed, g.persons.size(), dir, ev.fitS,
                 g.threads, ev.probes);
         FarMethods.write(out.resolve("xbase_gt.txt"), t);
+        System.out.print(t);
+        normReport(g, ev, g.galleryKeys, g.probeKeys, "gt", "", "межсессионно", LbpNormReport.Kind.CROSS, out);
+    }
+
+    /**
+     * Отчёт «Нормировка освещения перед LBP» (PLAN.md, п. 4.2), если в faces.lbp.norm есть что-то кроме none: L1 и L1-in
+     * каждой нормировки на том же протоколе (галерея gal, пробы pro; контроль, когорта, части П2 — общие), оценки — отдельный
+     * файл на нормировку xbase_&lt;mode&gt;_&lt;id&gt;_scores.tsv.gz, отчёт xbase_&lt;mode&gt;_norm.txt; none — итоги none этого
+     * же запуска (прежние отчёты не меняются); те же веса бутстрепа — разности парные.
+     */
+    static void normReport(Gt g, Eval none, Map<String, List<String>> gal, Map<String, List<String>> pro, String mode, String what, String title,
+                           LbpNormReport.Kind kind, Path out) throws IOException {
+        if (g.xn.isEmpty()) return;
+        Map<IlluminationNorm, List<FeiThreshold.Res>> res = new LinkedHashMap<>();
+        res.put(IlluminationNorm.NONE, List.of(none.results.get(V.L1.ordinal()), none.results.get(V.L1IN.ordinal())));
+        StringBuilder t = new StringBuilder();
+        t.append("PLAN.md п. 4.2: нормировка освещения перед LBP — Georgia Tech, ").append(title).append(" (XBaseEval ").append(mode.replace('_', '-'))
+                .append(", faces.lbp.norm)\n");
+        t.append("Код: коммит ").append(FarMethods.commit()).append('\n');
+        t.append("Данные: экспорт ").append(g.dir).append(", коммит данных ").append(FarMethods.dataCommit(g.dir)).append('\n');
+        t.append("Нормировки (решение Хозяина 09.10.2026; метод и параметры выбраны заранее, по результатам не подбираются; одна для всех кадров:\n"
+                + "галерея, пробы, «чужие» П2/П3, контроль, когорта FEI, отражённые кадры — после отражения и повторного выравнивания):\n");
+        t.append("  ").append(FeiMethods.lbpNormText(IlluminationNorm.NONE, g.params)).append(" (опорная; итоги — как в xbase_").append(mode).append(".txt)\n");
+        for (IlluminationNorm n : g.xn.keySet()) t.append("  ").append(FeiMethods.lbpNormText(n, g.params)).append('\n');
+        t.append("Варианты: L1 = 5-lbp-mlda-ratio+pose, L1-in = 5-lbp-mlda-in-ratio+pose; прочее — как в xbase_").append(mode).append(".txt (A не нужна).\n");
+        int ownN = pro.values().stream().mapToInt(List::size).sum();
+        t.append(String.format(Locale.ROOT, "Объём: пробы своих %d (%d человек), контроль %d снимков %d людей, «чужие» П2/П3 %d снимков %d людей.%n", ownN,
+                g.own.size(), none.ctrlImages, g.ctrl.size(), none.cvImages, g.own.size()));
+        if (g.b > 0) {
+            t.append(String.format(Locale.ROOT, "Бутстреп по людям Georgia Tech целиком: B = %d, seed = %d, людей %d; одни веса для всех нормировок, строк и "
+                    + "способов;\nпорог — заново в каждой реплике.%n", g.b, g.seed + FeiBootstrap.SEED_OFFSET, g.persons.size()));
+        }
+        for (Map.Entry<IlluminationNorm, XBaseEval> e : g.xn.entrySet()) {
+            Eval ev = evaluate(g, e.getValue(), NORM_VARIANTS, gal, pro);
+            String file = "xbase_" + mode + "_" + e.getKey().id + "_scores.tsv.gz";
+            writeScores(out.resolve(file), what + " — нормировка перед LBP " + e.getKey().id, g, ev);
+            res.put(e.getKey(), ev.results);
+            t.append(String.format(Locale.ROOT, "%s: оценки — %s; обучение и оценки %.0f с; правило d₁/d₂ у «чужих» П2 (L1; случаи 1–6): ", e.getKey().id, file,
+                    ev.fitS));
+            for (int k = 0; k < FeiScores.CASES; k++) t.append(k > 0 ? ", " : "").append(k + 1).append(": ").append(ev.cases[k]);
+            t.append('\n');
+        }
+        LbpNormReport.tables(t, res, g.b, kind);
+        FarMethods.write(out.resolve("xbase_" + mode + "_norm.txt"), t);
         System.out.print(t);
     }
 
@@ -694,6 +764,7 @@ public final class XBaseEval {
         }
         FarMethods.write(out.resolve("xbase_gt_in.txt"), t);
         System.out.print(t);
+        normReport(g, in, gal, pro, "gt_in", " — контроль внутри сессии", "внутри сессии", LbpNormReport.Kind.WITHIN, out);
         frameSheet(export, g, out.resolve("gt_frames.png"));
     }
 

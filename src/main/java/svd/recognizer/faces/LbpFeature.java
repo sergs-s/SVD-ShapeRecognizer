@@ -121,6 +121,25 @@ final class LbpFeature {
     }
 
     /**
+     * Вектор гистограмм кадра (8 бит, один канал) после нормировки освещения (п. 4.2, «Нормировка освещения перед LBP»):
+     * NONE — как histogram(gray8); CLAHE — LBP по 8-битному выходу CLAHE (IlluminationNorm.clahe8); TAN_TRIGGS — LBP по
+     * вещественному результату Tan – Triggs (в [−τ; τ]) без квантования.
+     */
+    static double[] histogram(Mat gray8, IlluminationNorm norm, IlluminationNorm.NormParams p) {
+        if (gray8.type() != CvType.CV_8UC1) throw new IllegalArgumentException("LBP: кадр не 8 бит одноканальный");
+        return switch (norm) {
+            case NONE -> histogram(gray8);
+            case CLAHE -> {
+                Mat c = IlluminationNorm.clahe8(gray8, p);
+                double[] v = histogram(c);
+                c.release();
+                yield v;
+            }
+            case TAN_TRIGGS -> histogram(IlluminationNorm.TAN_TRIGGS.vector(gray8, p), gray8.cols(), gray8.rows());
+        };
+    }
+
+    /**
      * Маска блоков сетки 7×7 (п. 4.2, «LBP: внутренние и краевые блоки»; фиксирована заранее, на FEI не подбирается):
      * INNER — строки и столбцы блоков 1–5 (25 блоков), RING — краевое кольцо (строка или столбец 0 или 6, 24 блока).
      */

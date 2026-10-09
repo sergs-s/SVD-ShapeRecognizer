@@ -69,6 +69,7 @@ public class SettingsStore {
     private static final String KEY_FACES_FEI_DECOMPOSE = "faces.fei.decompose";
     private static final String KEY_FACES_FEI_VECTORS = "faces.fei.vectors";
     private static final String KEY_FACES_FEI_LBP = "faces.fei.lbp";
+    private static final String KEY_FACES_LBP_NORM = "faces.lbp.norm";
     private static final String KEY_FACES_CALTECH_DIR = "faces.caltech.dir";
     private static final String KEY_FACES_FEI_CV = "faces.fei.cv";
     private static final String KEY_FACES_FEI_CV_THREADS = "faces.fei.cv.threads";
@@ -432,13 +433,25 @@ public class SettingsStore {
     /**
      * Строки LBP в faces-fei (п. 4.2, «LBP-гистограммы»; 5-lbp-chi, 5-lbp-mlda и их +mirror): ключ faces.fei.lbp или
      * переменная окружения FACES_FEI_LBP — список через запятую: true (строки LBP), mask (ещё строки 5-lbp-mlda-in и
-     * 5-lbp-mlda-out — внутренние блоки и краевое кольцо), only (считаются только строки LBP-MLDA). Разбор и проверка —
+     * 5-lbp-mlda-out — внутренние блоки и краевое кольцо), in (то же без 5-lbp-mlda-out), only (считаются только строки
+     * LBP-MLDA). Разбор и проверка —
      * FeiMethods.lbpModes. По умолчанию выключено.
      *
      * @return значение как есть или null, если не задано
      */
     public String loadFacesFeiLbp() {
         return path(KEY_FACES_FEI_LBP);
+    }
+
+    /**
+     * Нормировка освещения кадра перед LBP (п. 4.2, «Нормировка освещения перед LBP»): ключ faces.lbp.norm или переменная
+     * окружения FACES_LBP_NORM — none (по умолчанию), tt (Tan – Triggs), clahe; в XBaseEval — список через запятую. Разбор и
+     * проверка — IlluminationNorm.lbpNorms.
+     *
+     * @return значение как есть или null, если не задано
+     */
+    public String loadFacesLbpNorm() {
+        return path(KEY_FACES_LBP_NORM);
     }
 
     /**

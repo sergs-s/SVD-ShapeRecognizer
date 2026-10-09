@@ -244,6 +244,8 @@ public final class FeiThreshold {
         double[][][] farRep;
         /** Объём чужих порога: [способ]: снимков всего, мин. и макс. на конфигурацию, людей мин. и макс. */
         int[][] volume = new int[M][5];
+        /** Конфигурации точки (для FAR контроля по людям и границы с учётом людей, LbpNormReport). */
+        List<FeiDecompose.Cfg> cfgs;
     }
 
     /** Порог способа m в конфигурации c при весах w. */
@@ -285,6 +287,7 @@ public final class FeiThreshold {
         Res res = new Res();
         res.label = label;
         res.id = id;
+        res.cfgs = cs;
         int[] u = FeiBootstrap.unit(persons);
         for (int m = 0; m < M; m++) {
             long[] zero = new long[KS];
@@ -354,9 +357,24 @@ public final class FeiThreshold {
         int b = settings.loadFacesFeiBootstrap();
         long seed = settings.loadFacesSeed() + FeiBootstrap.SEED_OFFSET;
         long t0 = System.nanoTime();
+        if (a[0].equals("norm")) {
+            normMain(a, sel, r0, index, people, b, seed, t0);
+            return;
+        }
         Path scores = Paths.get(a[0]);
         Path cvFile = Paths.get(a[1]);
+        Loaded ld = load(scores, cvFile, sel, r0, index, people, b, seed);
+        Path out = Paths.get(System.getProperty("user.dir"), "reports", "faces", "fei");
+        Files.createDirectories(out);
+        FarMethods.write(out.resolve(FILE), report(ld.res(), ld.dec(), ld.cv(), ld.control(), scores, cvFile, r0, b, seed, people.size()));
+        new java.io.PrintStream(System.out, true, StandardCharsets.UTF_8).println(String.format(Locale.ROOT, "Калибровка порога: %.0f с; отчёт %s",
+                (System.nanoTime() - t0) / 1e9, out.resolve(FILE)));
+    }
 
+    /** Итоги пары «файл оценок + файл перекрёстной оценки»: варианты L1, L1-in, разбор, перекрёстная оценка, строки контроля. */
+    record Loaded(List<Res> res, FeiDecompose dec, Cv cv, List<String> control) {}
+
+    static Loaded load(Path scores, Path cvFile, FeiPose sel, double r0, FeiBootstrap index, List<String> people, int b, long seed) throws IOException {
         FeiScores.Analysis an = new FeiScores.Analysis();
         an.pose = sel;
         an.r0 = r0;
@@ -426,11 +444,68 @@ public final class FeiThreshold {
         }
         if (debug > 0) control.add(0, "ОТЛАДКА: в файле перекрёстной оценки конфигураций " + debug + " из " + FeiProtocol.CONFIGS
                 + " — только они; FeiScores.Stat не сверялся, числа П0 — не как в fei_lbp.txt.");
+        return new Loaded(res, dec, cv, control);
+    }
+
+    static final String NORM_FILE = "fei_lbp_norm.txt";
+    /** Строка шапки файлов оценок и перекрёстной оценки faces-fei с нормировкой перед LBP (FeiMethods.lbpNormText). */
+    static final String NORM_HEADER = "# Нормировка освещения перед LBP (faces.lbp.norm): ";
+
+    /** Нормировка перед LBP по шапке файла (строка NORM_HEADER; нет строки — none). */
+    static IlluminationNorm normOf(Path file) throws IOException {
+        try (BufferedReader in = new BufferedReader(new InputStreamReader(new GZIPInputStream(Files.newInputStream(file), 1 << 16),
+                StandardCharsets.UTF_8))) {
+            String l;
+            while ((l = in.readLine()) != null && l.startsWith("#")) {
+                if (l.startsWith(NORM_HEADER)) return IlluminationNorm.lbpNorm(l.substring(NORM_HEADER.length()).split(" ")[0]);
+            }
+        }
+        return IlluminationNorm.NONE;
+    }
+
+    /**
+     * Режим norm (PLAN.md, п. 4.2, «Нормировка освещения перед LBP»): пары «файл оценок, файл перекрёстной оценки» — первая
+     * none, далее tt и/или clahe (нормировка — по шапкам файлов, у обоих файлов пары одна); отчёт fei_lbp_norm.txt
+     * (LbpNormReport, условия 2 и 3), те же веса бутстрепа у всех пар.
+     */
+    static void normMain(String[] a, FeiPose sel, double r0, FeiBootstrap index, List<String> people, int b, long seed, long t0) throws IOException {
+        if (a.length < 5 || a.length % 2 == 0) {
+            throw new IllegalArgumentException("faces-fei-threshold norm: -Dexec.args=\"norm <оценки none> <перекрёстная none> <оценки tt|clahe> "
+                    + "<перекрёстная tt|clahe> …\"");
+        }
+        Map<IlluminationNorm, List<Res>> res = new LinkedHashMap<>();
+        StringBuilder head = new StringBuilder();
+        for (int i = 1; i < a.length; i += 2) {
+            Path scores = Paths.get(a[i]);
+            Path cvFile = Paths.get(a[i + 1]);
+            IlluminationNorm n = normOf(scores);
+            if (normOf(cvFile) != n) throw new IllegalStateException("Нормировка в шапках различается: " + scores + " и " + cvFile);
+            if (i == 1 && n != IlluminationNorm.NONE) throw new IllegalStateException("Первая пара — не none: " + n.id);
+            if (res.containsKey(n)) throw new IllegalStateException("Нормировка " + n.id + " задана дважды");
+            Loaded ld = load(scores, cvFile, sel, r0, index, people, b, seed);
+            if (ld.control().get(0).startsWith("ОТЛАДКА")) throw new IllegalStateException("Не все конфигурации в " + cvFile);
+            res.put(n, ld.res());
+            head.append(n.id).append(": оценки ").append(scores).append(" (").append(sha(scores)).append(");\n  перекрёстная ").append(cvFile)
+                    .append(" (").append(sha(cvFile)).append(")\n");
+            for (String c : ld.control()) head.append("  контроль: ").append(c).append('\n');
+        }
+        StringBuilder t = new StringBuilder();
+        t.append("PLAN.md п. 4.2: нормировка освещения перед LBP — FEI (FeiThreshold norm, faces-fei-threshold)\n");
+        t.append("Код разбора: коммит ").append(FarMethods.commit()).append('\n');
+        t.append("Протокол FEI (п. 3а), 40 конфигураций; варианты L1 = 5-lbp-mlda-ratio+pose, L1-in = 5-lbp-mlda-in-ratio+pose; выбор модели по\n"
+                + "позе r0 = ").append(r0).append("; порог П2 / П3 — как fei_threshold.txt. Нормировка — по шапкам файлов (FeiMethods, faces.lbp.norm).\n");
+        t.append("Оговорка: FEI — одна сессия на человека, результаты внутрисессионные и оптимистичны.\n");
+        if (b > 0) {
+            t.append(String.format(Locale.ROOT, "Бутстреп по людям FEI целиком: B = %d, seed = %d, людей %d; одни веса для всех нормировок, строк и "
+                    + "способов.%n", b, seed, people.size()));
+        }
+        t.append(head);
+        LbpNormReport.tables(t, res, b, LbpNormReport.Kind.FEI);
         Path out = Paths.get(System.getProperty("user.dir"), "reports", "faces", "fei");
         Files.createDirectories(out);
-        FarMethods.write(out.resolve(FILE), report(res, dec, cv, control, scores, cvFile, r0, b, seed, people.size()));
-        new java.io.PrintStream(System.out, true, StandardCharsets.UTF_8).println(String.format(Locale.ROOT, "Калибровка порога: %.0f с; отчёт %s",
-                (System.nanoTime() - t0) / 1e9, out.resolve(FILE)));
+        FarMethods.write(out.resolve(NORM_FILE), t);
+        new java.io.PrintStream(System.out, true, StandardCharsets.UTF_8).println(String.format(Locale.ROOT, "Нормировка перед LBP (FEI): %.0f с; отчёт %s",
+                (System.nanoTime() - t0) / 1e9, out.resolve(NORM_FILE)));
     }
 
     static String sha(Path f) throws IOException {

@@ -1,5 +1,8 @@
 package svd.recognizer.faces;
 
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Locale;
 import org.opencv.core.CvType;
 import org.opencv.core.Mat;
 import org.opencv.core.Size;
@@ -53,6 +56,39 @@ enum IlluminationNorm {
             return tanTriggsContrast(v, p.alpha(), p.tau());
         }
     };
+
+    /** CLAHE (faces.clahe.clip, faces.clahe.tile) по серому кадру 8 бит: результат — 8 бит. */
+    static Mat clahe8(Mat gray8, NormParams p) {
+        org.opencv.imgproc.CLAHE clahe = Imgproc.createCLAHE(p.claheClip(), new Size(p.claheTile(), p.claheTile()));
+        Mat out = new Mat();
+        clahe.apply(gray8, out);
+        return out;
+    }
+
+    /**
+     * Нормировки перед LBP из значения ключа faces.lbp.norm (п. 4.2, «Нормировка освещения перед LBP»): список через запятую
+     * из none, tt, clahe без учёта регистра, без повторов, в порядке значения; null или пусто — [NONE]; прочее — ошибка.
+     */
+    static List<IlluminationNorm> lbpNorms(String raw) {
+        List<IlluminationNorm> out = new ArrayList<>();
+        if (raw == null || raw.isBlank()) return List.of(NONE);
+        for (String v : raw.split(",")) {
+            String id = v.trim().toLowerCase(Locale.ROOT);
+            IlluminationNorm n = null;
+            for (IlluminationNorm c : values()) if (c.id.equals(id)) n = c;
+            if (n == null) throw new IllegalStateException("faces.lbp.norm: неизвестное значение «" + v.trim() + "» (none, tt, clahe)");
+            if (out.contains(n)) throw new IllegalStateException("faces.lbp.norm: повтор «" + id + "»");
+            out.add(n);
+        }
+        return out;
+    }
+
+    /** Одна нормировка перед LBP (faces-fei): значение ключа faces.lbp.norm — ровно одно из none, tt, clahe. */
+    static IlluminationNorm lbpNorm(String raw) {
+        List<IlluminationNorm> l = lbpNorms(raw);
+        if (l.size() != 1) throw new IllegalStateException("faces.lbp.norm: в faces-fei — одно значение, задано «" + raw + "»");
+        return l.get(0);
+    }
 
     /** Порог ничтожного знаменателя выравнивания контраста Tan – Triggs. */
     static final double NEGLIGIBLE = 1e-10;
