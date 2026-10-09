@@ -72,7 +72,12 @@ public final class XBaseEval {
         /** Диагностика GT (gt-diag): L0 — χ² до ближайшего снимка (как 5-lbp-chi FEI), L0-mean — χ² до средней гистограммы. */
         L0(FeiMethods.LBP_CHI, "L0"), L0MEAN(FeiMethods.LBP_CHI + "-mean", "L0-mean"),
         /** Диагностика GT: SFace — справочный предел (как 0-sface FarMethods), без зеркал и выбора по позе. */
-        SFACE("0-sface", "SFace");
+        SFACE("0-sface", "SFace"),
+        /**
+         * Проверка выравнивания (gt-crop): L1 на кадре alignCrop 112×112 (sface экспорта, в сером) и на его центральной части
+         * 92×112 (столбцы 10–101 — геометрия кадра «а»).
+         */
+        L1CROP(FeiMethods.LBP_MLDA + "-crop", "L1-crop"), L1CROP92(FeiMethods.LBP_MLDA + "-crop92", "L1-crop-92");
 
         final String id;
         final String label;
@@ -137,6 +142,42 @@ public final class XBaseEval {
         }
     }
 
+    /** Столбец начала центральной части 92×112 кадра alignCrop 112×112 (кадр «а» — шаблон ArcFace со сдвигом −10 px). */
+    static final int CROP92_X0 = (FaceAlignment.ARCFACE_SIZE - 92) / 2;
+
+    /** Центральная часть 92×112 серого кадра alignCrop 112×112 (столбцы 10–101), копия. */
+    static Mat crop92(Mat gray112) {
+        Mat sub = gray112.submat(0, gray112.rows(), CROP92_X0, CROP92_X0 + 92);
+        Mat out = sub.clone();
+        sub.release();
+        return out;
+    }
+
+    /**
+     * Векторы L1-crop и L1-crop-92 (как L1: корень гистограмм LBP) по кадрам alignCrop 112×112 BGR: перевод в серый
+     * (COLOR_BGR2GRAY); отражения — способ а (FaceMirror) с шаблоном ArcFace 112×112 для L1-crop и ownTemplate(92, 112)
+     * для L1-crop-92 (отражается уже вырезанная часть).
+     */
+    void cropVectors(Map<String, Mat> sfaceFrames) {
+        for (V v : new V[] {V.L1CROP, V.L1CROP92}) {
+            vec.put(v, new HashMap<>());
+            mir.put(v, new HashMap<>());
+        }
+        double[][] t92 = FaceAlignment.ownTemplate(92, 112);
+        for (Map.Entry<String, Mat> e : sfaceFrames.entrySet()) {
+            Mat g = new Mat();
+            org.opencv.imgproc.Imgproc.cvtColor(e.getValue(), g, org.opencv.imgproc.Imgproc.COLOR_BGR2GRAY);
+            Mat gm = FaceMirror.mirror(g, FaceAlignment.ARCFACE_112);
+            vec.get(V.L1CROP).put(e.getKey(), LbpFeature.sqrt(LbpFeature.histogram(g)));
+            mir.get(V.L1CROP).put(e.getKey(), LbpFeature.sqrt(LbpFeature.histogram(gm)));
+            Mat c = crop92(g);
+            Mat cm = FaceMirror.mirror(c, t92);
+            vec.get(V.L1CROP92).put(e.getKey(), LbpFeature.sqrt(LbpFeature.histogram(c)));
+            mir.get(V.L1CROP92).put(e.getKey(), LbpFeature.sqrt(LbpFeature.histogram(cm)));
+            for (Mat m : new Mat[] {g, gm, c, cm}) m.release();
+        }
+    }
+
     /** Признаки SFace (вариант SFACE) по кадрам alignCrop 112×112 (ключ — Sample.file().toString()); отражений нет. */
     void sfaceVectors(Map<String, Mat> sfaceFrames, org.opencv.objdetect.FaceRecognizerSF sface) {
         Map<String, double[]> v = new HashMap<>();
@@ -153,7 +194,7 @@ public final class XBaseEval {
         if (v == V.SFACE && mirror) throw new IllegalArgumentException("SFace: модели +mirror нет");
         List<List<double[]>> cls = new ArrayList<>();
         // L0, L0-mean, SFace — без обучения: когорта не нужна (оценщик берёт только классы галереи).
-        boolean mlda = v == V.A || v == V.L1 || v == V.L1IN;
+        boolean mlda = v == V.A || v == V.L1 || v == V.L1IN || v == V.L1CROP || v == V.L1CROP92;
         for (List<List<String>> group : mlda ? List.of(gallery, cohort) : List.of(gallery)) {
             for (List<String> keys : group) {
                 List<double[]> list = new ArrayList<>();
@@ -280,6 +321,10 @@ public final class XBaseEval {
             gtIn(export, dir, feiKeys, selLines, settings, out);
         } else if (a[0].equals("gt-diag")) {
             gtDiag(export, dir, feiKeys, selLines, settings, out);
+        } else if (a[0].equals("gt-crop")) {
+            gtCrop(export, dir, feiKeys, selLines, settings, out);
+        } else if (a[0].equals("gt-sep")) {
+            XBaseSep.run(dir, selLines, settings, out);
         } else {
             throw new IllegalArgumentException("XBaseEval: неизвестный режим " + a[0]);
         }
@@ -402,12 +447,12 @@ public final class XBaseEval {
 
     static Gt prepare(FarExport.Loaded export, Path dir, Map<String, Map<Integer, String>> feiKeys, List<String> selLines, SettingsStore settings)
             throws IOException {
-        return prepare(export, dir, feiKeys, selLines, settings, false);
+        return prepare(export, dir, feiKeys, selLines, settings, false, false);
     }
 
-    /** То же; diag — ещё векторы L0, L0-mean (гистограммы LBP) и SFace (кадры sface/gt экспорта) для gt-diag. */
+    /** То же; diag — ещё векторы L0, L0-mean и SFace (gt-diag); crop — векторы L1-crop и L1-crop-92 (gt-crop). */
     static Gt prepare(FarExport.Loaded export, Path dir, Map<String, Map<Integer, String>> feiKeys, List<String> selLines, SettingsStore settings,
-                      boolean diag) throws IOException {
+                      boolean diag, boolean crop) throws IOException {
         Gt g = new Gt();
         g.dir = dir;
         g.seed = settings.loadFacesSeed();
@@ -508,6 +553,23 @@ public final class XBaseEval {
             g.x.sfaceVectors(sf, sface);
             sf.values().forEach(Mat::release);
         }
+        if (crop) {
+            // L1-crop и L1-crop-92: кадры alignCrop 112×112 экспорта (sface/gt и sface/fei когорты).
+            Map<String, Mat> sf = new LinkedHashMap<>();
+            for (Sample s : g.samples.values().stream().sorted((u, w) -> u.file().toString().compareTo(w.file().toString())).toList()) {
+                Mat c = export.frame(s, Variant.SFACE);
+                if (c == null) throw new IllegalStateException("Нет кадра alignCrop снимка: " + s.file());
+                sf.put(s.file().toString(), c);
+            }
+            for (Sample s : fei) {
+                if (!cohortKeySet.contains(s.file().toString())) continue;
+                Mat c = export.frame(s, Variant.SFACE);
+                if (c == null) throw new IllegalStateException("Нет кадра alignCrop снимка когорты: " + s.file());
+                sf.put(s.file().toString(), c);
+            }
+            g.x.cropVectors(sf);
+            sf.values().forEach(Mat::release);
+        }
         fr.values().forEach(Mat::release);
         return g;
     }
@@ -518,6 +580,8 @@ public final class XBaseEval {
     static final Set<V> BASE_VARIANTS = java.util.EnumSet.of(V.A, V.L1, V.L1IN);
     /** Варианты диагностики gt-diag (PLAN.md п. 4.2, «Диагностика L0 и SFace»): A и L1 справочно, L0, L0-mean, SFace. */
     static final Set<V> DIAG_VARIANTS = java.util.EnumSet.of(V.A, V.L1, V.L0, V.L0MEAN, V.SFACE);
+    /** Варианты проверки выравнивания gt-crop (PLAN.md п. 4.2, «Проверка выравнивания и разделимости на GT»). */
+    static final Set<V> CROP_VARIANTS = java.util.EnumSet.of(V.L1, V.L1CROP, V.L1CROP92);
 
     /** Протокол с галереей galleryKeys и пробами своих probeKeys (контроль, когорта, части П2 — общие). */
     static Eval evaluate(Gt gt, Map<String, List<String>> galleryKeys, Map<String, List<String>> probeKeys) {
@@ -842,7 +906,7 @@ public final class XBaseEval {
      */
     static void gtDiag(FarExport.Loaded export, Path dir, Map<String, Map<Integer, String>> feiKeys, List<String> selLines, SettingsStore settings,
                        Path out) throws IOException {
-        Gt g = prepare(export, dir, feiKeys, selLines, settings, true);
+        Gt g = prepare(export, dir, feiKeys, selLines, settings, true, false);
         Eval cross = evaluate(g, g.x, DIAG_VARIANTS, g.galleryKeys, g.probeKeys);
         List<Map<String, List<String>>> split = withinSplit(g.own, g.galleryKeys, g.seed);
         Eval in = evaluate(g, g.x, DIAG_VARIANTS, split.get(0), split.get(1));
@@ -879,6 +943,57 @@ public final class XBaseEval {
         t.append("Оговорка: 30 своих — различимы только крупные эффекты; внутри сессии снимки почти дубли (оценка «внутри» оптимистична).\n");
         LbpNormReport.diag(t, cm, wm, List.of("L0-mean", "L0", "SFace", "L1", "A"), "L1", List.of("L0-mean", "L0", "SFace"), g.b);
         FarMethods.write(out.resolve("xbase_gt_diag.txt"), t);
+        System.out.print(t);
+    }
+
+    /**
+     * Проверка выравнивания на GT (PLAN.md, п. 4.2, «Проверка выравнивания и разделимости на GT»): L1-crop (L1 на кадре
+     * alignCrop 112×112 в сером), L1-crop-92 (его центральная часть 92×112, столбцы 10–101) и L1 — межсессионно и внутри
+     * сессии; разложение: L1-crop-92 − L1 (выравнивание и путь получения серого), L1-crop − L1-crop-92 (ширина кадра).
+     * Отчёт xbase_gt_crop.txt, оценки xbase_gt_crop_scores.tsv.gz и xbase_gt_in_crop_scores.tsv.gz.
+     */
+    static void gtCrop(FarExport.Loaded export, Path dir, Map<String, Map<Integer, String>> feiKeys, List<String> selLines, SettingsStore settings,
+                       Path out) throws IOException {
+        Gt g = prepare(export, dir, feiKeys, selLines, settings, false, true);
+        Eval cross = evaluate(g, g.x, CROP_VARIANTS, g.galleryKeys, g.probeKeys);
+        List<Map<String, List<String>>> split = withinSplit(g.own, g.galleryKeys, g.seed);
+        Eval in = evaluate(g, g.x, CROP_VARIANTS, split.get(0), split.get(1));
+        writeScores(out.resolve("xbase_gt_crop_scores.tsv.gz"), " — проверка выравнивания (L1-crop), межсессионно", g, cross);
+        writeScores(out.resolve("xbase_gt_in_crop_scores.tsv.gz"), " — проверка выравнивания (L1-crop), внутри сессии", g, in);
+        Map<String, FeiThreshold.Res> cm = new LinkedHashMap<>();
+        Map<String, FeiThreshold.Res> wm = new LinkedHashMap<>();
+        for (FeiThreshold.Res r : cross.results) cm.put(r.label, r);
+        for (FeiThreshold.Res r : in.results) wm.put(r.label, r);
+        StringBuilder t = new StringBuilder();
+        t.append("PLAN.md п. 4.2: проверка выравнивания на GT — L1 на кадрах alignCrop (XBaseEval gt-crop)\n");
+        t.append("Код: коммит ").append(FarMethods.commit()).append('\n');
+        t.append("Данные: экспорт ").append(dir).append(", коммит данных ").append(FarMethods.dataCommit(dir))
+                .append(" (a/gt — кадр а 92×112; sface/gt и sface/fei — alignCrop 112×112 BGR)\n");
+        t.append("Методы (нормировка none; протокол GT как в xbase_gt.txt и xbase_gt_in.txt; всё, кроме входа, — как у L1: LBP u2 (8, 2), 7×7,\n"
+                + "гистограммы на сумму 1, корень, MLDA, когорта — те же 20 людей FEI (на кадрах того же вида), d₁/d₂ — FeiScores.ratio,\n"
+                + "выбор X / X+mirror по |r| пробы, r0 = ").append(g.r0).append(" (r — из detections.tsv), П2 / П3 по «чужим» галереи):\n"
+                + "  L1-crop = 5-lbp-mlda-crop-ratio+pose — кадр alignCrop 112×112 (sface экспорта) → COLOR_BGR2GRAY; зеркала — способ а\n"
+                + "       (FaceMirror) с шаблоном ArcFace 112×112;\n"
+                + "  L1-crop-92 = 5-lbp-mlda-crop92-ratio+pose — центральная часть того же серого кадра 92×112 (столбцы 10–101; кадр «а» —\n"
+                + "       тот же шаблон ArcFace со сдвигом −10 px); зеркала — способ а с шаблоном ownTemplate(92, 112);\n"
+                + "  L1 — как в xbase_gt.txt (кадр «а»: своё подобие по 5 точкам YuNet, серый до warpAffine).\n"
+                + "Разложение: L1-crop-92 − L1 — выравнивание (подобие alignCrop OpenCV против своего) и путь получения серого; L1-crop −\n"
+                + "L1-crop-92 — ширина кадра (по 10 px с каждой стороны).\n");
+        t.append(String.format(Locale.ROOT, "Межсессионно: пробы своих %d, «чужие» П2/П3 %d снимков; внутри сессии: пробы своих %d, «чужие» П2/П3 %d; "
+                + "контроль — %d снимков %d людей; свои — %d человек.%n", cross.probes.stream().filter(p -> p.role().equals(OWN)).count(), cross.cvImages,
+                in.probes.stream().filter(p -> p.role().equals(OWN)).count(), in.cvImages, cross.ctrlImages, g.ctrl.size(), g.own.size()));
+        if (g.b > 0) {
+            t.append(String.format(Locale.ROOT, "Бутстреп по людям Georgia Tech целиком: B = %d, seed = %d, людей %d; одни веса для всех методов и обоих "
+                    + "режимов.%n", g.b, g.seed + FeiBootstrap.SEED_OFFSET, g.persons.size()));
+        }
+        t.append(String.format(Locale.ROOT, "Обучение и оценки: межсессионно %.0f с, внутри сессии %.0f с, потоков %d.%n", cross.fitS, in.fitS, g.threads));
+        t.append("Правило d₁/d₂ у «чужих» П2 (L1; случаи 1–6), межсессионно: ");
+        for (int k = 0; k < FeiScores.CASES; k++) t.append(k > 0 ? ", " : "").append(k + 1).append(": ").append(cross.cases[k]);
+        t.append('\n');
+        t.append("Оговорка: 30 своих — различимы только крупные эффекты; внутри сессии снимки почти дубли (оценка «внутри» оптимистична).\n");
+        LbpNormReport.diag(t, cm, wm, List.of("L1-crop", "L1-crop-92", "L1"), "L1", List.of("L1-crop-92", "L1-crop"), g.b);
+        if (g.b > 0) LbpNormReport.dropLevel(t, cm, wm, "L1-crop-92", List.of("L1-crop"));
+        FarMethods.write(out.resolve("xbase_gt_crop.txt"), t);
         System.out.print(t);
     }
 

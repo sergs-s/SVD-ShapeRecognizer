@@ -175,7 +175,14 @@ final class LbpNormReport {
         t.append("\n=== Падение по каждому методу: межсессионно − внутри сессии, п. п. (те же реплики; «*» — интервал [2,5; 97,5] не содержит 0) ===\n");
         t.append("метод | способ | ").append(DIFF_HEAD).append('\n');
         for (String l : order) for (int m : MS) t.append(diffRow(List.of(l, FeiThreshold.METHODS[m]), cross.get(l), within.get(l), m));
+        dropLevel(t, cross, within, ref, compared);
+    }
 
+    /**
+     * Разность падений (межс. − внутри)_X − (межс. − внутри)_ref и уровней межсессионно X − ref для X из compared (ошибка
+     * своих всего при FAR 1 и 5 %, верный кандидат; П2 и П3; те же реплики).
+     */
+    static void dropLevel(StringBuilder t, Map<String, FeiThreshold.Res> cross, Map<String, FeiThreshold.Res> within, String ref, List<String> compared) {
         t.append("\n=== Главное: разность падений и уровней против ").append(ref).append(", п. п. (те же реплики) ===\n");
         t.append("падение X − падение ").append(ref).append(" = (межс. − внутри)_X − (межс. − внутри)_").append(ref).append("; уровень — межсессионно X − ")
                 .append(ref).append(";\nверный кандидат от порога не зависит (одинаков при FAR 1 и 5 %).\n");
