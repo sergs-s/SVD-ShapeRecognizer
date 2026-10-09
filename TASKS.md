@@ -1390,3 +1390,8 @@ argmin сырых d. Шаг 0 – PLAN.md, п. 5.5 «Обучение базы»
   прежняя версия – `identities_before_recheck.csv`) – стали p28. Итог: 28
   человек, 447 ok, 3 excluded; Хозяин просмотрел все листы – разметка верна.
   identities.csv в SVD-faces-data – по команде Хозяина.
+- Caltech1999, identities.csv в SVD-faces-data (команда Хозяина 04.10):
+  `reports/caltech/identities.csv`, коммит данных `45fcc3d7`; 19 686 байт,
+  SHA-256 `0f4c9a3927d93d61282a36e09cd9a4c10c51b51e4f791c3ca7a97d7ad238808b`
+  (совпадает с `D:\data\Caltech1999\identities.csv`); 28 человек, 447 ok,
+  3 excluded. Снимков и листов в git нет.
