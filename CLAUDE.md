@@ -288,6 +288,12 @@ mvn compile exec:java@faces-fei-scores  # разбор файла оценок F
     цитировать Thomaz и Giraldi (2010), Image and Vision Computing 28(6),
     902–913; хранится в приватном `SVD-faces-data`;
   - Essex (`D:\data\Essex`) — не скачана: сайт недоступен (503).
+  - Color FERET (`D:\data\FERET`) — заявка подана Хозяином 09.10.2026,
+    базы пока нет. Условия (Release Agreement v1): без передачи и
+    копирования в любом виде, даже внутри организации; база и производные
+    (выровненные кадры) — только локально, не в `SVD-faces-data`, не в git,
+    не в облако; в публикациях не больше 15 снимков, ссылки на две статьи
+    из соглашения.
 - Модели opencv_zoo: `D:\data\models\opencv_zoo`, ключ `faces.models.dir`.
   Скачаны один раз, в git не кладутся; проверка — по SHA-256:
   - `face_detection_yunet_2023mar.onnx` (YuNet, 232 589 байт), лицензия MIT;
