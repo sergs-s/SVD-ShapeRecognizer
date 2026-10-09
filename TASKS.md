@@ -1395,3 +1395,13 @@ argmin сырых d. Шаг 0 – PLAN.md, п. 5.5 «Обучение базы»
   SHA-256 `0f4c9a3927d93d61282a36e09cd9a4c10c51b51e4f791c3ca7a97d7ad238808b`
   (совпадает с `D:\data\Caltech1999\identities.csv`); 28 человек, 447 ok,
   3 excluded. Снимков и листов в git нет.
+- GT, контроль «внутри сессии» (04.10): вынос общей части XBaseEval
+  (prepare / evaluate / tables) – межсессионный отчёт и оценки как у
+  `96376bf` (SHA-256 без строк коммитов кода и данных и времени: отчёт
+  `d7d262ace427489f26fe2b4151130fd220ddeb8019b417a716c0013555ce1d04`, оценки
+  `4278a86ef962e6ae89ef628385e4fddccfd88beed1c0ba6b8a301dc12268e1b6`, до и
+  после одинаковы; входные a/gt, detections.tsv, gt_sessions.tsv, a/fei,
+  fei_selection.tsv между коммитами данных не менялись). Режим `gt-in`,
+  код `29316c3`, данные `b605f9c7`, воспроизводится побайтно; лист кадров
+  `reports/faces/xbase/gt_frames.png` (вне git). Каталог GT – только
+  `gt_db` (faces.gt.dir → экспорт a/gt), `cropped_faces` не используется.
