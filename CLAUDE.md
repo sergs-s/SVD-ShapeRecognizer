@@ -273,8 +273,14 @@ mvn compile exec:java@faces-fei-scores  # разбор файла оценок F
   - `D:\data\GeorgiaTech` — Georgia Tech Face Database (anefian.com):
     50 человек × 15, 640×480, человек = папка;
   - `D:\data\Caltech1999` — Caltech Face Dataset 1999 (data.caltech.edu,
-    DOI 10.22002/D1.20237): 450 снимков 896×592, около 27 человек без
-    разметки личности;
+    DOI 10.22002/D1.20237): 450 снимков 896×592; личности размечены Хозяином
+    вручную (`faces-caltech`, `CaltechLabeler`; ключ `faces.caltech.dir` /
+    `FACES_CALTECH_DIR`, в settings.properties не задан): 28 человек, 447
+    ok, 3 excluded; `identities.csv` (file;person;status;time) и кэш
+    YuNet + SFace `caltech_yunet_sface.tsv` – в каталоге базы, копия
+    разметки – `SVD-faces-data/reports/caltech/identities.csv` (`45fcc3d7`,
+    SHA-256 – TASKS.md); листы проверки `-Dexec.args=sheet` →
+    `reports/faces/caltech/` (вне git);
   - `D:\data\FEI` — FEI Face Database (fei.edu.br/~cet/facedatabase.html),
     ключ `faces.fei.dir` / `FACES_FEI_DIR`: 200 человек × 14 исходных снимков
     640×480 (`originalimages`, №11 — «a» нейтральный, №12 — «b» улыбка,
@@ -432,6 +438,25 @@ mvn compile exec:java@faces-fei-scores  # разбор файла оценок F
   175 с на конфигурацию для L1 и L1-in). Разбор способов П0–П3:
   `faces-fei-threshold "-Dexec.args=<файл оценок> <файл перекрёстной
   оценки>"` → `fei_threshold.txt` (около 3 с).
+- Сверка на других базах (PLAN.md п. 5.5; результаты – там): инвентаризация
+  баз – `SVD-faces-data/reports/datasets_inventory.txt`, сессии GT по дате
+  EXIF – `reports/gt_sessions.tsv` (там же). `XBaseEval` (`faces-xbase`, с
+  `96376bf`, общая часть вынесена в `29316c3`): `java … XBaseEval gt` –
+  межсессионно, `gt-in` – контроль «внутри сессии» (снимки даты галереи
+  пополам, seed faces.seed + 9100) плюс лист кадров `gt_frames.png`,
+  `fei-check <файл оценок FEI>` – контроль пути (L1 конфигурации 0 =
+  `fei_630f21a`). Переменные: `FACES_EXPORT_DIR=D:/data/SVD-faces-data
+  FACES_FEI_POSE_R0=0.12 FACES_FEI_BOOTSTRAP=2000` (потоки –
+  `faces.fei.cv.threads`); `java -Xmx10g`, около 45–55 с. Отчёты –
+  `reports/faces/xbase/` (`xbase_gt.txt`, `xbase_gt_in.txt`, `*_scores.tsv.gz`,
+  `xbase_fei_check.txt`), копии – `SVD-faces-data/reports/xbase_<код>/`
+  (`xbase_96376bf`, `xbase_29316c3`). Протокол GT: отбор |r| ≤ R
+  (fei_selection.tsv), свои – ≥ 2 дат, галерея – дата с наибольшим числом
+  снимков, контроль – односессионные, когорта – 20 «полных» людей FEI (seed
+  faces.seed + 9000), порог П2/П3 по «чужим» галереи (5 частей, seed
+  faces.seed + 8100). Данные – только экспорт: GT в нём – из `gt_db`
+  (`faces.gt.dir`), `cropped_faces` не используется. MUCT и ORL – ещё не
+  сделаны (порядок и решения – PLAN.md п. 5.5).
 - **Продолжение после обрыва (требование Хозяина 02.10.2026):** долгие
   прогоны (faces-fei и подобные) должны периодически – после каждой
   законченной части, например конфигурации, – сохранять на диск
