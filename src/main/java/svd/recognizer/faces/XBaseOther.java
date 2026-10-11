@@ -39,7 +39,7 @@ import svd.recognizer.storage.SettingsStore;
  *   <li>MUCT: когорта MLDA — своя, 20 человек MUCT (перестановка seed + 9400, близнецы 247 и 248 не берутся), все их снимки;
  *       остальные люди — 5 частей (seed + 9410, близнецы — одной единицей); в ротации j часть j — контроль, остальные — свои;
  *       снимки своего — пополам случайно (seed + 9420; первые ⌈n/2⌉ — галерея), одинаково во всех ротациях; 5 конфигураций;
- *       справочно — L1 с когортой FEI 20 (как на GT);</li>
+ *       основные — L1 и L1-in; справочно — L1 с когортой FEI 20 (как на GT) и A только на ротации 0 (решение 11.10.2026);</li>
  *   <li>ORL: когорта — встроенная FEI 20; 5 частей по 8 человек (seed + 9500), снимки пополам (seed + 9510); конфигурация
  *       2j + k: часть j — контроль, k = 0 — галерея первая половина, k = 1 — вторая (подротация); 10 конфигураций;</li>
  *   <li>«чужие» П2/П3 конфигурации s — 5 частей своих (cvParts: как FeiMethods.cvParts, seed 100 + s); бутстреп по людям базы
@@ -401,24 +401,41 @@ final class XBaseOther {
         x.vectors(fr, XBaseEval.BASE_VARIANTS, t.params);
         fr.values().forEach(Mat::release);
 
-        String fp = FeiCheckpoint.fingerprint(dir, String.format(Locale.ROOT, "режим %s; данные %s; seed %d; r0 %s; конфигураций %d", mode,
-                FarMethods.dataCommit(dir), t.seed, t.r0, confs.size()));
+        // Состав (решение Хозяина 11.10.2026): MUCT — основные L1, L1-in на 5 ротациях, затем справочно L1 с когортой FEI на 5,
+        // затем справочно A на ротации 0; ORL — L1, L1-in, A на всех конфигурациях.
+        Set<V> mainVs = muct ? EnumSet.of(V.L1, V.L1IN) : XBaseEval.BASE_VARIANTS;
+        String fp = FeiCheckpoint.fingerprint(dir, String.format(Locale.ROOT, "режим %s; данные %s; seed %d; r0 %s; конфигураций %d; состав %s", mode,
+                FarMethods.dataCommit(dir), t.seed, t.r0, confs.size(), muct ? "main L1,L1-in; fei L1; a A (ротация 0)" : "main L1,L1-in,A"));
         Checkpoint cp = new Checkpoint(out.resolve("checkpoint_" + mode), fp);
-        Run main = run(t, b, x, XBaseEval.BASE_VARIANTS, confs, cohort, cp, "main");
+        Run main = run(t, b, x, mainVs, confs, cohort, cp, "main");
         Run ref = muct ? run(t, b, x, EnumSet.of(V.L1), confs, feiCohort, cp, "fei") : null;
+        Run runA = muct ? run(t, b, x, EnumSet.of(V.A), confs.subList(0, 1), cohort, cp, "a") : null;
 
         String head = "# Сверка на других базах (XBaseOther, PLAN.md п. 5.5): " + b.title + "; s — конфигурация; роли own — свой, ctrl — контрольный чужой, "
                 + "cv<q> — снимок галереи человека части q против модели без части q\n# Код: коммит " + FarMethods.commit() + "\n# Данные: экспорт " + dir
                 + ", коммит данных " + FarMethods.dataCommit(dir) + "\n";
         writeScores(out.resolve("xbase_" + mode + "_scores.tsv.gz"), head + "# Когорта: " + (muct ? "своя 20 MUCT" : "FEI 20") + "\n", main.lines.toString());
         if (ref != null) writeScores(out.resolve("xbase_muct_fei_scores.tsv.gz"), head + "# Когорта: FEI 20 (справочно, только L1)\n", ref.lines.toString());
+        if (runA != null) writeScores(out.resolve("xbase_muct_a_scores.tsv.gz"), head + "# Когорта: своя 20 MUCT; A справочно, ротация 0\n", runA.lines.toString());
 
         Map<V, String> labels = new LinkedHashMap<>();
         labels.put(V.L1, "L1");
         labels.put(V.L1IN, "L1-in");
-        labels.put(V.A, "A");
+        if (!muct) labels.put(V.A, "A");
         Map<String, FeiThreshold.Res> res = results(t, main, labels);
-        if (ref != null) res.putAll(results(t, ref, Map.of(V.L1, "L1 (когорта FEI)")));
+        List<String[]> pairs = new ArrayList<>();
+        pairs.add(new String[] {"L1", "L1-in"});
+        if (muct) {
+            res.putAll(results(t, ref, Map.of(V.L1, "L1 (когорта FEI)")));
+            res.put("A (ротация 0)", FeiThreshold.evaluate("A (ротация 0)", V.A.ratioId(), runA.cfg.get(V.A), runA.imp.get(V.A), t.persons.size(), t.b,
+                    t.seed + FeiBootstrap.SEED_OFFSET));
+            res.put("L1 (ротация 0)", FeiThreshold.evaluate("L1 (ротация 0)", V.L1.ratioId(), main.cfg.get(V.L1).subList(0, 1), main.imp.get(V.L1).subList(0, 1),
+                    t.persons.size(), t.b, t.seed + FeiBootstrap.SEED_OFFSET));
+            pairs.add(new String[] {"L1", "L1 (когорта FEI)"});
+            pairs.add(new String[] {"L1 (ротация 0)", "A (ротация 0)"});
+        } else {
+            pairs.add(new String[] {"L1", "A"});
+        }
 
         StringBuilder r = new StringBuilder();
         r.append("PLAN.md п. 5.5, сверка на других базах: ").append(b.title).append(" (XBaseEval ").append(mode).append("), нормировка none\n");
@@ -436,6 +453,8 @@ final class XBaseOther {
             r.append(String.format(Locale.ROOT, "Когорта MLDA — своя: 20 человек MUCT (Random(seed + %d), близнецы 247 и 248 не берутся), %d снимков: %s.%n",
                     MUCT_COHORT_OFFSET, cohort.stream().mapToInt(List::size).sum(), String.join(", ", cohortP)));
             r.append(String.format(Locale.ROOT, "Справочно — L1 с когортой FEI 20 (seed faces.seed + 9000, как на GT), %d снимков.%n", feiCohortKeys.size()));
+            r.append("Состав (решение Хозяина 11.10.2026): основные строки — L1 и L1-in на 5 ротациях; справочно — L1 с когортой FEI на 5\n"
+                    + "ротациях и A только на ротации 0 (рядом для пары — L1 на той же ротации).\n");
         } else {
             r.append(String.format(Locale.ROOT, "Когорта MLDA — встроенная: 20 «полных» людей FEI (seed faces.seed + 9000), %d снимков.%n", feiCohortKeys.size()));
         }
@@ -454,9 +473,9 @@ final class XBaseOther {
             r.append(String.format(Locale.ROOT, "Бутстреп по людям %s вне когорты: B = %d, seed = %d, людей %d; одни веса для всех строк; порог — заново в каждой "
                     + "реплике;%n[2,5; 97,5] — процентили; «*» — интервал разности не содержит 0.%n", b.title, t.b, t.seed + FeiBootstrap.SEED_OFFSET, rest.size()));
         }
-        r.append(String.format(Locale.ROOT, "Обучение и оценки: %.0f с%s; из контрольной точки — конфигураций %d; потоков %d.%n", main.fitS + (ref != null ? ref.fitS : 0),
-                ref != null ? String.format(Locale.ROOT, " (основные %.0f, когорта FEI %.0f)", main.fitS, ref.fitS) : "", main.resumed + (ref != null ? ref.resumed : 0),
-                t.threads));
+        r.append(String.format(Locale.ROOT, "Обучение и оценки: %.0f с%s; из контрольной точки — конфигураций %d; потоков %d.%n",
+                main.fitS + (muct ? ref.fitS + runA.fitS : 0), muct ? String.format(Locale.ROOT, " (основные %.0f, когорта FEI %.0f, A %.0f)", main.fitS,
+                        ref.fitS, runA.fitS) : "", main.resumed + (muct ? ref.resumed + runA.resumed : 0), t.threads));
         r.append("Правило d₁/d₂ у «чужих» П2 (L1; случаи 1–6), все конфигурации: ");
         for (int k = 0; k < FeiScores.CASES; k++) r.append(k > 0 ? ", " : "").append(k + 1).append(": ").append(main.cases[k]);
         r.append('\n');
@@ -465,7 +484,7 @@ final class XBaseOther {
         int[] unit = FeiBootstrap.unit(rest.size());
         Map<String, Sep> sep = new LinkedHashMap<>();
         for (Map.Entry<String, FeiThreshold.Res> e : res.entrySet()) sep.put(e.getKey(), sep(e.getValue().cfgs, unit, w));
-        tables(r, res, sep, t.b, muct);
+        tables(r, res, sep, t.b, pairs);
         FarMethods.write(out.resolve("xbase_" + mode + ".txt"), r);
         System.out.print(r);
         cp.delete();
@@ -552,7 +571,7 @@ final class XBaseOther {
 
     // ---------------------------------------------------------------- таблицы
 
-    static void tables(StringBuilder t, Map<String, FeiThreshold.Res> res, Map<String, Sep> sep, int b, boolean muct) {
+    static void tables(StringBuilder t, Map<String, FeiThreshold.Res> res, Map<String, Sep> sep, int b, List<String[]> pairs) {
         t.append("\n=== Сводка: ошибка своих при П2, П3 и при равном фактическом FAR контроля (разделимость) ===\n");
         t.append("П2 / П3 — порог по «чужим» галереи (в скобках — FAR контроля по снимкам, точка); «разд.» — порог по контрольным чужим своей\n"
                 + "конфигурации (фактический FAR контроля по снимкам — в скобках, по всем конфигурациям); EER — по объединённым попыткам.\n");
@@ -597,8 +616,6 @@ final class XBaseOther {
         }
 
         if (b > 0) {
-            List<String[]> pairs = new ArrayList<>(List.of(new String[] {"L1", "L1-in"}, new String[] {"L1", "A"}));
-            if (muct) pairs.add(new String[] {"L1", "L1 (когорта FEI)"});
             t.append("\n=== Парные разности, п. п. (те же реплики; «*» — интервал [2,5; 97,5] не содержит 0) ===\n");
             t.append("пара | способ | ").append(LbpNormReport.DIFF_HEAD).append('\n');
             for (String[] p : pairs) {
