@@ -323,6 +323,8 @@ public final class XBaseEval {
             gtDiag(export, dir, feiKeys, selLines, settings, out);
         } else if (a[0].equals("gt-crop")) {
             gtCrop(export, dir, feiKeys, selLines, settings, out);
+        } else if (a[0].equals("gt-quality")) {
+            XBaseQuality.run(export, dir, feiKeys, selLines, settings, out);
         } else if (a[0].equals("gt-sep")) {
             XBaseSep.run(dir, selLines, settings, out);
         } else {
