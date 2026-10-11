@@ -296,12 +296,15 @@ mvn compile exec:java@faces-fei-scores  # разбор файла оценок F
     цитировать Thomaz и Giraldi (2010), Image and Vision Computing 28(6),
     902–913; хранится в приватном `SVD-faces-data`;
   - Essex (`D:\data\Essex`) — не скачана: сайт недоступен (503).
-  - Color FERET (`D:\data\FERET`) — заявка подана Хозяином 09.10.2026,
-    базы пока нет. Условия (Release Agreement v1): без передачи и
-    копирования в любом виде, даже внутри организации; база и производные
-    (выровненные кадры) — только локально, не в `SVD-faces-data`, не в git,
-    не в облако; в публикациях не больше 15 снимков, ссылки на две статьи
-    из соглашения.
+  - Color FERET (`D:\data\FERET`) — получает и хранит Хозяин (заявка
+    09.10.2026, учётная запись для скачивания – 11.10.2026); на 11.10
+    каталога на диске ещё нет. Условия (Release Agreement v1): без передачи
+    и копирования в любом виде, даже внутри организации; база и
+    производные (выровненные кадры) — только локально, не в
+    `SVD-faces-data`, не в git, не в облако; в публикациях не больше 15
+    снимков, ссылки на две статьи из соглашения; логин и пароль нигде не
+    записывать (ни в файлы, ни в отчёты, ни в git). Опись и протокол — позже,
+    по заданию Жорика.
 - Модели opencv_zoo: `D:\data\models\opencv_zoo`, ключ `faces.models.dir`.
   Скачаны один раз, в git не кладутся; проверка — по SHA-256:
   - `face_detection_yunet_2023mar.onnx` (YuNet, 232 589 байт), лицензия MIT;
@@ -484,6 +487,37 @@ mvn compile exec:java@faces-fei-scores  # разбор файла оценок F
   <оценки tt> <перекрёстная tt> …"` → `fei_lbp_norm.txt` (нормировка – по
   шапкам файлов). Итог GT (09.10): tt и clahe условие 1 не выполнили,
   FEI не прогонялся.
+- Режимы `XBaseEval` на GT (все: `java -Xmx10g -cp "target/classes;<classpath
+  из mvn dependency:build-classpath>" svd.recognizer.faces.XBaseEval
+  <режим>`, переменные `FACES_EXPORT_DIR=D:/data/SVD-faces-data
+  FACES_FEI_POSE_R0=0.12 FACES_FEI_BOOTSTRAP=2000`; отчёты –
+  `reports/faces/xbase/`, копии – `SVD-faces-data/reports/xbase_<код>/`;
+  бутстреп по людям GT, B = 2000, seed faces.seed + 7000 = 7042; итоги –
+  PLAN.md п. 4.2 и 5.5, подробности – TASKS.md):
+  - `gt` / `gt-in` – межсессионно / внутри сессии (половины даты, seed
+    faces.seed + 9100), L1, L1-in, A; с `FACES_LBP_NORM=none,tt,clahe` –
+    ещё `xbase_gt_norm.txt` / `xbase_gt_in_norm.txt` (код `17c1311`, данные
+    `xbase_17c1311`);
+  - `gt-diag` – L0, L0-mean, SFace, L1, A, оба режима → `xbase_gt_diag.txt`
+    (`871f450`, `xbase_871f450`; нужен `faces.models.dir` для SFace);
+  - `gt-crop` – L1 на alignCrop 112×112 (sface/gt, sface/fei) и его
+    центральной части 92×112 → `xbase_gt_crop.txt`; `gt-sep` (`XBaseSep`) –
+    разделимость L1 и SFace по файлам оценок gt, gt-in, gt-diag (читает их
+    из `reports/faces/xbase/`, запускать после них) → `xbase_gt_sep.txt`
+    (`9439be7`, `xbase_9439be7`);
+  - `gt-quality` (`XBaseQuality`) – 6 мер качества кадра «а», разности
+    «пробы − галерея», ошибка L1 по квартилям (читает
+    `xbase_gt_scores.tsv.gz`) → `xbase_gt_quality.txt`, `.tsv` (`680efac`,
+    `xbase_680efac`);
+  - `gt-xs` (`XBaseXs`) – L1-xs, L1-xs0, L1: части своих seed faces.seed +
+    9200, пул FEI для L1-xs0 seed faces.seed + 9300 → `xbase_gt_xs.txt`
+    (`aa22d0e`, `xbase_aa22d0e`; около 3–4 мин).
+  Проверка «прежние отчёты не изменились» – SHA-256 после `tr -d '\r'` и
+  удаления строк «Код:», «Данные:», «# Код:», «# Данные:», строк времени;
+  у gt-sep и gt-quality в шапке ещё SHA-256 входных файлов оценок (меняются
+  с коммитом в их шапке) – сравнивать без строк «Файл оценок». Последние
+  коммиты на 11.10.2026: код `aa22d0e`, данные `SVD-faces-data`
+  `4d29faf5`; ничего не запушено.
 - **Продолжение после обрыва (требование Хозяина 02.10.2026):** долгие
   прогоны (faces-fei и подобные) должны периодически – после каждой
   законченной части, например конфигурации, – сохранять на диск
