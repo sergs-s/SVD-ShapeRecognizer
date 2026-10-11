@@ -355,6 +355,8 @@ public final class XBaseEval {
             XBaseQuality.run(export, dir, feiKeys, selLines, settings, out);
         } else if (a[0].equals("gt-ltp")) {
             XBaseLtp.run(export, dir, feiKeys, selLines, settings, out);
+        } else if (a[0].equals("muct") || a[0].equals("orl")) {
+            XBaseOther.run(a[0], export, dir, feiKeys, selLines, settings, out);
         } else if (a[0].equals("gt-sep-ltp")) {
             XBaseSepLtp.run(dir, settings, out);
         } else if (a[0].equals("gt-sep")) {
@@ -465,6 +467,12 @@ public final class XBaseEval {
         final Map<IlluminationNorm, XBaseEval> xn = new LinkedHashMap<>();
         /** gt-diag: модель SFace (путь и SHA-256). */
         String sfaceModel;
+        /** Номер снимка по ключу (MUCT, ORL — XBaseOther); null — цифры имени файла (GT). */
+        Map<String, Integer> imageNo;
+
+        int img(String key) {
+            return imageNo != null ? imageNo.get(key) : image(samples.get(key));
+        }
     }
 
     /** Итоги одного протокола: строки оценок, итоги вариантов и сведения для отчёта. */
@@ -625,46 +633,79 @@ public final class XBaseEval {
     /** То же для векторов x и вариантов vs (по порядку V). */
     static Eval evaluate(Gt gt, XBaseEval x, Set<V> vs, Map<String, List<String>> galleryKeys, Map<String, List<String>> probeKeys) {
         Eval ev = new Eval();
+        List<Probe> mainProbes = probes(gt, probeKeys);
+        List<List<String>> parts = FeiMethods.cvParts(gt.own, gt.seed, CV_S);
+        long t1 = System.nanoTime();
+        ev.lines = fitLines(gt, x, vs, galleryKeys, mainProbes, parts, 0);
+        ev.fitS = (System.nanoTime() - t1) / 1e9;
+        ev.probes = mainProbes;
+        ev.parts = parts;
+        Parsed p = parse(gt, vs, galleryKeys, mainProbes, parts, ev.lines);
+        for (V v : vs) {
+            ev.results.add(FeiThreshold.evaluate(v.label, v.ratioId(), List.of(p.cfg.get(v)), List.of(p.imp.get(v)), gt.persons.size(), gt.b,
+                    gt.seed + FeiBootstrap.SEED_OFFSET));
+        }
+        ev.ctrlImages = p.ctrlImages;
+        ev.cvImages = p.cvImages;
+        System.arraycopy(p.cases, 0, ev.cases, 0, ev.cases.length);
+        return ev;
+    }
+
+    /** Пробы основного протокола: свои (пробы probeKeys) и контрольные чужие (все снимки gt.ctrl); свои первыми, по ключу. */
+    static List<Probe> probes(Gt gt, Map<String, List<String>> probeKeys) {
+        List<Probe> mainProbes = new ArrayList<>();
+        for (int i = 0; i < gt.own.size(); i++) {
+            String p = gt.own.get(i);
+            for (String k : probeKeys.get(p)) mainProbes.add(new Probe(OWN, p, gt.img(k), k, i));
+        }
+        for (String p : gt.ctrl) for (List<String> ks : gt.byPerson.get(p).values()) for (String k : ks) mainProbes.add(new Probe(CTRL, p, gt.img(k), k, -1));
+        mainProbes.sort((u, w) -> u.role().equals(w.role()) ? u.key().compareTo(w.key()) : u.role().equals(OWN) ? -1 : 1);
+        return mainProbes;
+    }
+
+    /**
+     * Строки оценок вариантов vs: модель на всей галерее (пробы mainProbes) и модели без части q (пробы — снимки галереи людей
+     * части, роль cv&lt;q&gt;); s — номер конфигурации в строках файла оценок.
+     */
+    static String fitLines(Gt gt, XBaseEval x, Set<V> vs, Map<String, List<String>> galleryKeys, List<Probe> mainProbes, List<List<String>> parts,
+                           int s) {
         List<String> own = gt.own;
         List<List<String>> cohort = gt.cohort;
-        // Пробы и роли.
-        List<Probe> mainProbes = new ArrayList<>();
-        for (int i = 0; i < own.size(); i++) {
-            String p = own.get(i);
-            for (String k : probeKeys.get(p)) mainProbes.add(new Probe(OWN, p, image(gt.samples.get(k)), k, i));
-        }
-        for (String p : gt.ctrl) for (List<String> ks : gt.byPerson.get(p).values()) for (String k : ks) mainProbes.add(new Probe(CTRL, p, image(gt.samples.get(k)), k, -1));
-        mainProbes.sort((u, w) -> u.role().equals(w.role()) ? u.key().compareTo(w.key()) : u.role().equals(OWN) ? -1 : 1);
-        List<List<String>> parts = FeiMethods.cvParts(own, gt.seed, CV_S);
         List<List<String>> fullGallery = own.stream().map(galleryKeys::get).toList();
-
         List<Callable<String>> tasks = new ArrayList<>();
         for (V v : vs) {
             for (boolean m : v == V.SFACE ? new boolean[] {false} : new boolean[] {false, true}) {
                 String method = v.id + (m ? FeiMethods.MIRROR : "");
-                tasks.add(() -> x.lines(method, 0, 0, x.fit(v, m, fullGallery, cohort), v, own, mainProbes));
+                tasks.add(() -> x.lines(method, s, 0, x.fit(v, m, fullGallery, cohort), v, own, mainProbes));
                 for (int q = 0; q < FeiMethods.CV_PARTS; q++) {
                     Set<String> part = new HashSet<>(parts.get(q));
                     List<String> g = own.stream().filter(p -> !part.contains(p)).toList();
                     List<List<String>> gk = g.stream().map(galleryKeys::get).toList();
                     List<Probe> pr = new ArrayList<>();
-                    for (String p : own) if (part.contains(p)) for (String k : galleryKeys.get(p)) pr.add(new Probe(FeiMethods.CV_ROLE + q, p, image(gt.samples.get(k)), k, -1));
-                    tasks.add(() -> x.lines(method, 0, 0, x.fit(v, m, gk, cohort), v, g, pr));
+                    for (String p : own) if (part.contains(p)) for (String k : galleryKeys.get(p)) pr.add(new Probe(FeiMethods.CV_ROLE + q, p, gt.img(k), k, -1));
+                    tasks.add(() -> x.lines(method, s, 0, x.fit(v, m, gk, cohort), v, g, pr));
                 }
             }
         }
-        long t1 = System.nanoTime();
-        List<String> res = run(tasks, gt.threads);
-        ev.fitS = (System.nanoTime() - t1) / 1e9;
         StringBuilder all = new StringBuilder();
-        res.forEach(all::append);
-        ev.lines = all.toString();
-        ev.probes = mainProbes;
-        ev.parts = parts;
+        run(tasks, gt.threads).forEach(all::append);
+        return all.toString();
+    }
 
-        // Разбор: модель по позе пробы, конфигурация и «чужие» П2 / П3.
+    /** Разбор строк одной конфигурации: [вариант] данные своих и контроля, «чужие» П2/П3; объём; случаи d₁/d₂ (L1). */
+    static final class Parsed {
+        final Map<V, FeiDecompose.Cfg> cfg = new HashMap<>();
+        final Map<V, FeiThreshold.Imp> imp = new HashMap<>();
+        int ctrlImages;
+        int cvImages;
+        final int[] cases = new int[FeiScores.CASES];
+    }
+
+    /** Разбор строк оценок: модель по позе пробы, конфигурация и «чужие» П2 / П3. */
+    static Parsed parse(Gt gt, Set<V> vs, Map<String, List<String>> galleryKeys, List<Probe> mainProbes, List<List<String>> parts, String lines) {
+        Parsed out = new Parsed();
         Map<String, Row> rows = new HashMap<>();
-        for (String l : ev.lines.lines().toList()) {
+        for (String l : lines.lines().toList()) {
             Row r = FeiScores.parse(l);
             rows.put(r.method() + "\t" + r.role() + "\t" + r.person() + "\t" + r.image(), r);
         }
@@ -689,8 +730,8 @@ public final class XBaseEval {
                     for (String k : galleryKeys.get(p)) {
                         boolean f = gt.rOf.get(k) <= gt.r0;
                         if (f) cvFront++;
-                        Row r = choose(rows, v, FeiMethods.CV_ROLE + q, p, image(gt.samples.get(k)), f);
-                        cvList.add(new double[] {gt.pIdx.get(p), FeiScores.ratio(r, v == V.L1 ? ev.cases : null)});
+                        Row r = choose(rows, v, FeiMethods.CV_ROLE + q, p, gt.img(k), f);
+                        cvList.add(new double[] {gt.pIdx.get(p), FeiScores.ratio(r, v == V.L1 ? out.cases : null)});
                     }
                 }
             }
@@ -715,13 +756,12 @@ public final class XBaseEval {
             c.thrR = new double[0];
             c.ctrlP = ctrlList.stream().mapToInt(d -> (int) d[0]).toArray();
             c.ctrlR = ctrlList.stream().mapToDouble(d -> d[1]).toArray();
-            ev.ctrlImages = c.ctrlR.length;
-            ev.cvImages = cvList.size();
-            FeiThreshold.Imp imp = FeiThreshold.Imp.of(cvList, cvFront);
-            ev.results.add(FeiThreshold.evaluate(v.label, v.ratioId(), List.of(c), List.of(imp), gt.persons.size(), gt.b,
-                    gt.seed + FeiBootstrap.SEED_OFFSET));
+            out.ctrlImages = c.ctrlR.length;
+            out.cvImages = cvList.size();
+            out.cfg.put(v, c);
+            out.imp.put(v, FeiThreshold.Imp.of(cvList, cvFront));
         }
-        return ev;
+        return out;
     }
 
     /** Файл оценок протокола (шапка — описание ролей, коммиты). */
