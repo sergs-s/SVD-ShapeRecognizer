@@ -26,6 +26,16 @@ final class MldaScorer implements GalleryScorer {
 
     /** relTol — порог ранга оболочки (σᵢ > relTol·σ₁). */
     ScoreModel fit(List<List<double[]>> classes, int gallery, double relTol) {
+        return fit(classes, classes, gallery, relTol);
+    }
+
+    /**
+     * Проекция MLDA — по классам train, центры галереи (первые gallery классов) — по классам templates (PLAN.md п. 4.2,
+     * «Межсессионная изменчивость, выученная на других людях»: шаблоны только по снимкам даты галереи). При templates =
+     * train — как fit(classes, gallery).
+     */
+    ScoreModel fit(List<List<double[]>> train, List<List<double[]>> templates, int gallery, double relTol) {
+        List<List<double[]>> classes = train;
         LdaMath.Data d = LdaMath.Data.of(classes);
         int nFull = d.mean().length;
         LdaMath.Span span = LdaMath.span(d, relTol, Integer.MAX_VALUE);
@@ -38,6 +48,6 @@ final class MldaScorer implements GalleryScorer {
         String info = String.format(Locale.ROOT, "N %d, C %d, n %d, ранг оболочки r %d, осей %d; λ̄ = tr(S_w)/n = %.6g; заменено "
                 + "собственных значений в оболочке %d из %d (и все %d вне оболочки)", d.x().length, d.classes(), nFull,
                 span.basis().length, axes.a()[0].length, floor, axes.replaced(), span.basis().length, nFull - span.basis().length);
-        return LdaModel.of(classes, gallery, d.mean(), LdaMath.projection(axes.a(), span.basis()), info);
+        return LdaModel.of(templates, gallery, d.mean(), LdaMath.projection(axes.a(), span.basis()), info);
     }
 }
