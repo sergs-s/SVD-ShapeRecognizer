@@ -355,6 +355,8 @@ public final class XBaseEval {
             XBaseQuality.run(export, dir, feiKeys, selLines, settings, out);
         } else if (a[0].equals("gt-ltp")) {
             XBaseLtp.run(export, dir, feiKeys, selLines, settings, out);
+        } else if (a[0].equals("gt-sep-ltp")) {
+            XBaseSepLtp.run(dir, settings, out);
         } else if (a[0].equals("gt-sep")) {
             XBaseSep.run(dir, selLines, settings, out);
         } else {
