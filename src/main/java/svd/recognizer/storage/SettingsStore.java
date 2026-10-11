@@ -71,6 +71,7 @@ public class SettingsStore {
     private static final String KEY_FACES_FEI_LBP = "faces.fei.lbp";
     private static final String KEY_FACES_LBP_NORM = "faces.lbp.norm";
     private static final String KEY_FACES_LTP_T = "faces.ltp.t";
+    private static final String KEY_FACES_FERET_DIR = "faces.feret.dir";
     private static final String KEY_FACES_CALTECH_DIR = "faces.caltech.dir";
     private static final String KEY_FACES_FEI_CV = "faces.fei.cv";
     private static final String KEY_FACES_FEI_CV_THREADS = "faces.fei.cv.threads";
@@ -463,6 +464,16 @@ public class SettingsStore {
      */
     public String loadFacesLtpT() {
         return path(KEY_FACES_LTP_T);
+    }
+
+    /**
+     * Каталог Color FERET (PLAN.md п. 5.5, «Протокол FERET»; база и производные — только локально): ключ faces.feret.dir или
+     * переменная окружения FACES_FERET_DIR; пути по умолчанию нет.
+     *
+     * @return значение как есть или null, если не задано
+     */
+    public String loadFacesFeretDir() {
+        return path(KEY_FACES_FERET_DIR);
     }
 
     /**
