@@ -70,6 +70,7 @@ public class SettingsStore {
     private static final String KEY_FACES_FEI_VECTORS = "faces.fei.vectors";
     private static final String KEY_FACES_FEI_LBP = "faces.fei.lbp";
     private static final String KEY_FACES_LBP_NORM = "faces.lbp.norm";
+    private static final String KEY_FACES_LTP_T = "faces.ltp.t";
     private static final String KEY_FACES_CALTECH_DIR = "faces.caltech.dir";
     private static final String KEY_FACES_FEI_CV = "faces.fei.cv";
     private static final String KEY_FACES_FEI_CV_THREADS = "faces.fei.cv.threads";
@@ -452,6 +453,16 @@ public class SettingsStore {
      */
     public String loadFacesLbpNorm() {
         return path(KEY_FACES_LBP_NORM);
+    }
+
+    /**
+     * Порог t LTP (п. 4.2, «LTP – устойчивость LBP к шуму»; решение Хозяина 11.10.2026 — 0.1, на шкале выхода Tan – Triggs):
+     * ключ faces.ltp.t или переменная окружения FACES_LTP_T. Значения по умолчанию нет; разбор и проверка — XBaseLtp.
+     *
+     * @return значение как есть или null, если не задано
+     */
+    public String loadFacesLtpT() {
+        return path(KEY_FACES_LTP_T);
     }
 
     /**

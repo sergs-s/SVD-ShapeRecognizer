@@ -77,7 +77,12 @@ public final class XBaseEval {
          * Проверка выравнивания (gt-crop): L1 на кадре alignCrop 112×112 (sface экспорта, в сером) и на его центральной части
          * 92×112 (столбцы 10–101 — геометрия кадра «а»).
          */
-        L1CROP(FeiMethods.LBP_MLDA + "-crop", "L1-crop"), L1CROP92(FeiMethods.LBP_MLDA + "-crop92", "L1-crop-92");
+        L1CROP(FeiMethods.LBP_MLDA + "-crop", "L1-crop"), L1CROP92(FeiMethods.LBP_MLDA + "-crop92", "L1-crop-92"),
+        /**
+         * LTP (gt-ltp, PLAN.md п. 4.2, «LTP – устойчивость LBP к шуму»): корень гистограмм LTP (LtpFeature) по выходу Tan –
+         * Triggs, всё остальное — как у L1; LTP-in-tt — внутренние блоки 1–5 в каждой половине.
+         */
+        LTP("5-ltp-mlda", "LTP-tt"), LTPIN("5-ltp-mlda-in", "LTP-in-tt");
 
         final String id;
         final String label;
@@ -178,6 +183,27 @@ public final class XBaseEval {
         }
     }
 
+    /**
+     * Векторы LTP-tt и LTP-in-tt (gt-ltp): корень гистограмм LTP с порогом t по выходу Tan – Triggs (params) кадра «а»;
+     * отражённые кадры — FaceMirror (способ а), Tan – Triggs после отражения и повторного выравнивания.
+     */
+    void ltpVectors(Map<String, Mat> frames, IlluminationNorm.NormParams params, double t) {
+        for (V v : new V[] {V.LTP, V.LTPIN}) {
+            vec.put(v, new HashMap<>());
+            mir.put(v, new HashMap<>());
+        }
+        for (Map.Entry<String, Mat> e : frames.entrySet()) {
+            Mat m = FaceMirror.mirror(e.getValue());
+            double[] s = LbpFeature.sqrt(LtpFeature.histogramTt(e.getValue(), params, t));
+            double[] sm = LbpFeature.sqrt(LtpFeature.histogramTt(m, params, t));
+            vec.get(V.LTP).put(e.getKey(), s);
+            mir.get(V.LTP).put(e.getKey(), sm);
+            vec.get(V.LTPIN).put(e.getKey(), LtpFeature.select(s, LbpFeature.Mask.INNER));
+            mir.get(V.LTPIN).put(e.getKey(), LtpFeature.select(sm, LbpFeature.Mask.INNER));
+            m.release();
+        }
+    }
+
     /** Признаки SFace (вариант SFACE) по кадрам alignCrop 112×112 (ключ — Sample.file().toString()); отражений нет. */
     void sfaceVectors(Map<String, Mat> sfaceFrames, org.opencv.objdetect.FaceRecognizerSF sface) {
         Map<String, double[]> v = new HashMap<>();
@@ -194,7 +220,7 @@ public final class XBaseEval {
         if (v == V.SFACE && mirror) throw new IllegalArgumentException("SFace: модели +mirror нет");
         List<List<double[]>> cls = new ArrayList<>();
         // L0, L0-mean, SFace — без обучения: когорта не нужна (оценщик берёт только классы галереи).
-        boolean mlda = v == V.A || v == V.L1 || v == V.L1IN || v == V.L1CROP || v == V.L1CROP92;
+        boolean mlda = v == V.A || v == V.L1 || v == V.L1IN || v == V.L1CROP || v == V.L1CROP92 || v == V.LTP || v == V.LTPIN;
         for (List<List<String>> group : mlda ? List.of(gallery, cohort) : List.of(gallery)) {
             for (List<String> keys : group) {
                 List<double[]> list = new ArrayList<>();
@@ -327,6 +353,8 @@ public final class XBaseEval {
             XBaseXs.run(export, dir, feiKeys, selLines, settings, out);
         } else if (a[0].equals("gt-quality")) {
             XBaseQuality.run(export, dir, feiKeys, selLines, settings, out);
+        } else if (a[0].equals("gt-ltp")) {
+            XBaseLtp.run(export, dir, feiKeys, selLines, settings, out);
         } else if (a[0].equals("gt-sep")) {
             XBaseSep.run(dir, selLines, settings, out);
         } else {
