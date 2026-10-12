@@ -43,7 +43,7 @@ public final class OrlDataset {
 
     /**
      * Загружает всю базу. OpenCV должен быть уже инициализирован
-     * (nu.pattern.OpenCV.loadLocally()).
+     * (svd.recognizer.OpenCvLoader.load()).
      *
      * @param dir           корневая папка базы (с подпапками s1…s40)
      * @param equalizeHist  применять ли эквализацию гистограммы к каждому снимку

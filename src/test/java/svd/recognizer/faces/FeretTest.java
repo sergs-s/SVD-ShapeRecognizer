@@ -37,7 +37,7 @@ public class FeretTest {
 
     @BeforeClass
     public static void load() {
-        nu.pattern.OpenCV.loadLocally();
+        svd.recognizer.OpenCvLoader.load();
     }
 
     static Img img(String key) {

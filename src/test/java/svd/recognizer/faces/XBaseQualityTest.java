@@ -20,7 +20,7 @@ public class XBaseQualityTest {
 
     @BeforeClass
     public static void load() {
-        nu.pattern.OpenCV.loadLocally();
+        svd.recognizer.OpenCvLoader.load();
     }
 
     static Mat mat64(double[] v, int w, int h) {

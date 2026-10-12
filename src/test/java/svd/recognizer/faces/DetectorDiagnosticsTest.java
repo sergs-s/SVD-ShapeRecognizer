@@ -16,7 +16,7 @@ public class DetectorDiagnosticsTest {
 
     @BeforeClass
     public static void loadOpenCv() {
-        nu.pattern.OpenCV.loadLocally();
+        svd.recognizer.OpenCvLoader.load();
     }
 
     private static DetectorDiagnostics.Box box(double x, double y, double w, double h) {

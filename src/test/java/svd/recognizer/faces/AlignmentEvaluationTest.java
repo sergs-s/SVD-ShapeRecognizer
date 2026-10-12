@@ -19,7 +19,7 @@ public class AlignmentEvaluationTest {
 
     @BeforeClass
     public static void loadOpenCv() {
-        nu.pattern.OpenCV.loadLocally();
+        svd.recognizer.OpenCvLoader.load();
     }
 
     @Test

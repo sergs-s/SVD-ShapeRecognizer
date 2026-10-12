@@ -69,7 +69,7 @@ public final class HaarDebug {
     }
 
     public static void main(String[] args) throws IOException {
-        nu.pattern.OpenCV.loadLocally();
+        svd.recognizer.OpenCvLoader.load();
         SettingsStore settings = new SettingsStore();
         Path datasetDir = Paths.get(settings.loadFacesDatasetDir());
         Path modelsDir = Paths.get(settings.loadFacesModelsDir());

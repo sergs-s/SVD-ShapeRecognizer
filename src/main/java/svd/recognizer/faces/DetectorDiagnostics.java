@@ -9,7 +9,7 @@ import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
-import nu.pattern.OpenCV;
+import svd.recognizer.OpenCvLoader;
 import org.opencv.core.Core;
 import org.opencv.core.CvType;
 import org.opencv.core.Mat;
@@ -79,7 +79,7 @@ public final class DetectorDiagnostics {
     private DetectorDiagnostics() {}
 
     public static void main(String[] args) throws IOException {
-        OpenCV.loadLocally();
+        OpenCvLoader.load();
         SettingsStore settings = new SettingsStore();
         Path datasetDir = Paths.get(settings.loadFacesDatasetDir());
         Path modelsDir = Paths.get(settings.loadFacesModelsDir());

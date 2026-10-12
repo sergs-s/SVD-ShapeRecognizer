@@ -326,7 +326,7 @@ public final class XBaseEval {
     // ---------------------------------------------------------------- запуск
 
     public static void main(String[] args) throws IOException {
-        nu.pattern.OpenCV.loadLocally();
+        svd.recognizer.OpenCvLoader.load();
         String[] a = args.length == 1 ? args[0].trim().split("\\s+") : args;
         if (a.length < 1) throw new IllegalArgumentException("XBaseEval: gt | fei-check <файл оценок FEI>");
         SettingsStore settings = new SettingsStore();

@@ -61,7 +61,7 @@ public final class OwnDetectorThreshold {
     }
 
     public static void main(String[] args) throws IOException {
-        nu.pattern.OpenCV.loadLocally();
+        svd.recognizer.OpenCvLoader.load();
         SettingsStore settings = new SettingsStore();
         OwnDataset dataset = OwnDataset.load(Paths.get(settings.loadFacesOwnDir()));
         Path modelsDir = Paths.get(settings.loadFacesModelsDir());

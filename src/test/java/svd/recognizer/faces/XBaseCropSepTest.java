@@ -21,7 +21,7 @@ public class XBaseCropSepTest {
 
     @BeforeClass
     public static void load() {
-        nu.pattern.OpenCV.loadLocally();
+        svd.recognizer.OpenCvLoader.load();
     }
 
     @Test

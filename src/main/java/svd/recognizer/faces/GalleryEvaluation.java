@@ -117,7 +117,7 @@ public final class GalleryEvaluation {
     }
 
     public static void main(String[] args) throws IOException {
-        nu.pattern.OpenCV.loadLocally();
+        svd.recognizer.OpenCvLoader.load();
         long start = System.nanoTime();
         SettingsStore settings = new SettingsStore();
         long seed = settings.loadFacesSeed();

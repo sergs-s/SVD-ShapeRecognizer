@@ -13,7 +13,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 import java.util.stream.IntStream;
-import nu.pattern.OpenCV;
+import svd.recognizer.OpenCvLoader;
 import svd.recognizer.faces.FaceEvaluation.Role;
 import svd.recognizer.faces.PpcaEvaluation.Gallery;
 import svd.recognizer.faces.PpcaEvaluation.Outcome;
@@ -58,7 +58,7 @@ public final class TwoThresholdEvaluation {
 
     public static void main(String[] args) throws IOException {
         long start = System.currentTimeMillis();
-        OpenCV.loadLocally();
+        OpenCvLoader.load();
         SettingsStore settings = new SettingsStore();
         Path datasetDir = Paths.get(settings.loadFacesDatasetDir());
         long seed = settings.loadFacesSeed();

@@ -25,10 +25,48 @@
             <version>3.6.1</version>
         </dependency>
 
+        <!-- OpenCV 4.9.0 с модулями contrib (face — Facemark LBF): org.bytedeco (JavaCPP presets), Java-API org.opencv.*;
+             нативные библиотеки — Windows и Linux (облачная сессия). Решение Хозяина 12.10.2026 (вместо org.openpnp:opencv). -->
         <dependency>
-            <groupId>org.openpnp</groupId>
+            <groupId>org.bytedeco</groupId>
             <artifactId>opencv</artifactId>
-            <version>4.9.0-0</version>
+            <version>4.9.0-1.5.10</version>
+        </dependency>
+        <dependency>
+            <groupId>org.bytedeco</groupId>
+            <artifactId>opencv</artifactId>
+            <version>4.9.0-1.5.10</version>
+            <classifier>windows-x86_64</classifier>
+        </dependency>
+        <dependency>
+            <groupId>org.bytedeco</groupId>
+            <artifactId>opencv</artifactId>
+            <version>4.9.0-1.5.10</version>
+            <classifier>linux-x86_64</classifier>
+        </dependency>
+        <dependency>
+            <groupId>org.bytedeco</groupId>
+            <artifactId>openblas</artifactId>
+            <version>0.3.26-1.5.10</version>
+            <classifier>windows-x86_64</classifier>
+        </dependency>
+        <dependency>
+            <groupId>org.bytedeco</groupId>
+            <artifactId>openblas</artifactId>
+            <version>0.3.26-1.5.10</version>
+            <classifier>linux-x86_64</classifier>
+        </dependency>
+        <dependency>
+            <groupId>org.bytedeco</groupId>
+            <artifactId>javacpp</artifactId>
+            <version>1.5.10</version>
+            <classifier>windows-x86_64</classifier>
+        </dependency>
+        <dependency>
+            <groupId>org.bytedeco</groupId>
+            <artifactId>javacpp</artifactId>
+            <version>1.5.10</version>
+            <classifier>linux-x86_64</classifier>
         </dependency>
 
         <dependency>

@@ -15,7 +15,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 import java.util.stream.IntStream;
-import nu.pattern.OpenCV;
+import svd.recognizer.OpenCvLoader;
 import org.opencv.core.Core;
 import org.opencv.core.CvType;
 import org.opencv.core.Mat;
@@ -129,7 +129,7 @@ public final class AlignmentEvaluation {
 
     public static void main(String[] args) throws IOException {
         long start = System.currentTimeMillis();
-        OpenCV.loadLocally();
+        OpenCvLoader.load();
         SettingsStore settings = new SettingsStore();
         Path datasetDir = Paths.get(settings.loadFacesDatasetDir());
         Path modelsDir = Paths.get(settings.loadFacesModelsDir());

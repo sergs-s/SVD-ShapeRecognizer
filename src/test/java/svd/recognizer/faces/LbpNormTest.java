@@ -33,7 +33,7 @@ public class LbpNormTest {
 
     @BeforeClass
     public static void load() {
-        nu.pattern.OpenCV.loadLocally();
+        svd.recognizer.OpenCvLoader.load();
     }
 
     static Mat frame(long seed) {

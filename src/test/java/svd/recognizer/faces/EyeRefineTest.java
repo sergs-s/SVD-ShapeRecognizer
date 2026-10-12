@@ -24,7 +24,7 @@ public class EyeRefineTest {
 
     @BeforeClass
     public static void load() {
-        nu.pattern.OpenCV.loadLocally();
+        svd.recognizer.OpenCvLoader.load();
     }
 
     /** Светлый фон, тёмный круг радиуса rad с центром (cx, cy) — рисуется с субпиксельной точностью (shift 4). */

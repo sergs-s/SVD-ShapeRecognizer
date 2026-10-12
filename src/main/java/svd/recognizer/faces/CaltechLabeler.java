@@ -133,7 +133,7 @@ public final class CaltechLabeler {
     }
 
     public static void main(String[] args) throws Exception {
-        nu.pattern.OpenCV.loadLocally();
+        svd.recognizer.OpenCvLoader.load();
         SettingsStore settings = new SettingsStore();
         String raw = settings.loadFacesCaltechDir();
         if (raw == null) throw new IllegalStateException("faces-caltech: не задан faces.caltech.dir / FACES_CALTECH_DIR");

@@ -20,7 +20,7 @@ public class IlluminationNormTest {
 
     @BeforeClass
     public static void load() {
-        nu.pattern.OpenCV.loadLocally();
+        svd.recognizer.OpenCvLoader.load();
     }
 
     private static void check(Mat frame) {

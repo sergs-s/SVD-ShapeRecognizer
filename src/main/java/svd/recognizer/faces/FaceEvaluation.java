@@ -12,7 +12,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
-import nu.pattern.OpenCV;
+import svd.recognizer.OpenCvLoader;
 import svd.recognizer.math.CommonsMathSvdEngine;
 import svd.recognizer.model.SubspaceModel;
 import svd.recognizer.processing.SubspaceRecognizer;
@@ -99,7 +99,7 @@ public final class FaceEvaluation {
     private FaceEvaluation() {}
 
     public static void main(String[] args) throws IOException {
-        OpenCV.loadLocally();
+        OpenCvLoader.load();
         SettingsStore settings = new SettingsStore();
         Path datasetDir = Paths.get(settings.loadFacesDatasetDir());
         EvaluationProtocol protocol = new EvaluationProtocol(

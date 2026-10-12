@@ -18,7 +18,7 @@ public class FaceMirrorTest {
 
     @BeforeClass
     public static void loadOpenCv() {
-        nu.pattern.OpenCV.loadLocally();
+        svd.recognizer.OpenCvLoader.load();
     }
 
     private static Mat random(int w, int h, long seed) {

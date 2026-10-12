@@ -127,7 +127,7 @@ public final class EyeLabeler {
     }
 
     public static void main(String[] args) throws Exception {
-        nu.pattern.OpenCV.loadLocally();
+        svd.recognizer.OpenCvLoader.load();
         SettingsStore settings = new SettingsStore();
         OwnDataset dataset = OwnDataset.load(Paths.get(settings.loadFacesOwnDir()));
         boolean sheet = args.length > 0 && args[0].equals("sheet");
