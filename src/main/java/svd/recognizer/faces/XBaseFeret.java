@@ -231,71 +231,22 @@ final class XBaseFeret {
         Map<String, TreeSet<String>> dates = dates(imgs);
 
         // Роли.
-        List<String> own1 = new ArrayList<>();
-        List<String> own1in = new ArrayList<>();
-        List<String> own2 = new ArrayList<>();
-        Map<String, List<String>> gal1 = new LinkedHashMap<>();
-        Map<String, List<String>> pro1 = new LinkedHashMap<>();
-        Map<String, List<String>> gal1in = new LinkedHashMap<>();
-        Map<String, List<String>> pro1in = new LinkedHashMap<>();
-        Map<String, List<String>> g1 = new LinkedHashMap<>();
-        Map<String, List<String>> g2 = new LinkedHashMap<>();
-        Map<String, List<List<String>>> g2s = new LinkedHashMap<>();
-        Map<String, List<String>> g2p = new LinkedHashMap<>();
-        Map<String, List<String>> pro2 = new LinkedHashMap<>();
-        int[] dropped = new int[2];
-        List<String> oneDate = new ArrayList<>();
-        for (Map.Entry<String, TreeSet<String>> e : dates.entrySet()) {
-            String p = e.getKey();
-            List<String> ds = new ArrayList<>(e.getValue());
-            Map<String, List<Img>> k = kept.getOrDefault(p, Map.of());
-            if (ds.size() == 1) {
-                oneDate.add(p);
-                continue;
-            }
-            List<String> d1 = keys(k.get(ds.get(0)));
-            List<String> later = new ArrayList<>();
-            for (String d : ds.subList(1, ds.size())) later.addAll(keys(k.get(d)));
-            if (d1.isEmpty() || later.isEmpty()) {
-                dropped[0]++;
-            } else {
-                own1.add(p);
-                gal1.put(p, d1);
-                pro1.put(p, sorted(later));
-                List<String> fa = new ArrayList<>();
-                List<String> fb = new ArrayList<>();
-                for (Img im : k.get(ds.get(0))) (im.pose().equals("fa") ? fa : fb).add(im.key());
-                if (!fa.isEmpty() && !fb.isEmpty()) {
-                    own1in.add(p);
-                    gal1in.put(p, sorted(fa));
-                    pro1in.put(p, sorted(fb));
-                }
-            }
-            if (ds.size() >= 3) {
-                List<String> d2 = keys(k.get(ds.get(1)));
-                List<String> rest = new ArrayList<>();
-                for (String d : ds.subList(2, ds.size())) rest.addAll(keys(k.get(d)));
-                if (d1.isEmpty() || d2.isEmpty() || rest.isEmpty()) {
-                    dropped[1]++;
-                } else {
-                    own2.add(p);
-                    g1.put(p, d1);
-                    List<String> both = new ArrayList<>(d1);
-                    both.addAll(d2);
-                    g2.put(p, sorted(both));
-                    g2s.put(p, List.of(d1, d2));
-                    g2p.put(p, sorted(List.of(g2pChoice(k.get(ds.get(0))), g2pChoice(k.get(ds.get(1))))));
-                    pro2.put(p, sorted(rest));
-                }
-            }
-        }
-        List<String> ctrl = controls(oneDate, kept.keySet(), tpl.seed);
-        Map<String, List<String>> ctrlKeys = new TreeMap<>();
-        for (String p : ctrl) {
-            List<String> ks = new ArrayList<>();
-            kept.get(p).values().forEach(l -> ks.addAll(keys(l)));
-            ctrlKeys.put(p, sorted(ks));
-        }
+        Roles ro = roles(dates, kept, tpl.seed);
+        List<String> own1 = ro.own1;
+        List<String> own1in = ro.own1in;
+        List<String> own2 = ro.own2;
+        Map<String, List<String>> gal1 = ro.gal1;
+        Map<String, List<String>> pro1 = ro.pro1;
+        Map<String, List<String>> gal1in = ro.gal1in;
+        Map<String, List<String>> pro1in = ro.pro1in;
+        Map<String, List<String>> g1 = ro.g1;
+        Map<String, List<String>> g2 = ro.g2;
+        Map<String, List<List<String>>> g2s = ro.g2s;
+        Map<String, List<String>> g2p = ro.g2p;
+        Map<String, List<String>> pro2 = ro.pro2;
+        int[] dropped = ro.dropped;
+        List<String> ctrl = ro.ctrl;
+        Map<String, List<String>> ctrlKeys = ro.ctrlKeys;
 
         // Когорта FEI 20.
         List<String> cohortP = XBaseEval.cohortPersons(feiKeys, tpl.seed);
@@ -577,5 +528,109 @@ final class XBaseFeret {
                     FeiBootstrap.quantile(m, 0.95), m[m.length - 1], 100.0 * g5 / m.length, 100.0 * g10 / m.length, FeiBootstrap.quantile(iod, 0.5)));
         }
         r.append("Снимков fa/fb без ручных координат глаз: ").append(noTruth).append(".\n");
+    }
+
+    /** Роли (1)–(3) по датам с анфасом до отбора (dates) и отобранным снимкам (kept: человек → дата → снимки). */
+    static final class Roles {
+        List<String> own1;
+        List<String> own1in;
+        List<String> own2;
+        Map<String, List<String>> gal1;
+        Map<String, List<String>> pro1;
+        Map<String, List<String>> gal1in;
+        Map<String, List<String>> pro1in;
+        Map<String, List<String>> g1;
+        Map<String, List<String>> g2;
+        Map<String, List<List<String>>> g2s;
+        Map<String, List<String>> g2p;
+        Map<String, List<String>> pro2;
+        int[] dropped;
+        List<String> ctrl;
+        Map<String, List<String>> ctrlKeys;
+    }
+
+    static Roles roles(Map<String, TreeSet<String>> dates, Map<String, Map<String, List<Img>>> kept, long seed) {
+        List<String> own1 = new ArrayList<>();
+        List<String> own1in = new ArrayList<>();
+        List<String> own2 = new ArrayList<>();
+        Map<String, List<String>> gal1 = new LinkedHashMap<>();
+        Map<String, List<String>> pro1 = new LinkedHashMap<>();
+        Map<String, List<String>> gal1in = new LinkedHashMap<>();
+        Map<String, List<String>> pro1in = new LinkedHashMap<>();
+        Map<String, List<String>> g1 = new LinkedHashMap<>();
+        Map<String, List<String>> g2 = new LinkedHashMap<>();
+        Map<String, List<List<String>>> g2s = new LinkedHashMap<>();
+        Map<String, List<String>> g2p = new LinkedHashMap<>();
+        Map<String, List<String>> pro2 = new LinkedHashMap<>();
+        int[] dropped = new int[2];
+        List<String> oneDate = new ArrayList<>();
+        for (Map.Entry<String, TreeSet<String>> e : dates.entrySet()) {
+            String p = e.getKey();
+            List<String> ds = new ArrayList<>(e.getValue());
+            Map<String, List<Img>> k = kept.getOrDefault(p, Map.of());
+            if (ds.size() == 1) {
+                oneDate.add(p);
+                continue;
+            }
+            List<String> d1 = keys(k.get(ds.get(0)));
+            List<String> later = new ArrayList<>();
+            for (String d : ds.subList(1, ds.size())) later.addAll(keys(k.get(d)));
+            if (d1.isEmpty() || later.isEmpty()) {
+                dropped[0]++;
+            } else {
+                own1.add(p);
+                gal1.put(p, d1);
+                pro1.put(p, sorted(later));
+                List<String> fa = new ArrayList<>();
+                List<String> fb = new ArrayList<>();
+                for (Img im : k.get(ds.get(0))) (im.pose().equals("fa") ? fa : fb).add(im.key());
+                if (!fa.isEmpty() && !fb.isEmpty()) {
+                    own1in.add(p);
+                    gal1in.put(p, sorted(fa));
+                    pro1in.put(p, sorted(fb));
+                }
+            }
+            if (ds.size() >= 3) {
+                List<String> d2 = keys(k.get(ds.get(1)));
+                List<String> rest = new ArrayList<>();
+                for (String d : ds.subList(2, ds.size())) rest.addAll(keys(k.get(d)));
+                if (d1.isEmpty() || d2.isEmpty() || rest.isEmpty()) {
+                    dropped[1]++;
+                } else {
+                    own2.add(p);
+                    g1.put(p, d1);
+                    List<String> both = new ArrayList<>(d1);
+                    both.addAll(d2);
+                    g2.put(p, sorted(both));
+                    g2s.put(p, List.of(d1, d2));
+                    g2p.put(p, sorted(List.of(g2pChoice(k.get(ds.get(0))), g2pChoice(k.get(ds.get(1))))));
+                    pro2.put(p, sorted(rest));
+                }
+            }
+        }
+        List<String> ctrl = controls(oneDate, kept.keySet(), seed);
+        Map<String, List<String>> ctrlKeys = new TreeMap<>();
+        for (String p : ctrl) {
+            List<String> ks = new ArrayList<>();
+            kept.get(p).values().forEach(l -> ks.addAll(keys(l)));
+            ctrlKeys.put(p, sorted(ks));
+        }
+        Roles ro = new Roles();
+        ro.own1 = own1;
+        ro.own1in = own1in;
+        ro.own2 = own2;
+        ro.gal1 = gal1;
+        ro.pro1 = pro1;
+        ro.gal1in = gal1in;
+        ro.pro1in = pro1in;
+        ro.g1 = g1;
+        ro.g2 = g2;
+        ro.g2s = g2s;
+        ro.g2p = g2p;
+        ro.pro2 = pro2;
+        ro.dropped = dropped;
+        ro.ctrl = ctrl;
+        ro.ctrlKeys = ctrlKeys;
+        return ro;
     }
 }

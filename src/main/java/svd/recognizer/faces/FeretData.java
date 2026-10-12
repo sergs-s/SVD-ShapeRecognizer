@@ -53,7 +53,8 @@ final class FeretData {
      * Снимок: ключ (имя без .ppm), человек, дата ГГММДД, поза, флаг («-» — нет; a — очки, b / c — другая причёска без очков /
      * в очках), файл, ручные координаты глаз {x, y} (left — левый глаз человека, на снимке справа; null — нет в разметке).
      */
-    record Img(String key, String person, String date, String pose, String flag, Path file, double[] leftEye, double[] rightEye) {
+    record Img(String key, String person, String date, String pose, String flag, Path file, double[] leftEye, double[] rightEye, double[] nose,
+               double[] mouth) {
         boolean frontal() {
             return pose.equals("fa") || pose.equals("fb");
         }
@@ -61,9 +62,14 @@ final class FeretData {
 
     /** Разбор имени ID_ГГММДД_поза[_флаг] (без расширения). */
     static Img parse(String key, Path file, double[] left, double[] right) {
+        return parse(key, file, left, right, null, null);
+    }
+
+    /** То же с ручными координатами носа и центра рта (null — нет). */
+    static Img parse(String key, Path file, double[] left, double[] right, double[] nose, double[] mouth) {
         String[] p = key.split("_");
         if (p.length < 3 || p.length > 4 || p[0].length() != 5 || p[1].length() != 6) throw new IllegalArgumentException("FERET: имя " + key);
-        return new Img(key, p[0], p[1], p[2], p.length == 4 ? p[3] : "-", file, left, right);
+        return new Img(key, p[0], p[1], p[2], p.length == 4 ? p[3] : "-", file, left, right, nose, mouth);
     }
 
     /** Дни между датами ГГММДД (годы 19ГГ). */
@@ -94,14 +100,18 @@ final class FeretData {
                     if (!probe.frontal()) continue;
                     double[] left = null;
                     double[] right = null;
+                    double[] nose = null;
+                    double[] mouth = null;
                     Path gt = truth.resolve(probe.person()).resolve(key + ".txt");
                     if (Files.exists(gt)) {
                         for (String l : Files.readAllLines(gt, StandardCharsets.UTF_8)) {
                             if (l.startsWith("left_eye_coordinates=")) left = coords(l.substring(l.indexOf('=') + 1));
                             if (l.startsWith("right_eye_coordinates=")) right = coords(l.substring(l.indexOf('=') + 1));
+                            if (l.startsWith("nose_coordinates=")) nose = coords(l.substring(l.indexOf('=') + 1));
+                            if (l.startsWith("mouth_coordinates=")) mouth = coords(l.substring(l.indexOf('=') + 1));
                         }
                     }
-                    out.add(parse(key, f, left, right));
+                    out.add(parse(key, f, left, right, nose, mouth));
                 }
             }
         }
@@ -201,16 +211,80 @@ final class FeretData {
         return out;
     }
 
+    // ---------------------------------------------------------------- диагностика выравнивания (feret-eyes)
+
+    static final String MANUAL = "a_manual";
+    static final String Y4 = "a_y4";
+
+    static double[] mid(double[] a, double[] b) {
+        return new double[] {(a[0] + b[0]) / 2, (a[1] + b[1]) / 2};
+    }
+
+    /**
+     * Шаблон 4 точек кадра «а» 92×112: глаз на снимке слева (правый глаз человека), глаз справа, нос, центр рта —
+     * середина уголков рта FaceAlignment.ownTemplate(92, 112).
+     */
+    static double[][] template4() {
+        double[][] t = FaceAlignment.ownTemplate(92, 112);
+        return new double[][] {t[0], t[1], t[2], mid(t[3], t[4])};
+    }
+
+    /** Ручные 4 точки в порядке template4: right_eye (правый глаз человека, на снимке слева), left_eye, нос, рот; null — нет разметки. */
+    static double[][] manual4(Img im) {
+        if (im.leftEye() == null || im.rightEye() == null || im.nose() == null || im.mouth() == null) return null;
+        return new double[][] {im.rightEye(), im.leftEye(), im.nose(), im.mouth()};
+    }
+
+    /** Те же 4 точки YuNet: точки 0, 1, 2 и середина уголков рта (3, 4). */
+    static double[][] yunet4(double[] row) {
+        return new double[][] {{row[4], row[5]}, {row[6], row[7]}, {row[8], row[9]}, mid(new double[] {row[10], row[11]}, new double[] {row[12], row[13]})};
+    }
+
+    /** Кадр 92×112 серый подобием (FaceAlignment.similarity, LMEDS) по 4 точкам на template4. */
+    static Mat frame4(Mat color, double[][] pts) {
+        Mat gray = new Mat();
+        Imgproc.cvtColor(color, gray, Imgproc.COLOR_BGR2GRAY);
+        Mat a = new Mat();
+        Imgproc.warpAffine(gray, a, FaceAlignment.similarity(pts, template4()), new Size(92, 112), Imgproc.INTER_LINEAR, Core.BORDER_REPLICATE);
+        gray.release();
+        return a;
+    }
+
+    /**
+     * Кадры Р (ручные 4 точки) и Ю4 (те же точки YuNet) снимков с разметкой и найденным лицом: derived/a_manual, derived/a_y4
+     * (уже записанные пропускаются; Ю4 пишется вторым — его наличие означает, что оба кадра готовы).
+     */
+    static void frames4(List<Img> imgs, Map<String, double[]> det, Path dir) throws IOException {
+        Path derived = dir.resolve(DERIVED);
+        Files.createDirectories(derived.resolve(MANUAL));
+        Files.createDirectories(derived.resolve(Y4));
+        int n = 0;
+        for (Img im : imgs) {
+            double[][] m = manual4(im);
+            double[] row = det.get(im.key());
+            if (m == null || row == null || Files.exists(derived.resolve(Y4).resolve(im.key() + ".png"))) continue;
+            Mat color = decode(im.file());
+            Mat a = frame4(color, m);
+            Mat y = frame4(color, yunet4(row));
+            writePng(derived.resolve(MANUAL).resolve(im.key() + ".png"), a);
+            writePng(derived.resolve(Y4).resolve(im.key() + ".png"), y);
+            a.release();
+            y.release();
+            color.release();
+            if (++n % 200 == 0) System.out.printf(Locale.ROOT, "FERET: кадры по 4 точкам — %d новых%n", n);
+        }
+    }
+
     static void writePng(Path f, Mat m) throws IOException {
         Path tmp = f.resolveSibling(f.getFileName() + ".tmp.png");
         if (!Imgcodecs.imwrite(tmp.toString(), m)) throw new IOException("Не записан " + tmp);
         Files.move(tmp, f, StandardCopyOption.REPLACE_EXISTING);
     }
 
-    /** Кадр из derived (вариант "a" — серый, "sface" — BGR). */
+    /** Кадр из derived (вариант "sface" — BGR, прочие — серые: a, a_manual, a_y4). */
     static Mat frame(Path dir, String variant, String key) throws IOException {
         Path f = dir.resolve(DERIVED).resolve(variant).resolve(key + ".png");
-        Mat m = Imgcodecs.imread(f.toString(), variant.equals("a") ? Imgcodecs.IMREAD_GRAYSCALE : Imgcodecs.IMREAD_COLOR);
+        Mat m = Imgcodecs.imread(f.toString(), variant.equals("sface") ? Imgcodecs.IMREAD_COLOR : Imgcodecs.IMREAD_GRAYSCALE);
         if (m.empty()) throw new IOException("Нет кадра " + f);
         return m;
     }

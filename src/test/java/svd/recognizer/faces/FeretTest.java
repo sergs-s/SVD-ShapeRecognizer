@@ -138,6 +138,31 @@ public class FeretTest {
     }
 
     @Test
+    public void fourPointAlignment() {
+        double[][] t = FeretData.template4();
+        double[][] t5 = FaceAlignment.ownTemplate(92, 112);
+        assertArrayEquals(t5[0], t[0], 0);
+        assertArrayEquals(new double[] {(t5[3][0] + t5[4][0]) / 2, (t5[3][1] + t5[4][1]) / 2}, t[3], 1e-12);
+        // Ручные точки: right_eye (на снимке слева) — первая, left_eye — вторая.
+        Img im = FeretData.parse("00012_930831_fa", null, new double[] {348, 350}, new double[] {242, 344}, new double[] {296, 390}, new double[] {288, 466});
+        double[][] m = FeretData.manual4(im);
+        assertArrayEquals(new double[] {242, 344}, m[0], 0);
+        assertArrayEquals(new double[] {348, 350}, m[1], 0);
+        assertNull(FeretData.manual4(FeretData.parse("00012_930831_fa", null, new double[] {1, 1}, new double[] {2, 2})));
+        double[] row = new double[15];
+        for (int i = 0; i < 15; i++) row[i] = i;
+        assertArrayEquals(new double[] {11, 12}, FeretData.yunet4(row)[3], 1e-12);
+        assertArrayEquals(new double[] {8, 9}, FeretData.yunet4(row)[2], 0);
+        // Точки, уже совпадающие с шаблоном (сдвиг на 5 пикселей): подобие — чистый сдвиг.
+        double[][] shifted = new double[4][];
+        for (int i = 0; i < 4; i++) shifted[i] = new double[] {t[i][0] + 5, t[i][1] + 5};
+        Mat a = FaceAlignment.similarity(shifted, t);
+        assertEquals(1, a.get(0, 0)[0], 1e-4);
+        assertEquals(-5, a.get(0, 2)[0], 1e-4);
+        assertEquals(-5, a.get(1, 2)[0], 1e-4);
+    }
+
+    @Test
     public void sfaceTemplateMinImages() {
         double[] a = {3, 4};
         double[] b = {1, 0};
