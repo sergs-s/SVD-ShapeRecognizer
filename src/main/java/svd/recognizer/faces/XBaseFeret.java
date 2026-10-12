@@ -166,7 +166,7 @@ final class XBaseFeret {
             train.add(person);
         }
         int[] own = owner.stream().mapToInt(Integer::intValue).toArray();
-        if (v == V.SFACE) return nearestSession(new SFaceScorer().fit(templates, templates.size()), own, gallery.size());
+        if (v == V.SFACE) return nearestSession(new SFaceScorer(1).fit(templates, templates.size()), own, gallery.size());
         for (List<String> keys : cohort) {
             List<double[]> list = new ArrayList<>();
             for (String k : keys) list.add(x.vec.get(v).get(k));
@@ -323,6 +323,7 @@ final class XBaseFeret {
         xs[0].vectors(fr, EnumSet.of(V.L1, V.A), tpl.params);
         xs[1].vectors(fr, EnumSet.of(V.L1), tpl.params, IlluminationNorm.TAN_TRIGGS);
         xs[1].ltpVectors(fr, tpl.params, t);
+        xs[2].sfaceMin = 1;
         xs[2].sfaceVectors(sf, sface);
         fr.values().forEach(Mat::release);
         sf.values().forEach(Mat::release);

@@ -10,6 +10,23 @@ import java.util.List;
  */
 final class SFaceScorer implements GalleryScorer {
 
+    /** Наименьшее число снимков шаблона (меньше — шаблона нет, оценка +∞). */
+    private final int minImages;
+
+    /** Как прежде: шаблон — из не меньше чем двух снимков. */
+    SFaceScorer() {
+        this(2);
+    }
+
+    /**
+     * @param minImages наименьшее число снимков шаблона (1 или 2; FERET — 1, решение Хозяина 12.10.2026: в опоре внутри сессии и
+     *                  в сессиях G2-ii у человека бывает один снимок)
+     */
+    SFaceScorer(int minImages) {
+        if (minImages < 1 || minImages > 2) throw new IllegalArgumentException("SFace: минимум снимков шаблона " + minImages);
+        this.minImages = minImages;
+    }
+
     @Override
     public String label() {
         return "SFace (1′): шаблон — нормированное среднее, 1 − cos₁";
@@ -19,7 +36,14 @@ final class SFaceScorer implements GalleryScorer {
     public ScoreModel fit(List<List<double[]>> classes, int gallery) {
         double[][] templates = new double[gallery][];
         for (int p = 0; p < gallery; p++) {
-            GalleryEvaluation.Model m = GalleryEvaluation.train(null, classes.get(p), true);
+            List<double[]> c = classes.get(p);
+            if (c.size() == 1 && minImages == 1) {
+                // Один снимок: шаблон — его нормированный признак (как нормированное среднее одного снимка).
+                templates[p] = c.get(0).clone();
+                OwnEvaluation.normalize(templates[p]);
+                continue;
+            }
+            GalleryEvaluation.Model m = GalleryEvaluation.train(null, c, true);
             templates[p] = m == null ? null : m.template();
         }
         return x -> {

@@ -138,6 +138,23 @@ public class FeretTest {
     }
 
     @Test
+    public void sfaceTemplateMinImages() {
+        double[] a = {3, 4};
+        double[] b = {1, 0};
+        double[] c = {0, 1};
+        List<List<double[]>> cls = List.of(List.of(a), List.of(b, c));
+        double[] x = {0.6, 0.8};
+        // По умолчанию (2): у человека с одним снимком шаблона нет — +∞; у второго — нормированное среднее (1/√2, 1/√2).
+        double[] s2 = new SFaceScorer().fit(cls, 2).scores(x);
+        assertTrue(Double.isInfinite(s2[0]));
+        assertEquals(1 - (0.6 + 0.8) / Math.sqrt(2), s2[1], 1e-12);
+        // Минимум 1: шаблон первого — его нормированный признак (0,6; 0,8) → 1 − cos = 0; второй — как прежде.
+        double[] s1 = new SFaceScorer(1).fit(cls, 2).scores(x);
+        assertEquals(0, s1[0], 1e-12);
+        assertEquals(s2[1], s1[1], 0);
+    }
+
+    @Test
     public void decodeBz2InMemory() throws Exception {
         Path f = tmp.newFile("x.ppm.bz2").toPath();
         byte[] head = "P6\n4 3\n255\n".getBytes(StandardCharsets.US_ASCII);

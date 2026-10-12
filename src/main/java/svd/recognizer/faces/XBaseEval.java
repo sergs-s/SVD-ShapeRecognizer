@@ -100,6 +100,8 @@ public final class XBaseEval {
     /** Векторы снимков (ключ — Sample.file().toString()): [вариант] исходные и отражённые. */
     final Map<V, Map<String, double[]>> vec = new HashMap<>();
     final Map<V, Map<String, double[]>> mir = new HashMap<>();
+    /** Наименьшее число снимков шаблона SFace (SFaceScorer): 2 — как прежде; FERET — 1. */
+    int sfaceMin = 2;
 
     /** Векторы вариантов vs по кадрам (OpenCV — только здесь, в главном потоке); LBP — без нормировки освещения. */
     void vectors(Map<String, Mat> frames, Set<V> vs, IlluminationNorm.NormParams params) {
@@ -232,7 +234,7 @@ public final class XBaseEval {
         GalleryScorer scorer = switch (v) {
             case L0 -> new ChiSquareScorer(false);
             case L0MEAN -> new ChiSquareScorer(true);
-            case SFACE -> new SFaceScorer();
+            case SFACE -> new SFaceScorer(sfaceMin);
             default -> new MldaScorer();
         };
         return scorer.fit(cls, gallery.size());
