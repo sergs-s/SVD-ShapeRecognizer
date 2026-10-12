@@ -300,4 +300,17 @@ final class FeretData {
         double r = Math.hypot(row[4] - im.rightEye()[0], row[5] - im.rightEye()[1]) / iod;
         return new double[] {l, r, (l + r) / 2, iod};
     }
+
+    /**
+     * То же для явных точек: re — правый глаз человека (на снимке слева), le — левый; null — нет разметки или точки.
+     */
+    static double[] eyeError(Img im, double[] re, double[] le) {
+        if (re == null || le == null) return null;
+        double[] row = new double[15];
+        row[4] = re[0];
+        row[5] = re[1];
+        row[6] = le[0];
+        row[7] = le[1];
+        return eyeError(im, row);
+    }
 }
