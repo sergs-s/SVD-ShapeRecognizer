@@ -361,6 +361,8 @@ public final class XBaseEval {
             XBaseFeretEyes.run(export, dir, feiKeys, selLines, settings);
         } else if (a[0].equals("feret-excl")) {
             XBaseExcl.feret(export, dir, feiKeys, selLines, settings);
+        } else if (a[0].equals("feret-eyes2")) {
+            XBaseFeretEyes.run(export, dir, feiKeys, selLines, settings, XBaseFeretEyes.EYES2);
         } else if (a[0].equals("feret-eyepts")) {
             XBaseEyePts.run(dir, selLines, settings);
         } else if (a[0].equals("feret-hubs")) {

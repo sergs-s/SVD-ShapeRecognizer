@@ -275,6 +275,40 @@ final class FeretData {
         }
     }
 
+    static final String K4_0B = "a_k4_0b";
+
+    /**
+     * (а2б) этап 2: кадры К4 — точки глаз кандидата 0б из derived/eyepts.tsv (XBaseEyePts), нос и середина уголков рта YuNet;
+     * derived/a_k4_0b (уже записанные пропускаются). Снимки без строки в eyepts.tsv пропускаются.
+     */
+    static void framesK4(List<Img> imgs, Map<String, double[]> det, Path dir) throws IOException {
+        Path derived = dir.resolve(DERIVED);
+        Files.createDirectories(derived.resolve(K4_0B));
+        List<String> lines = Files.readAllLines(derived.resolve("eyepts.tsv"), StandardCharsets.UTF_8);
+        List<String> head = List.of(lines.get(0).split("\t"));
+        int c = head.indexOf("0б_re_x");
+        if (c < 0) throw new IllegalStateException("eyepts.tsv: нет столбцов 0б");
+        Map<String, double[]> eyes = new HashMap<>();
+        for (String l : lines.subList(1, lines.size())) {
+            String[] f = l.split("\t");
+            eyes.put(f[0], new double[] {Double.parseDouble(f[c]), Double.parseDouble(f[c + 1]), Double.parseDouble(f[c + 2]), Double.parseDouble(f[c + 3])});
+        }
+        int n = 0;
+        for (Img im : imgs) {
+            double[] row = det.get(im.key());
+            double[] e = eyes.get(im.key());
+            if (row == null || e == null || Files.exists(derived.resolve(K4_0B).resolve(im.key() + ".png"))) continue;
+            double[][] y = yunet4(row);
+            double[][] pts = {{e[0], e[1]}, {e[2], e[3]}, y[2], y[3]};
+            Mat color = decode(im.file());
+            Mat a = frame4(color, pts);
+            writePng(derived.resolve(K4_0B).resolve(im.key() + ".png"), a);
+            a.release();
+            color.release();
+            if (++n % 200 == 0) System.out.printf(Locale.ROOT, "FERET: кадры К4 — %d новых%n", n);
+        }
+    }
+
     static void writePng(Path f, Mat m) throws IOException {
         Path tmp = f.resolveSibling(f.getFileName() + ".tmp.png");
         if (!Imgcodecs.imwrite(tmp.toString(), m)) throw new IOException("Не записан " + tmp);

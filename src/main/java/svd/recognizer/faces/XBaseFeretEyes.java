@@ -44,8 +44,29 @@ final class XBaseFeretEyes {
     private XBaseFeretEyes() {
     }
 
+    /**
+     * Вариант прогона: tag — имя отчёта, файла оценок и контрольной точки (xbase_&lt;tag&gt;, checkpoint_&lt;tag&gt;); fp — начало
+     * отпечатка; kinds — виды кадров {подпись, каталог derived}; pairs — пары видов (уменьшаемое, вычитаемое); note — строка
+     * шапки о дополнительных видах или null.
+     */
+    record Variant(String tag, String fp, String[][] kinds, String[][] pairs, String note) {}
+
+    /** Прежний прогон feret-eyes: Р, Ю4, Ю5; пары Р − Ю4 и Ю4 − Ю5. */
+    static final Variant EYES = new Variant("feret_eyes", "feret-eyes", KINDS, new String[][] {{"Р", "Ю4"}, {"Ю4", "Ю5"}}, null);
+
+    /** (а2б) этап 2, кандидат 0б: Р, К4, Ю4; пары К4 − Ю4 и Р − К4. */
+    static final Variant EYES2 = new Variant("feret_eyes2", "feret-eyes2", new String[][] {{"Р", FeretData.MANUAL}, {"К4", FeretData.K4_0B},
+            {"Ю4", FeretData.Y4}}, new String[][] {{"К4", "Ю4"}, {"Р", "К4"}}, "  К4 — (а2б) этап 2: точки глаз кандидата 0б (каскад "
+            + "haarcascade_eye_tree_eyeglasses, derived/eyepts.tsv; не найден — точка YuNet), нос и центр рта — YuNet (как Ю4).\n");
+
     static void run(FarExport.Loaded export, Path exportDir, Map<String, Map<Integer, String>> feiKeys, List<String> selLines, SettingsStore settings)
             throws IOException {
+        run(export, exportDir, feiKeys, selLines, settings, EYES);
+    }
+
+    static void run(FarExport.Loaded export, Path exportDir, Map<String, Map<Integer, String>> feiKeys, List<String> selLines, SettingsStore settings,
+                    Variant va) throws IOException {
+        String[][] kinds = va.kinds();
         String rawDir = settings.loadFacesFeretDir();
         if (rawDir == null) throw new IllegalStateException("XBaseEval feret-eyes: задайте faces.feret.dir / FACES_FERET_DIR");
         Path dir = Paths.get(rawDir);
@@ -68,6 +89,7 @@ final class XBaseFeretEyes {
         Map<String, double[]> det = FeretData.detect(imgs, dir, models, sface);
         long t0 = System.nanoTime();
         FeretData.frames4(imgs, det, dir);
+        if (va == EYES2) FeretData.framesK4(imgs, det, dir);
         double frS = (System.nanoTime() - t0) / 1e9;
 
         // Отбор: все (как в основном прогоне) и только размеченные.
@@ -117,10 +139,10 @@ final class XBaseFeretEyes {
         export.data().fei().values().forEach(fei::addAll);
         Map<String, Mat> cohortFr = XBaseEval.frames(export, fei, cohortKeys);
         // [вид][набор]: векторы L1 (none) и L1 (tt).
-        XBaseEval[][] xs = new XBaseEval[KINDS.length][2];
-        for (int k = 0; k < KINDS.length; k++) {
+        XBaseEval[][] xs = new XBaseEval[kinds.length][2];
+        for (int k = 0; k < kinds.length; k++) {
             Map<String, Mat> fr = new LinkedHashMap<>();
-            for (String key : used) fr.put(key, FeretData.frame(dir, KINDS[k][1], key));
+            for (String key : used) fr.put(key, FeretData.frame(dir, kinds[k][1], key));
             fr.putAll(cohortFr);
             xs[k][0] = new XBaseEval();
             xs[k][0].vectors(fr, EnumSet.of(V.L1), tpl.params);
@@ -133,9 +155,9 @@ final class XBaseFeretEyes {
         List<Conf> confs1 = List.of(new Conf("межс.", 0, ro.own1, ro.gal1, ro.pro1, null), new Conf("внутри", 1, ro.own1in, ro.gal1in, ro.pro1in, null));
         List<Conf> confs2 = List.of(new Conf("G1", 2, ro.own2, ro.g1, ro.pro2, null), new Conf("G2-i", 3, ro.own2, ro.g2, ro.pro2, null),
                 new Conf("G2-ii", 4, ro.own2, ro.g2, ro.pro2, ro.g2s), new Conf("G2'", 5, ro.own2, ro.g2p, ro.pro2, null));
-        String fp = FeiCheckpoint.fingerprint(exportDir, String.format(Locale.ROOT, "feret-eyes %s; снимков %d; размеченных отобранных %d; seed %d; r0 %s", dir,
+        String fp = FeiCheckpoint.fingerprint(exportDir, String.format(Locale.ROOT, "%s %s; снимков %d; размеченных отобранных %d; seed %d; r0 %s", va.fp(), dir,
                 imgs.size(), marked, tpl.seed, tpl.r0));
-        XBaseOther.Checkpoint cp = new XBaseOther.Checkpoint(dir.resolve(FeretData.DERIVED).resolve("checkpoint_feret_eyes"), fp);
+        XBaseOther.Checkpoint cp = new XBaseOther.Checkpoint(dir.resolve(FeretData.DERIVED).resolve("checkpoint_" + va.tag()), fp);
 
         StringBuilder r = new StringBuilder();
         r.append("PLAN.md п. 5.5: диагностика выравнивания на FERET — кадры по ручным точкам разметки против точек YuNet (XBaseEval feret-eyes); "
@@ -147,6 +169,7 @@ final class XBaseFeretEyes {
                 + "      центр рта — середина уголков; Ю4 — те же 4 точки YuNet (центр рта — середина уголков); Ю5 — нынешние 5 точек YuNet.\n"
                 + "Методы: L1 (LBP u2 (8, 2) 7×7 + MLDA, none) и L1-tt (то же на выходе Tan – Triggs); зеркала (способ а) и выбор модели по позе\n"
                 + "r0 = " + tpl.r0 + " — по r YuNet во всех видах; когорта MLDA — FEI 20; порог П2 / П3 по «чужим» галереи своей конфигурации.\n");
+        if (va.note() != null) r.append(va.note());
         r.append(String.format(Locale.ROOT, "Снимков fa/fb: %d; с ручной разметкой (глаза, нос, рот), найденным лицом и |r| ≤ R = %.4f: %d; кадры Р и Ю4 — %.0f с "
                 + "(из кэша derived/ — быстрее).%n", imgs.size(), tpl.rLimit, marked, frS));
         r.append(String.format(Locale.ROOT, "Роль (1): своих %d (выбыли %d), галерея %d, пробы %d; внутри сессии — своих %d, галерея fa %d, пробы fb %d.%n", ro.own1.size(),
@@ -170,7 +193,7 @@ final class XBaseFeretEyes {
                 XBaseEval.Gt g = XBaseFeret.withOwn(base, c.own());
                 List<XBaseEval.Probe> probes = XBaseEval.probes(g, c.pro());
                 List<List<String>> parts = XBaseOther.cvParts(c.own(), tpl.seed, XBaseEval.CV_S + c.s());
-                for (int k = 0; k < KINDS.length; k++) {
+                for (int k = 0; k < kinds.length; k++) {
                     for (int set = 0; set < 2; set++) {
                         String name = String.format(Locale.ROOT, "conf_%d_%d_%d", c.s(), k, set);
                         String ls = cp.read(name);
@@ -179,18 +202,17 @@ final class XBaseFeretEyes {
                             ls = c.sessions() == null ? XBaseEval.fitLines(g, xs[k][set], vs, c.gal(), probes, parts, c.s())
                                     : XBaseFeret.fitLinesSessions(g, xs[k][set], vs, c.sessions(), c.gal(), probes, parts, c.s());
                             cp.save(name, ls);
-                            System.out.printf(Locale.ROOT, "FERET-eyes: %s %s %s готово%n", c.name(), KINDS[k][0], METHODS[set]);
+                            System.out.printf(Locale.ROOT, "FERET-eyes: %s %s %s готово%n", c.name(), kinds[k][0], METHODS[set]);
                         }
-                        lines.append("# конфигурация ").append(c.name()).append(", кадры ").append(KINDS[k][0]).append(", ").append(METHODS[set]).append('\n').append(ls);
+                        lines.append("# конфигурация ").append(c.name()).append(", кадры ").append(kinds[k][0]).append(", ").append(METHODS[set]).append('\n').append(ls);
                         XBaseEval.Parsed p = XBaseEval.parse(g, vs, c.gal(), probes, parts, ls);
-                        String label = c.name() + " " + KINDS[k][0] + " " + METHODS[set];
+                        String label = c.name() + " " + kinds[k][0] + " " + METHODS[set];
                         res.put(label, FeiThreshold.evaluate(label, V.L1.ratioId(), List.of(p.cfg.get(V.L1)), List.of(p.imp.get(V.L1)), persons.size(), tpl.b,
                                 tpl.seed + FeiBootstrap.SEED_OFFSET));
                     }
                 }
                 for (String m : METHODS) {
-                    pairs.add(new String[] {c.name() + " Р " + m, c.name() + " Ю4 " + m});
-                    pairs.add(new String[] {c.name() + " Ю4 " + m, c.name() + " Ю5 " + m});
+                    for (String[] pk : va.pairs()) pairs.add(new String[] {c.name() + " " + pk[0] + " " + m, c.name() + " " + pk[1] + " " + m});
                 }
             }
             int[][] w = tpl.b > 0 ? FeiBootstrap.weights(persons.size(), tpl.b, tpl.seed + FeiBootstrap.SEED_OFFSET) : new int[0][];
@@ -201,9 +223,9 @@ final class XBaseFeretEyes {
                     .append(String.format(Locale.ROOT, " — бутстреп по %d людям (свои и контроль) ########%n", persons.size()));
             XBaseOther.tables(r, res, sep, tpl.b, pairs);
         }
-        XBaseOther.writeScores(out.resolve("xbase_feret_eyes_scores.tsv.gz"), "# FERET, диагностика выравнивания (XBaseFeretEyes), только локально\n# Код: коммит "
+        XBaseOther.writeScores(out.resolve("xbase_" + va.tag() + "_scores.tsv.gz"), "# FERET, диагностика выравнивания (XBaseFeretEyes), только локально\n# Код: коммит "
                 + FarMethods.commit() + "\n", lines.toString());
-        FarMethods.write(out.resolve("xbase_feret_eyes.txt"), r);
+        FarMethods.write(out.resolve("xbase_" + va.tag() + ".txt"), r);
         System.out.print(r);
         cp.delete();
     }
