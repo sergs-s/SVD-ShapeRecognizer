@@ -40,20 +40,7 @@ enum IlluminationNorm {
     TAN_TRIGGS("Tan – Triggs", "tt") {
         @Override
         double[] vector(Mat gray8, NormParams p) {
-            Mat x = new Mat();
-            gray8.convertTo(x, CvType.CV_64F);
-            org.opencv.core.Core.pow(x, p.gamma(), x);
-            Mat b0 = new Mat();
-            Mat b1 = new Mat();
-            Imgproc.GaussianBlur(x, b0, new Size(0, 0), p.sigma0());
-            Imgproc.GaussianBlur(x, b1, new Size(0, 0), p.sigma1());
-            org.opencv.core.Core.subtract(b0, b1, x);
-            double[] v = new double[(int) x.total()];
-            x.get(0, 0, v);
-            x.release();
-            b0.release();
-            b1.release();
-            return tanTriggsContrast(v, p.alpha(), p.tau());
+            return tanTriggs(gray8, p, true);
         }
     };
 
@@ -92,6 +79,51 @@ enum IlluminationNorm {
 
     /** Порог ничтожного знаменателя выравнивания контраста Tan – Triggs. */
     static final double NEGLIGIBLE = 1e-10;
+
+    /**
+     * Относительный порог ничтожной разности гауссианов Tan – Triggs (решение Хозяина 13.10.2026, №3): |DoG| ≤ DOG_EPS ·
+     * max |I^γ| кадра обнуляется перед выравниванием контраста. Причина: в ровных (например, пересвеченных) участках DoG
+     * математически равна 0, но после свёрток остаётся шум последних разрядов (около 1e-16), разный у разных сборок OpenCV;
+     * степень |x|^α (α = 0,1) превращает его в величину около 0,025 и сдвигает знаменатель выравнивания — весь выход кадра
+     * смещался до 4e-3 (FERET, openpnp против bytedeco; TASKS.md, «Переход на bytedeco»). Поправка возвращает реализацию к
+     * определению метода; на кадрах без ровных участков результат не меняется.
+     */
+    static final double DOG_EPS = 1e-12;
+
+    /**
+     * Tan – Triggs: гамма-коррекция I^γ (яркости 0..255), разность гауссианов σ₀ − σ₁, при correct — обнуление |DoG| ≤
+     * DOG_EPS · max |I^γ|, затем выравнивание контраста (tanTriggsContrast). Вектор кадра построчно.
+     */
+    static double[] tanTriggs(Mat gray8, NormParams p, boolean correct) {
+        Mat x = new Mat();
+        gray8.convertTo(x, CvType.CV_64F);
+        org.opencv.core.Core.pow(x, p.gamma(), x);
+        double maxGamma = org.opencv.core.Core.minMaxLoc(x).maxVal;
+        Mat b0 = new Mat();
+        Mat b1 = new Mat();
+        Imgproc.GaussianBlur(x, b0, new Size(0, 0), p.sigma0());
+        Imgproc.GaussianBlur(x, b1, new Size(0, 0), p.sigma1());
+        org.opencv.core.Core.subtract(b0, b1, x);
+        double[] v = new double[(int) x.total()];
+        x.get(0, 0, v);
+        x.release();
+        b0.release();
+        b1.release();
+        if (correct) zeroNegligible(v, DOG_EPS * maxGamma);
+        return tanTriggsContrast(v, p.alpha(), p.tau());
+    }
+
+    /** Обнуляет |v[i]| ≤ eps; возвращает число обнулённых. */
+    static int zeroNegligible(double[] v, double eps) {
+        int n = 0;
+        for (int i = 0; i < v.length; i++) {
+            if (v[i] != 0 && Math.abs(v[i]) <= eps) {
+                v[i] = 0;
+                n++;
+            }
+        }
+        return n;
+    }
 
     final String label;
     final String id;

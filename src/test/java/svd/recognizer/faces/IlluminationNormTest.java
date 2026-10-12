@@ -58,4 +58,42 @@ public class IlluminationNormTest {
         double[] rb = IlluminationNorm.tanTriggsContrast(b.clone(), 0.1, 10);
         for (int i = 0; i < a.length; i++) assertEquals(ra[i], rb[i], 1e-9);
     }
+
+    /** Поправка ε (№3, 13.10.2026): ровный кадр 255 — DoG обнуляется целиком, выход ровно 0. */
+    @Test
+    public void flatFrameGivesZero() {
+        Mat m = new Mat(112, 92, CvType.CV_8UC1, new Scalar(255));
+        for (double x : IlluminationNorm.tanTriggs(m, P, true)) assertEquals(0.0, x, 0.0);
+    }
+
+    /**
+     * Поправка ε: шум последних разрядов в ровном участке (DoG ≈ 1e-16 вместо 0) без поправки сдвигает нормировку контраста,
+     * с поправкой — нет (результат тот же, что при точных нулях). Сдвиг проявляется, когда часть значений упирается в τ.
+     */
+    @Test
+    public void negligibleDogDoesNotShiftContrast() {
+        java.util.Random r = new java.util.Random(7);
+        double[] exact = new double[1000];
+        for (int i = 0; i < 600; i++) exact[i] = r.nextGaussian() * 0.05;
+        for (int i = 0; i < 60; i++) exact[i] *= 40; // сильные края: после выравнивания упираются в τ (как в реальных кадрах)
+        double[] noisy = exact.clone();
+        for (int i = 600; i < 1000; i++) noisy[i] = (r.nextBoolean() ? 1 : -1) * 1e-16 * (1 + r.nextInt(5));
+        double[] ref = IlluminationNorm.tanTriggsContrast(exact.clone(), 0.1, 10);
+        double[] raw = IlluminationNorm.tanTriggsContrast(noisy.clone(), 0.1, 10);
+        double shift = 0;
+        for (int i = 0; i < ref.length; i++) shift = Math.max(shift, Math.abs(raw[i] - ref[i]));
+        assertTrue("без поправки шум должен сдвигать выход: " + shift, shift > 1e-6);
+        double[] fixed = noisy.clone();
+        assertEquals(400, IlluminationNorm.zeroNegligible(fixed, IlluminationNorm.DOG_EPS * Math.pow(255, 0.2)));
+        double[] out = IlluminationNorm.tanTriggsContrast(fixed, 0.1, 10);
+        for (int i = 0; i < out.length; i++) assertEquals(ref[i], out[i], 0.0);
+    }
+
+    /** Поправка ε: на кадре без ровных участков результат с поправкой и без совпадает точно. */
+    @Test
+    public void ordinaryFrameUnchanged() {
+        Mat m = new Mat(112, 92, CvType.CV_8UC1);
+        Core.randu(m, 20, 230);
+        org.junit.Assert.assertArrayEquals(IlluminationNorm.tanTriggs(m, P, false), IlluminationNorm.tanTriggs(m, P, true), 0.0);
+    }
 }
