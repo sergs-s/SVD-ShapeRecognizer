@@ -381,6 +381,12 @@ public final class XBaseEval {
             XBaseA0.gt(export, dir, feiKeys, selLines, settings, out);
         } else if (a[0].equals("feret-a0")) {
             XBaseA0.feret(export, dir, feiKeys, selLines, settings);
+        } else if (a[0].equals("gt-a0-check")) {
+            XBaseA0Check.gt(export, dir, feiKeys, selLines, settings, out);
+        } else if (a[0].equals("feret-a0-check")) {
+            XBaseA0Check.feret(dir, selLines, settings);
+        } else if (a[0].equals("feret-hub2")) {
+            XBaseA0Check.hub2(export, dir, feiKeys, selLines, settings);
         } else {
             throw new IllegalArgumentException("XBaseEval: неизвестный режим " + a[0]);
         }

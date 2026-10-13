@@ -611,7 +611,17 @@ mvn compile exec:java@faces-fei-scores  # разбор файла оценок F
     оценок (без распознавания): GT межсессионно L1 и L1-tt, FERET G1 L1-tt,
     П2 FAR 1 %; контроль (i) – seed faces.seed + 9700; листы –
     `reports/faces/xbase/a0/` и только `D:\data\Feret\reports\a0\`
-    (`a0_index.tsv`, `a0_summary.txt`); около 10 с каждый.
+    (`a0_index.tsv`, `a0_summary.txt`; листы с префиксом базы: `gt_…`,
+    `feret_…`, в том числе `gt_gallery_NN`, `feret_gallery_NN`); около
+    10 с каждый;
+  - `gt-a0-check`, `feret-a0-check`, `feret-hub2` (`XBaseA0Check`, №7) –
+    проверки П-а.1 (d1 по группам, разбивки по позе, асимметрии света и
+    шуму, критерий зазора), П-б.2 (хаб 00383 по дате пробы), П-в (SFace
+    на ошибках) – по файлам оценок; П-б.1 (`feret-hub2`) – G1 L1-tt с
+    галереей 00383 из fa, fb (распознавание; контроль – исходная G1
+    побайтно как в файле оценок); отчёты `xbase_gt_a0_check.txt` и только
+    `D:\data\Feret\reports\xbase_feret_a0_check.txt`,
+    `xbase_feret_hub2.txt`; 1–10 с каждый.
   `SFaceScorer`: наименьшее число снимков шаблона – параметр (по умолчанию
   2, прежние отчёты не меняются; `XBaseEval.sfaceMin`; FERET – 1, `29837b1`).
   Долгий прогон (MUCT и т. п.) – из отдельной рабочей копии git (`git

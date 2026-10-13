@@ -91,6 +91,12 @@ final class XBaseA0 {
     /** Строка листа: проба, группа, оценка, кого показать из галереи. */
     record Case(Probe probe, int group, double ratio, String bestId, String galPerson) {}
 
+    /**
+     * Попытка основного протокола (XBaseA0Check): проба, строка модели по позе, d₁/d₂; group — 0 (i), 1 (ii), 2 (iii), 3 (iv) у
+     * своих, 4 — контрольный чужой отвергнут, 5 — принят.
+     */
+    record Att(Probe probe, Row row, double ratio, int group) {}
+
     /** Пара «база – метод»: решения и выборки. */
     static final class Pair {
         String base;
@@ -102,6 +108,12 @@ final class XBaseA0 {
         int ctrlN;
         int ctrlAcc;
         List<List<Case>> sel = new ArrayList<>();
+        /** Все попытки основного протокола. */
+        List<Att> atts = new ArrayList<>();
+        /** «Чужие» П2 по возрастанию d₁/d₂: оценка, человек (Gt.pIdx), строка. */
+        double[] cvR;
+        int[] cvP;
+        List<Row> cvRows = new ArrayList<>();
     }
 
     // ---------------------------------------------------------------- решения и выборки
@@ -132,28 +144,35 @@ final class XBaseA0 {
     /** Решения по позе пробы, порог П2 FAR 1 %, группы и выборки. */
     static Pair decide(String base, String label, IlluminationNorm norm, Map<String, Row> rows, XBaseEval.Gt g, Map<String, List<String>> galleryKeys,
                        List<Probe> probes, List<List<String>> parts) {
+        return decide(base, label, norm, V.L1, rows, g, galleryKeys, probes, parts);
+    }
+
+    /** То же для варианта v (выбор модели по позе — XBaseEval.choose; SFace — одна модель). */
+    static Pair decide(String base, String label, IlluminationNorm norm, V v, Map<String, Row> rows, XBaseEval.Gt g,
+                       Map<String, List<String>> galleryKeys, List<Probe> probes, List<List<String>> parts) {
         Pair pr = new Pair();
         pr.base = base;
         pr.label = label;
         pr.norm = norm;
-        List<double[]> cv = new ArrayList<>();
+        List<Object[]> cv = new ArrayList<>();
         for (int q = 0; q < FeiMethods.CV_PARTS; q++) {
             for (String p : parts.get(q)) {
                 for (String k : galleryKeys.get(p)) {
-                    Row r = XBaseEval.choose(rows, V.L1, FeiMethods.CV_ROLE + q, p, g.img(k), g.rOf.get(k) <= g.r0);
-                    cv.add(new double[] {g.pIdx.get(p), FeiScores.ratio(r, null)});
+                    Row r = XBaseEval.choose(rows, v, FeiMethods.CV_ROLE + q, p, g.img(k), g.rOf.get(k) <= g.r0);
+                    cv.add(new Object[] {g.pIdx.get(p), FeiScores.ratio(r, null), r});
                 }
             }
         }
-        cv.sort((a, b) -> Double.compare(a[1], b[1]));
-        double[] cvR = cv.stream().mapToDouble(a -> a[1]).toArray();
-        int[] cvP = cv.stream().mapToInt(a -> (int) a[0]).toArray();
-        pr.theta = FeiBootstrap.threshold(cvR, cvP, FeiBootstrap.unit(g.persons.size()), FAR);
+        cv.sort((a, b) -> Double.compare((double) a[1], (double) b[1]));
+        pr.cvR = cv.stream().mapToDouble(a -> (double) a[1]).toArray();
+        pr.cvP = cv.stream().mapToInt(a -> (int) a[0]).toArray();
+        for (Object[] a : cv) pr.cvRows.add((Row) a[2]);
+        pr.theta = FeiBootstrap.threshold(pr.cvR, pr.cvP, FeiBootstrap.unit(g.persons.size()), FAR);
 
         List<List<Case>> all = new ArrayList<>();
         for (int i = 0; i < 4; i++) all.add(new ArrayList<>());
         for (Probe p : probes) {
-            Row r = XBaseEval.choose(rows, V.L1, p.role(), p.person(), p.image(), g.rOf.get(p.key()) <= g.r0);
+            Row r = XBaseEval.choose(rows, v, p.role(), p.person(), p.image(), g.rOf.get(p.key()) <= g.r0);
             double ratio = FeiScores.ratio(r, null);
             boolean acc = ratio <= pr.theta;
             if (p.role().equals(FeiScores.OWN)) {
@@ -161,11 +180,13 @@ final class XBaseA0 {
                 boolean ok = r.bestId().equals(r.trueId());
                 int grp = ok ? (acc ? 0 : 1) : (acc ? 3 : 2);
                 pr.groups[grp]++;
+                pr.atts.add(new Att(p, r, ratio, grp));
                 if (grp == 1 || grp == 2) all.get(0).add(new Case(p, 0, ratio, r.bestId(), p.person()));
                 else if (grp == 3) all.get(1).add(new Case(p, 1, ratio, r.bestId(), r.bestId()));
                 else all.get(3).add(new Case(p, 3, ratio, r.bestId(), p.person()));
             } else {
                 pr.ctrlN++;
+                pr.atts.add(new Att(p, r, ratio, acc ? 5 : 4));
                 if (acc) {
                     pr.ctrlAcc++;
                     all.get(2).add(new Case(p, 2, ratio, r.bestId(), r.bestId()));
@@ -387,14 +408,24 @@ final class XBaseA0 {
 
     // ---------------------------------------------------------------- GT
 
-    static void gt(FarExport.Loaded export, Path dir, Map<String, Map<Integer, String>> feiKeys, List<String> selLines, SettingsStore settings,
-                   Path xbaseOut) throws IOException {
+    /** GT межсессионно: Gt, пробы, части «чужих» П2, источник снимков. */
+    static final class GtSetup {
+        XBaseEval.Gt g;
+        List<Probe> probes;
+        List<List<String>> parts;
+        Source src;
+    }
+
+    static GtSetup gtSetup(FarExport.Loaded export, Path dir, Map<String, Map<Integer, String>> feiKeys, List<String> selLines, SettingsStore settings)
+            throws IOException {
         String rawGt = settings.loadFacesGtDir();
         if (rawGt == null) throw new IllegalStateException("XBaseEval gt-a0: задайте faces.gt.dir / FACES_GT_DIR (исходные снимки)");
         Path gtDir = Paths.get(rawGt);
+        GtSetup su = new GtSetup();
         XBaseEval.Gt g = XBaseEval.prepare(export, dir, feiKeys, selLines, settings);
-        List<Probe> probes = XBaseEval.probes(g, g.probeKeys);
-        List<List<String>> parts = FeiMethods.cvParts(g.own, g.seed, XBaseEval.CV_S);
+        su.g = g;
+        su.probes = XBaseEval.probes(g, g.probeKeys);
+        su.parts = FeiMethods.cvParts(g.own, g.seed, XBaseEval.CV_S);
         Map<String, double[]> det = new HashMap<>();
         for (String l : Files.readAllLines(dir.resolve("detections.tsv"), StandardCharsets.UTF_8)) {
             String[] c = l.split("\t", -1);
@@ -404,7 +435,7 @@ final class XBaseA0 {
             det.put(c[1] + "/" + c[2], row);
         }
         Map<String, Integer> sess = XBaseEval.sessions(dir.resolve(XBaseEval.SESSIONS));
-        Source src = new Source() {
+        su.src = new Source() {
             public Mat raw(String key) throws IOException {
                 Sample s = g.samples.get(key);
                 Path f = gtDir.resolve(s.person()).resolve(s.file().getFileName().toString() + ".jpg");
@@ -437,6 +468,17 @@ final class XBaseA0 {
                 return g.rOf.get(key);
             }
         };
+        return su;
+    }
+
+    /** Файлы оценок GT межсессионно: {файл, метка, нормировка перед LBP}. */
+    static final Object[][] GT_PAIRS = {{"xbase_gt_scores.tsv.gz", "L1", IlluminationNorm.NONE},
+        {"xbase_gt_ltp_scores.tsv.gz", "L1-tt", IlluminationNorm.TAN_TRIGGS}};
+
+    static void gt(FarExport.Loaded export, Path dir, Map<String, Map<Integer, String>> feiKeys, List<String> selLines, SettingsStore settings,
+                   Path xbaseOut) throws IOException {
+        GtSetup su = gtSetup(export, dir, feiKeys, selLines, settings);
+        XBaseEval.Gt g = su.g;
         Path out = xbaseOut.resolve("a0");
         Files.createDirectories(out);
         StringBuilder sum = new StringBuilder();
@@ -446,16 +488,15 @@ final class XBaseA0 {
         sum.append(String.format(Locale.ROOT, "Контроль (i): Random(faces.seed + %d = %d)%n", OK_SEED_OFFSET, g.seed + OK_SEED_OFFSET));
         StringBuilder index = new StringBuilder(INDEX_COLUMNS);
         Set<String> people = new TreeSet<>();
-        Object[][] pairs = {{"xbase_gt_scores.tsv.gz", "L1", IlluminationNorm.NONE}, {"xbase_gt_ltp_scores.tsv.gz", "L1-tt", IlluminationNorm.TAN_TRIGGS}};
-        for (Object[] pp : pairs) {
+        for (Object[] pp : GT_PAIRS) {
             Path f = xbaseOut.resolve((String) pp[0]);
             sum.append("Файл оценок: ").append(f).append(" (").append(FeiThreshold.sha(f)).append(")\n");
             Map<String, Row> rows = read(f, FeiMethods.LBP_MLDA, null);
-            Pair p = decide("GT", (String) pp[1], (IlluminationNorm) pp[2], rows, g, g.galleryKeys, probes, parts);
+            Pair p = decide("GT", (String) pp[1], (IlluminationNorm) pp[2], rows, g, g.galleryKeys, su.probes, su.parts);
             sum.append(summary(p));
-            people.addAll(sheets(p, src, g.galleryKeys, g.params, out, "gt_" + pp[1], index));
+            people.addAll(sheets(p, su.src, g.galleryKeys, g.params, out, "gt_" + pp[1], index));
         }
-        gallerySheets(people, src, g.galleryKeys, g.params, out, "gallery", index);
+        gallerySheets(people, su.src, g.galleryKeys, g.params, out, "gt_gallery", index);
         FarMethods.write(out.resolve("a0_index.tsv"), index);
         FarMethods.write(out.resolve("a0_summary.txt"), sum);
         System.out.print(sum);
@@ -463,51 +504,74 @@ final class XBaseA0 {
 
     // ---------------------------------------------------------------- FERET
 
-    static void feret(FarExport.Loaded export, Path exportDir, Map<String, Map<Integer, String>> feiKeys, List<String> selLines, SettingsStore settings)
-            throws IOException {
+    /** FERET: каталог базы, Gt роли (2), роли, снимки, детекции, пробы и части «чужих» G1, источник снимков. */
+    static final class FeretSetup {
+        Path dir;
+        XBaseEval.Gt tpl;
+        XBaseEval.Gt base;
+        XBaseEval.Gt g;
+        XBaseFeret.Roles ro;
+        List<Img> imgs;
+        Map<String, double[]> det;
+        Map<String, Img> byKey = new HashMap<>();
+        Map<String, Double> rOf = new HashMap<>();
+        Map<String, Integer> imageNo = new HashMap<>();
+        List<Probe> probes;
+        List<List<String>> parts;
+        Source src;
+        FaceRecognizerSF sface;
+    }
+
+    /** Номер конфигурации G1 в XBaseFeret (части «чужих» П2 — seed + 8000 + 100 + s). */
+    static final int G1_S = 2;
+    static final String FERET_SCORES = "xbase_feret_scores.tsv.gz";
+
+    static FeretSetup feretSetup(Path exportDir, List<String> selLines, SettingsStore settings) throws IOException {
         String rawDir = settings.loadFacesFeretDir();
         if (rawDir == null) throw new IllegalStateException("XBaseEval feret-a0: задайте faces.feret.dir / FACES_FERET_DIR");
+        FeretSetup su = new FeretSetup();
         Path dir = Paths.get(rawDir);
+        su.dir = dir;
         XBaseEval.Gt tpl = new XBaseEval.Gt();
         tpl.dir = exportDir;
         tpl.seed = settings.loadFacesSeed();
         String rawR0 = settings.loadFacesFeiPoseR0();
         if (rawR0 == null) throw new IllegalStateException("XBaseEval feret-a0: задайте faces.fei.pose.r0 / FACES_FEI_POSE_R0");
         tpl.r0 = FeiPose.r0(rawR0, "+pose");
-        tpl.b = 0;
-        tpl.threads = 1;
+        tpl.b = settings.loadFacesFeiBootstrap();
+        tpl.threads = settings.loadFacesFeiCvThreads();
         tpl.rLimit = XBaseEval.poseLimit(selLines);
         tpl.params = IlluminationNorm.NormParams.of(settings);
+        su.tpl = tpl;
 
         // Снимки, детекции, роли — как XBaseFeret.run.
-        List<Img> imgs = FeretData.frontal(dir);
+        su.imgs = FeretData.frontal(dir);
         Path models = Paths.get(settings.loadFacesModelsDir());
-        FaceRecognizerSF sface = FaceRecognizerSF.create(models.resolve(FaceAlignment.SFACE_FILE).toString(), "");
-        Map<String, double[]> det = FeretData.detect(imgs, dir, models, sface);
-        Map<String, Img> byKey = new HashMap<>();
-        Map<String, Double> rOf = new HashMap<>();
-        Map<String, Integer> imageNo = new HashMap<>();
+        su.sface = FaceRecognizerSF.create(models.resolve(FaceAlignment.SFACE_FILE).toString(), "");
+        su.det = FeretData.detect(su.imgs, dir, models, su.sface);
         Map<String, Map<String, List<Img>>> kept = new TreeMap<>();
         Map<String, Integer> seen = new HashMap<>();
-        for (Img im : imgs) {
-            byKey.put(im.key(), im);
-            imageNo.put(im.key(), seen.merge(im.person(), 1, Integer::sum));
-            double[] row = det.get(im.key());
+        for (Img im : su.imgs) {
+            su.byKey.put(im.key(), im);
+            su.imageNo.put(im.key(), seen.merge(im.person(), 1, Integer::sum));
+            double[] row = su.det.get(im.key());
             if (row == null) continue;
             double r = Math.abs(FeiDataset.pose(row));
-            rOf.put(im.key(), r);
+            su.rOf.put(im.key(), r);
             if (r > tpl.rLimit) continue;
             kept.computeIfAbsent(im.person(), p -> new TreeMap<>()).computeIfAbsent(im.date(), d -> new ArrayList<>()).add(im);
         }
-        XBaseFeret.Roles ro = XBaseFeret.roles(XBaseFeret.dates(imgs), kept, tpl.seed);
-        TreeSet<String> ps = new TreeSet<>(ro.own2);
-        ps.addAll(ro.ctrl);
-        XBaseEval.Gt base = XBaseFeret.gt(tpl, new ArrayList<>(ps), ro.ctrl, ro.ctrlKeys, new ArrayList<>(), rOf, imageNo);
-        XBaseEval.Gt g = XBaseFeret.withOwn(base, ro.own2);
-        List<Probe> probes = XBaseEval.probes(g, ro.pro2);
-        int s = 2; // G1 — номер конфигурации в XBaseFeret
-        List<List<String>> parts = XBaseOther.cvParts(ro.own2, tpl.seed, XBaseEval.CV_S + s);
-        Source src = new Source() {
+        su.ro = XBaseFeret.roles(XBaseFeret.dates(su.imgs), kept, tpl.seed);
+        TreeSet<String> ps = new TreeSet<>(su.ro.own2);
+        ps.addAll(su.ro.ctrl);
+        su.base = XBaseFeret.gt(tpl, new ArrayList<>(ps), su.ro.ctrl, su.ro.ctrlKeys, new ArrayList<>(), su.rOf, su.imageNo);
+        su.g = XBaseFeret.withOwn(su.base, su.ro.own2);
+        su.probes = XBaseEval.probes(su.g, su.ro.pro2);
+        su.parts = XBaseOther.cvParts(su.ro.own2, tpl.seed, XBaseEval.CV_S + G1_S);
+        Map<String, double[]> det = su.det;
+        Map<String, Img> byKey = su.byKey;
+        Map<String, Double> rOf = su.rOf;
+        su.src = new Source() {
             public Mat raw(String key) throws IOException {
                 return FeretData.decode(byKey.get(key).file());
             }
@@ -532,20 +596,26 @@ final class XBaseA0 {
                 return rOf.get(key);
             }
         };
-        Path out = dir.resolve("reports").resolve("a0");
+        return su;
+    }
+
+    static void feret(FarExport.Loaded export, Path exportDir, Map<String, Map<Integer, String>> feiKeys, List<String> selLines, SettingsStore settings)
+            throws IOException {
+        FeretSetup su = feretSetup(exportDir, selLines, settings);
+        Path out = su.dir.resolve("reports").resolve("a0");
         Files.createDirectories(out);
-        Path f = dir.resolve("reports").resolve("xbase_feret_scores.tsv.gz");
+        Path f = su.dir.resolve("reports").resolve(FERET_SCORES);
         StringBuilder sum = new StringBuilder();
         sum.append("(а0) листы кадров у ошибок, FERET G1 (XBaseEval feret-a0; PLAN.md п. 5.5); только локально\n");
         sum.append("Код: коммит ").append(FarMethods.commit()).append('\n');
         sum.append("Файл оценок: ").append(f).append(" (").append(FeiThreshold.sha(f)).append("), блок «G1, набор tt»\n");
-        sum.append(String.format(Locale.ROOT, "Контроль (i): Random(faces.seed + %d = %d)%n", OK_SEED_OFFSET, tpl.seed + OK_SEED_OFFSET));
+        sum.append(String.format(Locale.ROOT, "Контроль (i): Random(faces.seed + %d = %d)%n", OK_SEED_OFFSET, su.tpl.seed + OK_SEED_OFFSET));
         StringBuilder index = new StringBuilder(INDEX_COLUMNS);
         Map<String, Row> rows = read(f, FeiMethods.LBP_MLDA, "# конфигурация G1, набор tt");
-        Pair p = decide("FERET-G1", "L1-tt", IlluminationNorm.TAN_TRIGGS, rows, g, ro.g1, probes, parts);
+        Pair p = decide("FERET-G1", "L1-tt", IlluminationNorm.TAN_TRIGGS, rows, su.g, su.ro.g1, su.probes, su.parts);
         sum.append(summary(p));
-        Set<String> people = sheets(p, src, ro.g1, tpl.params, out, "feret_G1_L1-tt", index);
-        gallerySheets(people, src, ro.g1, tpl.params, out, "gallery", index);
+        Set<String> people = sheets(p, su.src, su.ro.g1, su.tpl.params, out, "feret_G1_L1-tt", index);
+        gallerySheets(people, su.src, su.ro.g1, su.tpl.params, out, "feret_gallery", index);
         FarMethods.write(out.resolve("a0_index.tsv"), index);
         FarMethods.write(out.resolve("a0_summary.txt"), sum);
         System.out.print(sum);
