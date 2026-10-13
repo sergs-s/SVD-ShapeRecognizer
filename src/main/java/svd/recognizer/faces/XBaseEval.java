@@ -377,6 +377,10 @@ public final class XBaseEval {
             XBaseSepLtp.run(dir, settings, out);
         } else if (a[0].equals("gt-sep")) {
             XBaseSep.run(dir, selLines, settings, out);
+        } else if (a[0].equals("gt-a0")) {
+            XBaseA0.gt(export, dir, feiKeys, selLines, settings, out);
+        } else if (a[0].equals("feret-a0")) {
+            XBaseA0.feret(export, dir, feiKeys, selLines, settings);
         } else {
             throw new IllegalArgumentException("XBaseEval: неизвестный режим " + a[0]);
         }
