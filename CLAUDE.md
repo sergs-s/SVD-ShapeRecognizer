@@ -627,7 +627,19 @@ mvn compile exec:java@faces-fei-scores  # разбор файла оценок F
     галереей 00383 из fa, fb (распознавание; контроль – исходная G1
     побайтно как в файле оценок); отчёты `xbase_gt_a0_check.txt` и только
     `D:\data\Feret\reports\xbase_feret_a0_check.txt`,
-    `xbase_feret_hub2.txt`; 1–10 с каждый.
+    `xbase_feret_hub2.txt`; 1–10 с каждый;
+  - №8, одинаковое число снимков галереи: ключ `faces.gallery.equal` /
+    `FACES_GALLERY_EQUAL` = 0 | 1 | 2 (в settings.properties не задан; без
+    ключа отчёты побайтно прежние). FERET (`feret`, `feret-eyes2`): на
+    каждой дате галереи один чистый fa и один fb, варианты исключены; нет
+    чистого – первый вариант (решение (А)); «внутри» – один fa; G2' –
+    прежний выбор; отчёты – только `D:\data\Feret\reports\eq\`, контрольные
+    точки `derived\checkpoint_*_eq`. GT (`gt`, `gt-in`, `gt-ltp`, `gt-diag`):
+    N = наименьшее число снимков галереи своих (межс. 6, внутри 3), выбор
+    – seed faces.seed + 9800 + k; отчёты – `reports/faces/xbase/eq98NN/`.
+    Сравнение «прежнее → новое» по файлам оценок: `gt-eq-compare` (без
+    ключа; `xbase_gt_eq_compare.txt`), `feret-eq-compare` (только
+    `D:\data\Feret\reports\xbase_feret_eq_compare.txt`), 2–3 с.
   `SFaceScorer`: наименьшее число снимков шаблона – параметр (по умолчанию
   2, прежние отчёты не меняются; `XBaseEval.sfaceMin`; FERET – 1, `29837b1`).
   Долгий прогон (MUCT и т. п.) – из отдельной рабочей копии git (`git

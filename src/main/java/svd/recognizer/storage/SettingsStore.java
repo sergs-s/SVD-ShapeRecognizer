@@ -72,6 +72,7 @@ public class SettingsStore {
     private static final String KEY_FACES_LBP_NORM = "faces.lbp.norm";
     private static final String KEY_FACES_LTP_T = "faces.ltp.t";
     private static final String KEY_FACES_FERET_DIR = "faces.feret.dir";
+    private static final String KEY_FACES_GALLERY_EQUAL = "faces.gallery.equal";
     private static final String KEY_FACES_CALTECH_DIR = "faces.caltech.dir";
     private static final String KEY_FACES_FEI_CV = "faces.fei.cv";
     private static final String KEY_FACES_FEI_CV_THREADS = "faces.fei.cv.threads";
@@ -474,6 +475,21 @@ public class SettingsStore {
      */
     public String loadFacesFeretDir() {
         return path(KEY_FACES_FERET_DIR);
+    }
+
+    /**
+     * Одинаковое число снимков галереи у всех людей (№8, решение Хозяина (2) от 13.10.2026): ключ faces.gallery.equal или
+     * переменная окружения FACES_GALLERY_EQUAL — 0, 1 или 2 (GT: выбор N снимков, seed faces.seed + 9800 + k; FERET: правило
+     * fa/fb, значение не влияет). По умолчанию не задан — галереи прежние.
+     *
+     * @return k или null, если не задано
+     */
+    public Integer loadFacesGalleryEqual() {
+        String raw = path(KEY_FACES_GALLERY_EQUAL);
+        if (raw == null) return null;
+        int k = Integer.parseInt(raw.trim());
+        if (k < 0 || k > 2) throw new IllegalArgumentException("faces.gallery.equal: 0, 1 или 2, а не " + raw);
+        return k;
     }
 
     /**

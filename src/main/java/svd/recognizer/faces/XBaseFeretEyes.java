@@ -80,7 +80,8 @@ final class XBaseFeretEyes {
         tpl.threads = settings.loadFacesFeiCvThreads();
         tpl.rLimit = XBaseEval.poseLimit(selLines);
         tpl.params = IlluminationNorm.NormParams.of(settings);
-        Path out = dir.resolve("reports");
+        Integer eq = settings.loadFacesGalleryEqual();
+        Path out = eq == null ? dir.resolve("reports") : dir.resolve("reports").resolve(XBaseEval.eqDir(eq, true));
         Files.createDirectories(out);
 
         List<Img> imgs = FeretData.frontal(dir);
@@ -114,6 +115,12 @@ final class XBaseFeretEyes {
         Map<String, TreeSet<String>> dates = XBaseFeret.dates(imgs);
         XBaseFeret.Roles all = XBaseFeret.roles(dates, keptAll, tpl.seed);
         XBaseFeret.Roles ro = XBaseFeret.roles(dates, keptMarked, tpl.seed);
+        XBaseFeret.Roles roAll = ro;
+        if (eq != null) {
+            Map<String, Img> byKey = new HashMap<>();
+            for (Img im : imgs) byKey.put(im.key(), im);
+            ro = XBaseFeret.equalize(ro, byKey);
+        }
         // Контрольные чужие — те же 200, что в основном прогоне, с их размеченными снимками.
         List<String> ctrl = new ArrayList<>();
         Map<String, List<String>> ctrlKeys = new TreeMap<>();
@@ -134,7 +141,8 @@ final class XBaseFeretEyes {
             cohortKeys.addAll(ks);
         }
         Set<String> used = new TreeSet<>();
-        for (Map<String, List<String>> m : List.of(ro.gal1, ro.pro1, ro.g2, ro.pro2, ctrlKeys)) m.values().forEach(used::addAll);
+        // №8: векторы — по прежним ролям (как в XBaseFeret.run).
+        for (Map<String, List<String>> m : List.of(roAll.gal1, roAll.pro1, roAll.g2, roAll.pro2, ctrlKeys)) m.values().forEach(used::addAll);
         List<Sample> fei = new ArrayList<>();
         export.data().fei().values().forEach(fei::addAll);
         Map<String, Mat> cohortFr = XBaseEval.frames(export, fei, cohortKeys);
@@ -155,11 +163,12 @@ final class XBaseFeretEyes {
         List<Conf> confs1 = List.of(new Conf("межс.", 0, ro.own1, ro.gal1, ro.pro1, null), new Conf("внутри", 1, ro.own1in, ro.gal1in, ro.pro1in, null));
         List<Conf> confs2 = List.of(new Conf("G1", 2, ro.own2, ro.g1, ro.pro2, null), new Conf("G2-i", 3, ro.own2, ro.g2, ro.pro2, null),
                 new Conf("G2-ii", 4, ro.own2, ro.g2, ro.pro2, ro.g2s), new Conf("G2'", 5, ro.own2, ro.g2p, ro.pro2, null));
-        String fp = FeiCheckpoint.fingerprint(exportDir, String.format(Locale.ROOT, "%s %s; снимков %d; размеченных отобранных %d; seed %d; r0 %s", va.fp(), dir,
-                imgs.size(), marked, tpl.seed, tpl.r0));
-        XBaseOther.Checkpoint cp = new XBaseOther.Checkpoint(dir.resolve(FeretData.DERIVED).resolve("checkpoint_" + va.tag()), fp);
+        String fp = FeiCheckpoint.fingerprint(exportDir, String.format(Locale.ROOT, "%s %s; снимков %d; размеченных отобранных %d; seed %d; r0 %s%s", va.fp(), dir,
+                imgs.size(), marked, tpl.seed, tpl.r0, eq == null ? "" : "; №8 галерея fa/fb"));
+        XBaseOther.Checkpoint cp = new XBaseOther.Checkpoint(dir.resolve(FeretData.DERIVED).resolve("checkpoint_" + va.tag() + (eq == null ? "" : "_eq")), fp);
 
         StringBuilder r = new StringBuilder();
+        if (eq != null) r.append(XBaseFeret.EQ_NOTE);
         r.append("PLAN.md п. 5.5: диагностика выравнивания на FERET — кадры по ручным точкам разметки против точек YuNet (XBaseEval feret-eyes); "
                 + "только локально\n");
         r.append("Код: коммит ").append(FarMethods.commit()).append('\n');

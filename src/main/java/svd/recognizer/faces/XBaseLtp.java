@@ -110,7 +110,7 @@ final class XBaseLtp {
         xt.ltpVectors(fr, g.params, t);
         fr.values().forEach(Mat::release);
 
-        List<Map<String, List<String>>> split = XBaseEval.withinSplit(g.own, g.galleryKeys, g.seed);
+        List<Map<String, List<String>>> split = XBaseEval.within(g);
         XBaseEval.Eval cross0 = XBaseEval.evaluate(g, g.x, XBaseEval.NORM_VARIANTS, g.galleryKeys, g.probeKeys);
         XBaseEval.Eval in0 = XBaseEval.evaluate(g, g.x, XBaseEval.NORM_VARIANTS, split.get(0), split.get(1));
         XBaseEval.Eval crossT = XBaseEval.evaluate(g, xt, TT_VARIANTS, g.galleryKeys, g.probeKeys);

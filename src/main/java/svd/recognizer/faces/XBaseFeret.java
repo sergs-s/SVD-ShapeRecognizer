@@ -194,7 +194,8 @@ final class XBaseFeret {
         tpl.threads = settings.loadFacesFeiCvThreads();
         tpl.rLimit = XBaseEval.poseLimit(selLines);
         tpl.params = IlluminationNorm.NormParams.of(settings);
-        Path out = dir.resolve("reports");
+        Integer eq = settings.loadFacesGalleryEqual();
+        Path out = eq == null ? dir.resolve("reports") : dir.resolve("reports").resolve(XBaseEval.eqDir(eq, true));
         Files.createDirectories(out);
 
         // Снимки, детекции, кадры.
@@ -232,6 +233,8 @@ final class XBaseFeret {
 
         // Роли.
         Roles ro = roles(dates, kept, tpl.seed);
+        Roles roAll = ro;
+        if (eq != null) ro = equalize(ro, byKey);
         List<String> own1 = ro.own1;
         List<String> own1in = ro.own1in;
         List<String> own2 = ro.own2;
@@ -260,7 +263,8 @@ final class XBaseFeret {
 
         // Векторы: отобранные снимки FERET и когорта.
         Set<String> used = new TreeSet<>();
-        for (Map<String, List<String>> m : List.of(gal1, pro1, g2, pro2, ctrlKeys)) m.values().forEach(used::addAll);
+        // №8: векторы — по прежним ролям (пробы «внутри» — fb даты 1, в т. ч. варианты; при правиле fa/fb их нет в галерее).
+        for (Map<String, List<String>> m : List.of(roAll.gal1, roAll.pro1, roAll.g2, roAll.pro2, roAll.ctrlKeys)) m.values().forEach(used::addAll);
         Map<String, Mat> fr = new LinkedHashMap<>();
         Map<String, Mat> sf = new LinkedHashMap<>();
         for (String k : used) {
@@ -283,12 +287,13 @@ final class XBaseFeret {
         List<Conf> confs2 = List.of(new Conf("G1", 2, own2, g1, pro2, null), new Conf("G2-i", 3, own2, g2, pro2, null),
                 new Conf("G2-ii", 4, own2, g2, pro2, g2s), new Conf("G2'", 5, own2, g2p, pro2, null));
 
-        String fp = FeiCheckpoint.fingerprint(exportDir, String.format(Locale.ROOT, "feret %s; снимков %d; детекций найдено %d; seed %d; r0 %s; t %s", dir,
-                imgs.size(), imgs.size() - notFound, tpl.seed, tpl.r0, t));
-        XBaseOther.Checkpoint cp = new XBaseOther.Checkpoint(dir.resolve(FeretData.DERIVED).resolve("checkpoint_feret"), fp);
+        String fp = FeiCheckpoint.fingerprint(exportDir, String.format(Locale.ROOT, "feret %s; снимков %d; детекций найдено %d; seed %d; r0 %s; t %s%s", dir,
+                imgs.size(), imgs.size() - notFound, tpl.seed, tpl.r0, t, eq == null ? "" : "; №8 галерея fa/fb"));
+        XBaseOther.Checkpoint cp = new XBaseOther.Checkpoint(dir.resolve(FeretData.DERIVED).resolve(eq == null ? "checkpoint_feret" : "checkpoint_feret_eq"), fp);
         StringBuilder r = new StringBuilder();
         header(r, dir, exportDir, imgs, notFound, poseOut, tpl, t, cohortP, ctrl, ctrlKeys, own1, own1in, own2, dropped, gal1, pro1, gal1in, pro1in, g1, g2, g2p,
                 pro2, detS, sfaceModel);
+        if (eq != null) r.append(EQ_NOTE);
         StringBuilder lines = new StringBuilder();
         for (int ex = 0; ex < 2; ex++) {
             List<Conf> confs = ex == 0 ? confs1 : confs2;
@@ -547,6 +552,71 @@ final class XBaseFeret {
         int[] dropped;
         List<String> ctrl;
         Map<String, List<String>> ctrlKeys;
+    }
+
+    static final String EQ_NOTE = "№8 (faces.gallery.equal; решение Хозяина (2) и (А) от 13.10.2026): на каждой дате галереи – один fa и один fb, "
+            + "варианты (_a и др.) исключены; если на дате чистого fa (fb) нет – первый вариант fa (fb) по имени; «внутри» – один fa; G2' – прежний выбор; "
+            + "пробы, контроль, части «чужих» – прежние, «чужие» П2/П3 – из новой галереи.\n";
+
+    /** №8: снимки одной даты галереи по правилу fa/fb (faOnly — только fa, для «внутри»). */
+    static List<String> pairOf(List<String> keys, Map<String, Img> byKey, boolean faOnly) {
+        List<String> out = new ArrayList<>();
+        for (String pose : faOnly ? new String[] {"fa"} : new String[] {"fa", "fb"}) {
+            String clean = null;
+            String var = null;
+            for (String k : sorted(keys)) {
+                Img im = byKey.get(k);
+                if (!im.pose().equals(pose)) continue;
+                if (im.flag().equals("-")) {
+                    if (clean == null) clean = k;
+                } else if (var == null) {
+                    var = k;
+                }
+            }
+            String pick = clean != null ? clean : var;
+            if (pick != null) out.add(pick);
+        }
+        if (out.isEmpty()) throw new IllegalStateException("№8: на дате нет ни fa, ни fb: " + keys);
+        return out;
+    }
+
+    /** №8: галерея по правилу fa/fb на каждой дате (сохраняется порядок людей). */
+    static Map<String, List<String>> pairs(Map<String, List<String>> gal, Map<String, Img> byKey, boolean faOnly) {
+        Map<String, List<String>> out = new LinkedHashMap<>();
+        for (Map.Entry<String, List<String>> e : gal.entrySet()) {
+            Map<String, List<String>> byDate = new TreeMap<>();
+            for (String k : e.getValue()) byDate.computeIfAbsent(byKey.get(k).date(), d -> new ArrayList<>()).add(k);
+            List<String> ks = new ArrayList<>();
+            for (List<String> d : byDate.values()) ks.addAll(pairOf(d, byKey, faOnly));
+            out.put(e.getKey(), sorted(ks));
+        }
+        return out;
+    }
+
+    /** №8: роли с галереями по правилу fa/fb (межс., внутри, G1, G2-i, G2-ii); пробы, контроль, G2' — прежние. */
+    static Roles equalize(Roles ro, Map<String, Img> byKey) {
+        Roles r = new Roles();
+        r.own1 = ro.own1;
+        r.own1in = ro.own1in;
+        r.own2 = ro.own2;
+        r.pro1 = ro.pro1;
+        r.pro1in = ro.pro1in;
+        r.pro2 = ro.pro2;
+        r.g2p = ro.g2p;
+        r.dropped = ro.dropped;
+        r.ctrl = ro.ctrl;
+        r.ctrlKeys = ro.ctrlKeys;
+        r.gal1 = pairs(ro.gal1, byKey, false);
+        r.gal1in = pairs(ro.gal1in, byKey, true);
+        r.g1 = pairs(ro.g1, byKey, false);
+        r.g2 = pairs(ro.g2, byKey, false);
+        r.g2s = new LinkedHashMap<>();
+        for (Map.Entry<String, List<List<String>>> e : ro.g2s.entrySet()) {
+            List<List<String>> s = new ArrayList<>();
+            for (List<String> d : e.getValue()) s.add(sorted(pairOf(d, byKey, false)));
+            r.g2s.put(e.getKey(), s);
+        }
+        return r;
     }
 
     static Roles roles(Map<String, TreeSet<String>> dates, Map<String, Map<String, List<Img>>> kept, long seed) {

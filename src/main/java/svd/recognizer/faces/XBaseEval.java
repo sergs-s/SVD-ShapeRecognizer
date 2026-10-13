@@ -337,6 +337,9 @@ public final class XBaseEval {
         List<String> selLines = Files.readAllLines(dir.resolve(FarExport.FEI_SELECTION), StandardCharsets.UTF_8);
         Map<String, Map<Integer, String>> feiKeys = FeiMethods.selection(selLines, export.data().fei());
         Path out = Paths.get(System.getProperty("user.dir"), "reports", "faces", DIR);
+        // №8: при faces.gallery.equal отчёты GT — в подкаталог eq<9800 + k> (прежние не перезаписываются).
+        String eqSub = eqDir(settings.loadFacesGalleryEqual(), false);
+        if (eqSub != null && a[0].startsWith("gt")) out = out.resolve(eqSub);
         Files.createDirectories(out);
         long t0 = System.nanoTime();
         if (a[0].equals("fei-check")) {
@@ -387,6 +390,10 @@ public final class XBaseEval {
             XBaseA0Check.feret(dir, selLines, settings);
         } else if (a[0].equals("feret-hub2")) {
             XBaseA0Check.hub2(export, dir, feiKeys, selLines, settings);
+        } else if (a[0].equals("gt-eq-compare")) {
+            XBaseEqCompare.gt(export, dir, feiKeys, selLines, settings, out);
+        } else if (a[0].equals("feret-eq-compare")) {
+            XBaseEqCompare.feret(dir, selLines, settings);
         } else {
             throw new IllegalArgumentException("XBaseEval: неизвестный режим " + a[0]);
         }
@@ -495,6 +502,9 @@ public final class XBaseEval {
         String sfaceModel;
         /** Номер снимка по ключу (MUCT, ORL — XBaseOther); null — цифры имени файла (GT). */
         Map<String, Integer> imageNo;
+        /** №8: faces.gallery.equal (null — галереи прежние); galleryAll — галерея своих до усечения (gt-in делит её). */
+        Integer eq;
+        Map<String, List<String>> galleryAll;
 
         int img(String key) {
             return imageNo != null ? imageNo.get(key) : image(samples.get(key));
@@ -576,6 +586,9 @@ public final class XBaseEval {
             if (pr.isEmpty()) throw new IllegalStateException("У своего " + p + " после отбора нет проб");
             g.probeKeys.put(p, pr);
         }
+        g.galleryAll = new LinkedHashMap<>(g.galleryKeys);
+        g.eq = settings.loadFacesGalleryEqual();
+        if (g.eq != null) g.galleryKeys = equalize(g.own, g.galleryAll, g.seed + EQ_SEED_OFFSET + g.eq);
         g.cohortP = cohortPersons(feiKeys, g.seed);
         Set<String> cohortKeySet = new HashSet<>();
         for (String p : g.cohortP) {
@@ -869,6 +882,41 @@ public final class XBaseEval {
      * людей перемешиваются одним java.util.Random(seed + WITHIN_SEED_OFFSET); первые ⌈n/2⌉ — галерея, остальные — пробы
      * (обе части по возрастанию ключа). Возвращает {галерея, пробы}.
      */
+    /** №8: seed выбора N снимков галереи GT — faces.seed + EQ_SEED_OFFSET + k (k — faces.gallery.equal). */
+    static final long EQ_SEED_OFFSET = 9800;
+
+    /**
+     * №8: галерея своих, усечённая до N = наименьшего числа снимков среди own; у каждого (по порядку own) — N случайных
+     * снимков (один Random(seed), перестановка ключей по возрастанию), по возрастанию.
+     */
+    static Map<String, List<String>> equalize(List<String> own, Map<String, List<String>> gal, long seed) {
+        int n = Integer.MAX_VALUE;
+        for (String p : own) n = Math.min(n, gal.get(p).size());
+        java.util.Random rnd = new java.util.Random(seed);
+        Map<String, List<String>> out = new LinkedHashMap<>();
+        for (String p : own) {
+            List<String> ks = new ArrayList<>(gal.get(p));
+            ks.sort(null);
+            java.util.Collections.shuffle(ks, rnd);
+            List<String> sub = new ArrayList<>(ks.subList(0, n));
+            sub.sort(null);
+            out.put(p, sub);
+        }
+        return out;
+    }
+
+    /** Деление «внутри сессии» (gt-in и производные): половины даты галереи до усечения; при №8 — галерея-половина усечена. */
+    static List<Map<String, List<String>>> within(Gt g) {
+        List<Map<String, List<String>>> split = withinSplit(g.own, g.galleryAll, g.seed);
+        if (g.eq == null) return split;
+        return List.of(equalize(g.own, split.get(0), g.seed + EQ_SEED_OFFSET + g.eq), split.get(1));
+    }
+
+    /** Каталог отчётов №8 внутри каталога режима: eq&lt;seed offset + k&gt; (GT) или eq (FERET); null — прежний каталог. */
+    static String eqDir(Integer eq, boolean feret) {
+        return eq == null ? null : feret ? "eq" : "eq" + (EQ_SEED_OFFSET + eq);
+    }
+
     static List<Map<String, List<String>>> withinSplit(List<String> own, Map<String, List<String>> dateKeys, long seed) {
         java.util.Random rnd = new java.util.Random(seed + WITHIN_SEED_OFFSET);
         Map<String, List<String>> gal = new LinkedHashMap<>();
@@ -905,7 +953,7 @@ public final class XBaseEval {
                      Path out) throws IOException {
         Gt g = prepare(export, dir, feiKeys, selLines, settings);
         Eval cross = evaluate(g, g.galleryKeys, g.probeKeys);
-        List<Map<String, List<String>>> split = withinSplit(g.own, g.galleryKeys, g.seed);
+        List<Map<String, List<String>>> split = within(g);
         Map<String, List<String>> gal = split.get(0);
         Map<String, List<String>> pro = split.get(1);
         Eval in = evaluate(g, gal, pro);
@@ -1008,7 +1056,7 @@ public final class XBaseEval {
                        Path out) throws IOException {
         Gt g = prepare(export, dir, feiKeys, selLines, settings, true, false);
         Eval cross = evaluate(g, g.x, DIAG_VARIANTS, g.galleryKeys, g.probeKeys);
-        List<Map<String, List<String>>> split = withinSplit(g.own, g.galleryKeys, g.seed);
+        List<Map<String, List<String>>> split = within(g);
         Eval in = evaluate(g, g.x, DIAG_VARIANTS, split.get(0), split.get(1));
         writeScores(out.resolve("xbase_gt_diag_scores.tsv.gz"), " — диагностика L0 и SFace, межсессионно", g, cross);
         writeScores(out.resolve("xbase_gt_in_diag_scores.tsv.gz"), " — диагностика L0 и SFace, внутри сессии", g, in);
