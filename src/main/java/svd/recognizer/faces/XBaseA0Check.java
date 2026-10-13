@@ -333,6 +333,7 @@ final class XBaseA0Check {
     // ---------------------------------------------------------------- FERET
 
     static void feret(Path exportDir, List<String> selLines, SettingsStore settings) throws IOException {
+        XBaseA0.requireOld(settings, "feret-a0-check");
         XBaseA0.FeretSetup su = XBaseA0.feretSetup(exportDir, selLines, settings);
         Path f = su.dir.resolve("reports").resolve(XBaseA0.FERET_SCORES);
         StringBuilder t = new StringBuilder();
@@ -453,6 +454,7 @@ final class XBaseA0Check {
      */
     static void hub2(FarExport.Loaded export, Path exportDir, Map<String, Map<Integer, String>> feiKeys, List<String> selLines, SettingsStore settings)
             throws IOException {
+        XBaseA0.requireOld(settings, "feret-hub2");
         XBaseA0.FeretSetup su = XBaseA0.feretSetup(exportDir, selLines, settings);
         List<String> cohortP = XBaseEval.cohortPersons(feiKeys, su.tpl.seed);
         List<List<String>> cohort = new ArrayList<>();

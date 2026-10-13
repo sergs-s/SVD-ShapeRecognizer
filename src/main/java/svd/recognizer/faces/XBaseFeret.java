@@ -194,7 +194,7 @@ final class XBaseFeret {
         tpl.threads = settings.loadFacesFeiCvThreads();
         tpl.rLimit = XBaseEval.poseLimit(selLines);
         tpl.params = IlluminationNorm.NormParams.of(settings);
-        Integer eq = settings.loadFacesGalleryEqual();
+        Integer eq = settings.loadFacesFeretGalleryEqual() ? 0 : null; // №9: равные галереи — по умолчанию, old — прежние
         Path out = eq == null ? dir.resolve("reports") : dir.resolve("reports").resolve(XBaseEval.eqDir(eq, true));
         Files.createDirectories(out);
 

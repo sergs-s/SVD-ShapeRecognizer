@@ -73,6 +73,7 @@ public class SettingsStore {
     private static final String KEY_FACES_LTP_T = "faces.ltp.t";
     private static final String KEY_FACES_FERET_DIR = "faces.feret.dir";
     private static final String KEY_FACES_GALLERY_EQUAL = "faces.gallery.equal";
+    private static final String KEY_FACES_FERET_GALLERY = "faces.feret.gallery";
     private static final String KEY_FACES_CALTECH_DIR = "faces.caltech.dir";
     private static final String KEY_FACES_FEI_CV = "faces.fei.cv";
     private static final String KEY_FACES_FEI_CV_THREADS = "faces.fei.cv.threads";
@@ -479,8 +480,8 @@ public class SettingsStore {
 
     /**
      * Одинаковое число снимков галереи у всех людей (№8, решение Хозяина (2) от 13.10.2026): ключ faces.gallery.equal или
-     * переменная окружения FACES_GALLERY_EQUAL — 0, 1 или 2 (GT: выбор N снимков, seed faces.seed + 9800 + k; FERET: правило
-     * fa/fb, значение не влияет). По умолчанию не задан — галереи прежние.
+     * переменная окружения FACES_GALLERY_EQUAL — 0, 1 или 2 (GT: выбор N снимков, seed faces.seed + 9800 + k). По умолчанию не
+     * задан — галереи прежние. FERET с №9 — ключ faces.feret.gallery (loadFacesFeretGalleryEqual).
      *
      * @return k или null, если не задано
      */
@@ -490,6 +491,22 @@ public class SettingsStore {
         int k = Integer.parseInt(raw.trim());
         if (k < 0 || k > 2) throw new IllegalArgumentException("faces.gallery.equal: 0, 1 или 2, а не " + raw);
         return k;
+    }
+
+    /**
+     * Галереи FERET (№9, решение Хозяина 13.10.2026): ключ faces.feret.gallery или переменная окружения FACES_FERET_GALLERY —
+     * eq (по умолчанию: правило №8 — на каждой дате галереи один fa и один fb, спорный случай (А)) или old (прежние неравные
+     * галереи, история). Действует во всех режимах FERET; GT — ключ faces.gallery.equal.
+     *
+     * @return true — равные галереи (eq)
+     */
+    public boolean loadFacesFeretGalleryEqual() {
+        String raw = path(KEY_FACES_FERET_GALLERY);
+        if (raw == null) return true;
+        String v = raw.trim();
+        if (v.equals("eq")) return true;
+        if (v.equals("old")) return false;
+        throw new IllegalArgumentException("faces.feret.gallery: eq или old, а не " + raw);
     }
 
     /**

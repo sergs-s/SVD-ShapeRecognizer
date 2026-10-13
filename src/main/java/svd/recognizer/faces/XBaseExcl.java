@@ -71,8 +71,31 @@ final class XBaseExcl {
 
     // ---------------------------------------------------------------- схема
 
-    /** Свои: человек → даты с отобранными снимками по возрастанию → ключи; даты съёмки (для интервалов). */
-    record Data(List<String> own, Map<String, List<List<String>>> sess, Map<String, List<LocalDate>> when) {}
+    /**
+     * Свои: человек → даты с отобранными снимками по возрастанию → ключи (пробы); даты съёмки (для интервалов); gsess — те же
+     * даты → ключи галереи и обучения MLDA (№9: на FERET по умолчанию правило №8 — один fa и один fb на дату; иначе = sess).
+     */
+    record Data(List<String> own, Map<String, List<List<String>>> sess, Map<String, List<LocalDate>> when, Map<String, List<List<String>>> gsess) {
+        Data(List<String> own, Map<String, List<List<String>>> sess, Map<String, List<LocalDate>> when) {
+            this(own, sess, when, sess);
+        }
+    }
+
+    /** №9: сессии галереи по правилу №8 (XBaseFeret.pairOf на каждой дате). */
+    static Map<String, List<List<String>>> pairSessions(Map<String, List<List<String>>> sess, Map<String, Img> byKey) {
+        Map<String, List<List<String>>> out = new LinkedHashMap<>();
+        sess.forEach((p, ds) -> {
+            List<List<String>> gs = new ArrayList<>();
+            for (List<String> keys : ds) gs.add(sorted(XBaseFeret.pairOf(keys, byKey, false)));
+            out.put(p, gs);
+        });
+        return out;
+    }
+
+    /** №9: строка шапки отчётов feret-excl и feret-hubs при равных галереях. */
+    static final String EQ_NOTE = "№9 (faces.feret.gallery = eq, по умолчанию; правило №8, (А)): галерея и обучение MLDA – на каждой дате один fa и "
+            + "один fb, варианты (_a и др.) исключены; нет чистого fa (fb) – первый вариант по имени; пробы – все отобранные снимки даты; прежние "
+            + "галереи – faces.feret.gallery = old.\n";
 
     /** Модель схемы: часть q, раунд k (номер даты с 1), галерея (человек → ключи), пробы своих (человек → ключи). */
     record Model(int q, int k, Map<String, List<String>> gal, Map<String, List<String>> pro) {}
@@ -104,7 +127,7 @@ final class XBaseExcl {
                 if (pro.isEmpty()) continue;
                 Map<String, List<String>> gal = new LinkedHashMap<>();
                 for (String p : d.own()) {
-                    List<List<String>> ds = d.sess().get(p);
+                    List<List<String>> ds = d.gsess().get(p);
                     List<String> keys = new ArrayList<>();
                     if (pro.containsKey(p)) {
                         for (int j : galleryDates(v, k - 1, ds.size())) keys.addAll(ds.get(j));
@@ -124,7 +147,7 @@ final class XBaseExcl {
         Map<String, List<String>> out = new LinkedHashMap<>();
         for (String p : d.own()) {
             List<String> keys = new ArrayList<>();
-            List<List<String>> ds = d.sess().get(p);
+            List<List<String>> ds = d.gsess().get(p);
             for (int j = 0; j < ds.size(); j++) if (dates == null || dates.contains(j)) keys.addAll(ds.get(j));
             out.put(p, sorted(keys));
         }
@@ -145,7 +168,7 @@ final class XBaseExcl {
 
     /** Разбивка пробы: {число сессий галереи, число снимков галереи, интервал до ближайшей даты галереи} — номера интервалов. */
     static int[] bins(Data d, String p, int i, G v) {
-        List<List<String>> ds = d.sess().get(p);
+        List<List<String>> ds = d.gsess().get(p);
         List<Integer> gd = galleryDates(v, i, ds.size());
         int imgs = 0;
         long near = Long.MAX_VALUE;
@@ -361,7 +384,8 @@ final class XBaseExcl {
         tpl.threads = settings.loadFacesFeiCvThreads();
         tpl.rLimit = XBaseEval.poseLimit(selLines);
         tpl.params = IlluminationNorm.NormParams.of(settings);
-        Path out = dir.resolve("reports");
+        boolean eq = settings.loadFacesFeretGalleryEqual(); // №9: равные галереи — по умолчанию, old — прежние
+        Path out = eq ? dir.resolve("reports").resolve(XBaseEval.eqDir(0, true)) : dir.resolve("reports");
         Files.createDirectories(out);
 
         // Снимки, детекции, кадры — как XBaseFeret.run.
@@ -406,7 +430,9 @@ final class XBaseExcl {
             sess.put(p, ds);
             when.put(p, ws);
         }
-        Data d = new Data(ro.own1, sess, when);
+        Map<String, Img> byKey = new HashMap<>();
+        for (Img im : imgs) byKey.put(im.key(), im);
+        Data d = new Data(ro.own1, sess, when, eq ? pairSessions(sess, byKey) : sess);
 
         // Когорта FEI 20.
         List<String> cohortP = XBaseEval.cohortPersons(feiKeys, tpl.seed);
@@ -445,8 +471,8 @@ final class XBaseExcl {
         XBaseEval.Gt g = XBaseFeret.withOwn(XBaseFeret.gt(tpl, new ArrayList<>(ps), ro.ctrl, ro.ctrlKeys, cohort, rOf, imageNo), d.own());
 
         String fp = FeiCheckpoint.fingerprint(exportDir, String.format(Locale.ROOT, "feret-excl %s; снимков %d; детекций найдено %d; seed %d; r0 %s; t %s", dir,
-                imgs.size(), imgs.size() - notFound, tpl.seed, tpl.r0, t));
-        XBaseOther.Checkpoint cp = new XBaseOther.Checkpoint(dir.resolve(FeretData.DERIVED).resolve("checkpoint_feret_excl"), fp);
+                imgs.size(), imgs.size() - notFound, tpl.seed, tpl.r0, t) + (eq ? "; №8 галерея fa/fb" : ""));
+        XBaseOther.Checkpoint cp = new XBaseOther.Checkpoint(dir.resolve(FeretData.DERIVED).resolve(eq ? "checkpoint_feret_excl_eq" : "checkpoint_feret_excl"), fp);
         StringBuilder r = new StringBuilder();
         r.append("PLAN.md п. 5.5, (а2) исключение даты пробы на FERET (XBaseEval feret-excl): Color FERET — только локально (Release Agreement v1)\n");
         r.append("Код: коммит ").append(FarMethods.commit()).append('\n');
@@ -459,6 +485,7 @@ final class XBaseExcl {
         r.append(String.format(Locale.ROOT, "Контрольные чужие — те же, что в feret: %d человек с одной датой (Random(seed + %d)), %d снимков.%n", ro.ctrl.size(),
                 XBaseFeret.CTRL_SEED_OFFSET, XBaseFeret.sum(ro.ctrlKeys)));
         r.append("Модель SFace: ").append(sfaceModel.getFileName()).append(" (").append(FeiThreshold.sha(sfaceModel)).append(").\n");
+        if (eq) r.append(EQ_NOTE);
         protocol(r, g, "дате в имени файла FERET");
         StringBuilder lines = new StringBuilder();
         evaluate(g, d, xs, XBaseFeret.SETS, cp, r, lines, "feret-excl");

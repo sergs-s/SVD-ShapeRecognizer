@@ -80,7 +80,7 @@ final class XBaseHubs {
     /** Сессии человека: номера дат js → списки ключей. */
     static List<List<String>> sessions(Data d, String p, List<Integer> js) {
         List<List<String>> out = new ArrayList<>();
-        for (int j : js) out.add(d.sess().get(p).get(j));
+        for (int j : js) out.add(d.gsess().get(p).get(j));
         return out;
     }
 
@@ -140,7 +140,7 @@ final class XBaseHubs {
 
     /** Разбивка пробы с даты i при датах галереи gd: {сессий, снимков, интервал} — как XBaseExcl.bins. */
     static int[] bins(Data d, String p, int i, List<Integer> gd) {
-        List<List<String>> ds = d.sess().get(p);
+        List<List<String>> ds = d.gsess().get(p);
         int imgs = 0;
         long near = Long.MAX_VALUE;
         for (int j : gd) {
@@ -335,7 +335,8 @@ final class XBaseHubs {
         tpl.threads = settings.loadFacesFeiCvThreads();
         tpl.rLimit = XBaseEval.poseLimit(selLines);
         tpl.params = IlluminationNorm.NormParams.of(settings);
-        Path out = dir.resolve("reports");
+        boolean eq = settings.loadFacesFeretGalleryEqual(); // №9: равные галереи — по умолчанию (отчёт и файл оценок (а2) — тоже из eq\), old — прежние
+        Path out = eq ? dir.resolve("reports").resolve(XBaseEval.eqDir(0, true)) : dir.resolve("reports");
         Path exclScores = out.resolve("xbase_feret_excl_scores.tsv.gz");
         Path exclReport = out.resolve("xbase_feret_excl.txt");
         if (!Files.exists(exclScores) || !Files.exists(exclReport)) throw new IllegalStateException("feret-hubs: нужны отчёт и файл оценок (а2) в " + out);
@@ -372,7 +373,9 @@ final class XBaseHubs {
             sess.put(p, ds);
             when.put(p, ws);
         }
-        Data d = new Data(ro.own1, sess, when);
+        Map<String, Img> byKey = new HashMap<>();
+        for (Img im : imgs) byKey.put(im.key(), im);
+        Data d = new Data(ro.own1, sess, when, eq ? XBaseExcl.pairSessions(sess, byKey) : sess);
 
         List<String> cohortP = XBaseEval.cohortPersons(feiKeys, tpl.seed);
         List<List<String>> cohort = new ArrayList<>();
@@ -404,8 +407,8 @@ final class XBaseHubs {
         sf.values().forEach(Mat::release);
 
         String fp = FeiCheckpoint.fingerprint(exportDir, String.format(Locale.ROOT, "feret-hubs %s; снимков %d; seed %d; r0 %s; t %s; M %d; (а2) %s", dir,
-                imgs.size(), tpl.seed, tpl.r0, t, M, FeiThreshold.sha(exclScores)));
-        XBaseOther.Checkpoint cp = new XBaseOther.Checkpoint(dir.resolve(FeretData.DERIVED).resolve("checkpoint_feret_hubs"), fp);
+                imgs.size(), tpl.seed, tpl.r0, t, M, FeiThreshold.sha(exclScores)) + (eq ? "; №8 галерея fa/fb" : ""));
+        XBaseOther.Checkpoint cp = new XBaseOther.Checkpoint(dir.resolve(FeretData.DERIVED).resolve(eq ? "checkpoint_feret_hubs_eq" : "checkpoint_feret_hubs"), fp);
         double[] fitS = {0};
         StringBuilder r = new StringBuilder();
         StringBuilder allLines = new StringBuilder();
@@ -420,6 +423,7 @@ final class XBaseHubs {
         r.append("Шаблон (м) — среднее снимков галереи человека; (с) — шаблон на каждую сессию (дату) галереи, проекция MLDA обучена по людям, оценка\n"
                 + "человека — наименьшая по его сессиям, второй кандидат — ближайший другой человек (как G2-ii); (с3) — у человека в галерее и обучении\n"
                 + "только " + M + " последние по времени сессии его галереи (M задан заранее), шаблоны по сессиям.\n");
+        if (eq) r.append(XBaseExcl.EQ_NOTE);
         if (tpl.b > 0) r.append(String.format(Locale.ROOT, "Бутстреп по людям группы (свои и контроль): B = %d, seed = %d; «*» — интервал разности не содержит 0.%n",
                 tpl.b, tpl.seed + FeiBootstrap.SEED_OFFSET));
 

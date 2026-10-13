@@ -526,6 +526,12 @@ final class XBaseA0 {
     static final int G1_S = 2;
     static final String FERET_SCORES = "xbase_feret_scores.tsv.gz";
 
+    /** №9: feret-a0, feret-a0-check, feret-hub2 — диагностика прежних (неравных) галерей, только при faces.feret.gallery = old. */
+    static void requireOld(SettingsStore settings, String mode) {
+        if (settings.loadFacesFeretGalleryEqual()) throw new IllegalStateException(mode + ": диагностика прежних неравных галерей FERET (№6, №7) — "
+                + "только с faces.feret.gallery = old (FACES_FERET_GALLERY=old); на равных галереях (по умолчанию, №9) не переносится");
+    }
+
     static FeretSetup feretSetup(Path exportDir, List<String> selLines, SettingsStore settings) throws IOException {
         String rawDir = settings.loadFacesFeretDir();
         if (rawDir == null) throw new IllegalStateException("XBaseEval feret-a0: задайте faces.feret.dir / FACES_FERET_DIR");
@@ -601,6 +607,7 @@ final class XBaseA0 {
 
     static void feret(FarExport.Loaded export, Path exportDir, Map<String, Map<Integer, String>> feiKeys, List<String> selLines, SettingsStore settings)
             throws IOException {
+        requireOld(settings, "feret-a0");
         FeretSetup su = feretSetup(exportDir, selLines, settings);
         Path out = su.dir.resolve("reports").resolve("a0");
         Files.createDirectories(out);
