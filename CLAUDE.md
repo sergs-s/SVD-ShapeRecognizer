@@ -21,12 +21,16 @@
   настройками платформы в NetBeans.
 - **Сборка**: Maven (`pom.xml` в корне). Maven встроен в NetBeans, путь к нему
   добавлен в PATH.
-- **OpenCV**: `org.openpnp:opencv:4.9.0-0` — jar с нативными библиотеками под
-  несколько платформ (Windows `opencv_java490.dll`, Linux x86_64/ARM
-  `libopencv_java490.so`, macOS). Инициализация:
-  `nu.pattern.OpenCV.loadLocally()`. Проверено 29.09.2026: под Linux x86_64
-  (Ubuntu 24.04) грузится без установки пакетов, CLAHE, `FaceDetectorYN` и
-  `FaceRecognizerSF` работают (см. «Облачная сессия»).
+- **OpenCV**: с 13.10.2026 (решение Хозяина; принят после сверки, TASKS.md,
+  «Переход на bytedeco» и «Поправка ε») – `org.bytedeco:opencv:4.9.0-1.5.10`
+  (OpenCV 4.9.0 с contrib, в том числе `face` – Facemark LBF; Java-API
+  `org.opencv.*` прежний), нативные библиотеки Windows и Linux x86_64 плюс
+  `openblas 0.3.26-1.5.10` и `javacpp 1.5.10`; инициализация –
+  `svd.recognizer.OpenCvLoader.load()`. Прежде – `org.openpnp:opencv:4.9.0-0`
+  (`nu.pattern.OpenCV.loadLocally()`; с Intel IPP); детекции и кадры FERET
+  в обеих сборках совпадают побайтно, прежний каталог –
+  `D:\data\Feret\derived_openpnp`. На bytedeco прогоны в 2,5–4 раза
+  медленнее (причина не выяснена). Под Linux bytedeco не проверялся.
 - **Линейная алгебра**: Apache Commons Math 3 (`SingularValueDecomposition`).
 - **ОС**: Windows 11. IDE: NetBeans.
 - Проект под git. `master` с тегом `v1.0-sigma` (метод σ-вектора);
@@ -342,7 +346,7 @@ mvn compile exec:java@faces-fei-scores  # разбор файла оценок F
   `faces-own-eval` (кэш детекций; после правки кода детекции — `-Dexec.args=fresh`)
   (`reports/faces/own/`).
 - `FaceDetectorYN`, `FaceRecognizerSF`, `Calib3d.estimateAffinePartial2D`
-  есть в `org.openpnp:opencv:4.9.0-0`; файлов каскадов Хаара в jar нет.
+  есть в OpenCV 4.9 (прежде `org.openpnp`, теперь `org.bytedeco`); файлов каскадов Хаара в jar нет.
 - Выравнивание и эталон SFace на ORL: `mvn compile exec:java@faces-align`
   (отчёты `reports/faces/alignment.txt`, `alignment_subset.txt`,
   `sface_alpha.txt`, мозаики `reports/faces/aligned/`); разбор отказов
@@ -485,7 +489,10 @@ mvn compile exec:java@faces-fei-scores  # разбор файла оценок F
   (режимы `muct`, `orl` – ниже; итоги – PLAN.md п. 5.5).
 - Нормировка освещения перед LBP (PLAN.md п. 4.2, с `a9f5450`): ключ
   `faces.lbp.norm` / `FACES_LBP_NORM` – none (по умолчанию), tt (Tan –
-  Triggs, LBP по вещественному результату), clahe; в faces-fei – одно
+  Triggs, LBP по вещественному результату; с `2309f47` перед выравниванием
+  контраста |DoG| ≤ `IlluminationNorm.DOG_EPS` · max |I^γ| (1e-12)
+  обнуляется – иначе шум последних разрядов в ровных участках сдвигал
+  знаменатель, разный у сборок OpenCV), clahe; в faces-fei – одно
   значение (в шапки файлов оценок и перекрёстной оценки и в отпечаток
   контрольной точки, при none – прежние), в XBaseEval – список
   (`none,tt,clahe`): прежние отчёты – как при none, плюс
@@ -601,8 +608,8 @@ mvn compile exec:java@faces-fei-scores  # разбор файла оценок F
   удаления строк «Код:», «Данные:», «# Код:», «# Данные:», строк времени;
   у gt-sep и gt-quality в шапке ещё SHA-256 входных файлов оценок (меняются
   с коммитом в их шапке) – сравнивать без строк «Файл оценок». Последние
-  коммиты на 12.10.2026: код `a849361`, документы – этот коммит, данные
-  `SVD-faces-data` `bf7f4fce`; запушено Хозяином до `521bad0` (проект) и
+  коммиты на 13.10.2026: код `2309f47`, документы – этот коммит, данные
+  `SVD-faces-data` `e264c5c5`; запушено Хозяином до `521bad0` (проект) и
   `b40b722e` (данные), позже – не запушено.
 - **Продолжение после обрыва (требование Хозяина 02.10.2026):** долгие
   прогоны (faces-fei и подобные) должны периодически – после каждой
