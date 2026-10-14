@@ -394,6 +394,10 @@ public final class XBaseEval {
             XBaseEqCompare.gt(export, dir, feiKeys, selLines, settings, out);
         } else if (a[0].equals("feret-eq-compare")) {
             XBaseEqCompare.feret(dir, selLines, settings);
+        } else if (a[0].equals("feret-xs")) {
+            XBaseXsF.feret(export, dir, feiKeys, selLines, settings);
+        } else if (a[0].equals("gt-xs-f")) {
+            XBaseXsF.gt(export, dir, feiKeys, selLines, settings, out);
         } else {
             throw new IllegalArgumentException("XBaseEval: неизвестный режим " + a[0]);
         }
