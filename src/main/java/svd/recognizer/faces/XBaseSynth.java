@@ -538,6 +538,25 @@ final class XBaseSynth {
                     shifts.add(FaceSynth.eyeShift(d));
                 }
             }
+            // Мало размеченных снимков вне дат проб – подобия выравнивания у тех же людей без исключения дат (ошибка
+            // выравнивания – свойство детектора, а не сессии).
+            String alignNote = null;
+            if (align.size() < RANGE_MIN) {
+                int before = align.size();
+                align.clear();
+                shifts.clear();
+                for (Img im : su.imgs) {
+                    double[] row = su.det.get(im.key());
+                    if (row == null || su.rOf.get(im.key()) > tpl.rLimit || exclP.contains(im.person())) continue;
+                    double[][] man = FeretData.manual4(im);
+                    if (man == null) continue;
+                    double[] d = FaceSynth.alignDelta(FeretData.yunet4(row), man);
+                    align.add(d);
+                    shifts.add(FaceSynth.eyeShift(d));
+                }
+                alignNote = String.format(Locale.ROOT, "Выравнивание: вне дат проб размеченных снимков %d (< %d) – подобия взяты у тех же людей вне подходящих и "
+                        + "контроля без исключения дат (%d снимков).%n", before, RANGE_MIN, align.size());
+            }
             if (noise.size() < RANGE_MIN || align.size() < RANGE_MIN) {
                 throw new IllegalStateException(String.format(Locale.ROOT, "feret-synth2 D = %d: мало снимков для диапазонов этапа 2 (σ и A %d, выравнивание %d)", dd,
                         noise.size(), align.size()));
@@ -583,6 +602,7 @@ final class XBaseSynth {
                     + "человека.%n", rangePersons.size(), noise.size(), align.size(), FaceSynth.median(ranges.noise()), XBaseA0Check.q(ranges.noise(), 0.05),
                     XBaseA0Check.q(ranges.noise(), 0.95), FaceSynth.median(ranges.asym()), XBaseA0Check.q(ranges.asym(), 0.75), XBaseA0Check.q(ranges.asym(), 0.95),
                     100 * FaceSynth.median(sortedArr(shifts)), tpl.seed, SYNTH2_SEED_OFFSET, dd, extraN));
+            if (alignNote != null) r.append(alignNote);
             Map<String, FeiThreshold.Res> res = new LinkedHashMap<>();
             List<String[]> pairs = new ArrayList<>();
             StringBuilder hubT = new StringBuilder("\n=== Перехват новичками (оба прохода; модель по позе пробы) ===\n"
