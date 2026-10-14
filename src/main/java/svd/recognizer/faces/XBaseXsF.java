@@ -530,4 +530,202 @@ final class XBaseXsF {
         FarMethods.write(out.resolve("xbase_gt_xs_f.txt"), t);
         System.out.print(t);
     }
+
+    // ---------------------------------------------------------------- feret-xs2
+
+    /** feret-xs2: деление пула пополам — java.util.Random(faces.seed + SPLIT_SEED_OFFSET). */
+    static final long SPLIT_SEED_OFFSET = 9910;
+    /** Хаб — человек пула с не меньше чем HUB_DATES датами. */
+    static final int HUB_DATES = 5;
+
+    /**
+     * (П-д) внутри FERET с непересекающимися людьми (задание №2 от 14.10.2026, план подтверждён Хозяином): люди пула делятся
+     * пополам (A — первые ⌈n/2⌉ после перемешивания, B — остальные); проход 1 — свои A, пул B, проход 2 — наоборот. Свои и пул
+     * не пересекаются — добавки пула (новые классы) одни для всех моделей прохода, модель — XBaseEval.fitLines с когортой,
+     * расширенной пулом; порог П2/П3 — по «чужим» галереи своих прохода (5 частей, seed faces.seed + 8000 + 100 + s), свой на
+     * проход; итог — объединение проходов (FeiThreshold.evaluate по двум конфигурациям).
+     */
+    static void feret2(FarExport.Loaded export, Path exportDir, Map<String, Map<Integer, String>> feiKeys, List<String> selLines, SettingsStore settings)
+            throws IOException {
+        if (!settings.loadFacesFeretGalleryEqual()) throw new IllegalStateException("feret-xs2: только равные галереи (faces.feret.gallery = eq)");
+        XBaseA0.FeretSetup su = XBaseA0.feretSetup(exportDir, selLines, settings);
+        XBaseEval.Gt tpl = su.tpl;
+        Path dir = su.dir;
+        Path out = dir.resolve("reports").resolve(XBaseEval.eqDir(0, true));
+        Files.createDirectories(out);
+        XBaseFeret.Roles roAll = su.ro;
+        XBaseFeret.Roles ro = XBaseFeret.equalize(roAll, su.byKey);
+        Map<String, List<List<String>>> pool = pool(roAll, su.byKey);
+        List<String> perm = new ArrayList<>(pool.keySet());
+        java.util.Collections.shuffle(perm, new java.util.Random(tpl.seed + SPLIT_SEED_OFFSET));
+        int half = (perm.size() + 1) / 2;
+        List<Set<String>> halves = List.of(new TreeSet<>(perm.subList(0, half)), new TreeSet<>(perm.subList(half, perm.size())));
+        Set<String> hubs = new TreeSet<>();
+        pool.forEach((p, ds) -> {
+            if (ds.size() >= HUB_DATES) hubs.add(p);
+        });
+
+        List<String> cohortP = XBaseEval.cohortPersons(feiKeys, tpl.seed);
+        List<List<String>> cohort = new ArrayList<>();
+        Set<String> cohortKeys = new HashSet<>();
+        for (String p : cohortP) {
+            List<String> ks = new ArrayList<>(feiKeys.get(p).values());
+            cohort.add(ks);
+            cohortKeys.addAll(ks);
+        }
+        Set<String> used = new TreeSet<>();
+        for (Map<String, List<String>> m : List.of(roAll.gal1, roAll.pro1, roAll.g2, roAll.g2p, roAll.pro2, roAll.ctrlKeys)) m.values().forEach(used::addAll);
+        Map<String, Mat> fr = new LinkedHashMap<>();
+        for (String k : used) fr.put(k, FeretData.frame(dir, "a", k));
+        List<Sample> fei = new ArrayList<>();
+        export.data().fei().values().forEach(fei::addAll);
+        fr.putAll(XBaseEval.frames(export, fei, cohortKeys));
+        XBaseEval[] xs = {new XBaseEval(), new XBaseEval()};
+        xs[0].vectors(fr, EnumSet.of(V.L1), tpl.params);
+        xs[1].vectors(fr, EnumSet.of(V.L1), tpl.params, IlluminationNorm.TAN_TRIGGS);
+        fr.values().forEach(Mat::release);
+
+        // Пул прохода: человек → даты (люди другой половины).
+        List<Map<String, List<List<String>>>> passPool = new ArrayList<>();
+        for (int ps = 0; ps < 2; ps++) {
+            Map<String, List<List<String>>> m = new TreeMap<>();
+            for (String p : halves.get(1 - ps)) m.put(p, pool.get(p));
+            passPool.add(m);
+        }
+        List<Conf> confs = List.of(new Conf("межс.", 0, ro.own1, ro.gal1, ro.pro1), new Conf("внутри", 1, ro.own1in, ro.gal1in, ro.pro1in),
+                new Conf("G1", 2, ro.own2, ro.g1, ro.pro2), new Conf("G2'", 5, ro.own2, ro.g2p, ro.pro2));
+        TreeSet<String> ps0 = new TreeSet<>(pool.keySet());
+        ps0.addAll(ro.ctrl);
+        List<String> persons = new ArrayList<>(ps0);
+        XBaseEval.Gt base = XBaseFeret.gt(tpl, persons, ro.ctrl, ro.ctrlKeys, cohort, su.rOf, su.imageNo);
+
+        String fp = FeiCheckpoint.fingerprint(exportDir, String.format(Locale.ROOT, "feret-xs2 %s; снимков %d; seed %d; r0 %s; пул %d; половины %d/%d; "
+                + "№8 галерея fa/fb", dir, su.imgs.size(), tpl.seed, tpl.r0, pool.size(), halves.get(0).size(), halves.get(1).size()));
+        XBaseOther.Checkpoint cp = new XBaseOther.Checkpoint(dir.resolve(FeretData.DERIVED).resolve("checkpoint_feret_xs2_eq"), fp);
+        StringBuilder r = new StringBuilder();
+        r.append("PLAN.md п. 5.5, (П-д) внутри FERET с непересекающимися людьми (XBaseEval feret-xs2): Color FERET — только локально\n");
+        r.append("Код: коммит ").append(FarMethods.commit()).append('\n');
+        r.append("Данные: ").append(dir).append(" (fa и fb; YuNet и кадры — как feret, кэш derived/); когорта FEI — экспорт ").append(exportDir)
+                .append(", коммит данных ").append(FarMethods.dataCommit(exportDir)).append('\n');
+        r.append(XBaseFeret.EQ_NOTE);
+        r.append(String.format(Locale.ROOT, "Пул: людей с ≥ 2 датами %d; половины (java.util.Random(seed %d + %d)): A %d, B %d. Проход 1 – свои A (во всех ролях "
+                + "только люди A), пул B; проход 2 – наоборот; контрольные 200 – в обоих проходах, никогда в обучении. Хабы – люди пула с ≥ %d датами: "
+                + "%d (%s).%n", pool.size(), tpl.seed, SPLIT_SEED_OFFSET, halves.get(0).size(), halves.get(1).size(), HUB_DATES, hubs.size(),
+                String.join(", ", hubs)));
+        r.append("Строки (признак L1 – LBP u2 (8, 2) 7×7 + MLDA, none; L1-tt – то же на выходе Tan – Triggs; когорта FEI 20; зеркала и выбор X /\n"
+                + "X+mirror по |r| пробы, r0 = " + tpl.r0 + "; шаблоны – по галерее своих): L1 – галерея своих + когорта; L1-xs-F – + пул (все даты,\n"
+                + "равные галереи), человек пула – один класс; L1-xs0-F – + пул, каждая дата человека пула – отдельный класс. Порог П2/П3 – по\n"
+                + "«чужим» галереи своих прохода (5 частей, seed faces.seed + 8000 + 100 + s), свой на проход; итог – объединение проходов.\n");
+        r.append("Оговорка: галерея вдвое меньше, чем в ролях №8–№9 – числа с ними напрямую не сравнивать, сравнивать только строки между собой; в G1\n"
+                + "и G2' своих около 30 на проход – различимы только крупные эффекты.\n");
+        r.append(INTERPRETATION);
+        if (tpl.b > 0) r.append(String.format(Locale.ROOT, "Бутстреп по людям пула и контроля (%d), одни веса для обоих проходов и всех строк: B = %d, seed = %d; «*» — "
+                + "интервал разности не содержит 0.%n", persons.size(), tpl.b, tpl.seed + FeiBootstrap.SEED_OFFSET));
+
+        StringBuilder vol = new StringBuilder("\n=== Объём по проходам ===\nроль | проход | своих | проб своих | новых классов L1-xs-F / L1-xs0-F | снимков пула\n");
+        StringBuilder hubT = new StringBuilder("\n=== Лучший кандидат – хаб (человек пула с ≥ " + HUB_DATES + " датами; модель по позе пробы; оба прохода) ===\n"
+                + "строка | проб своих: лучший – хаб | из них хаб – не свой | контроль: лучший – хаб\n");
+        StringBuilder lines = new StringBuilder();
+        StringBuilder body = new StringBuilder();
+        double[] fitS = {0};
+        Map<String, FeiThreshold.Res> res = new LinkedHashMap<>();
+        List<String[]> pairs = new ArrayList<>();
+        for (Conf c : confs) {
+            if (c.s() == 2) {
+                flush(body, res, pairs, persons.size(), tpl, "Роль (1): межсессионно и внутри сессии");
+                res = new LinkedHashMap<>();
+                pairs = new ArrayList<>();
+            }
+            for (int f = 0; f < FEATS.length; f++) {
+                for (Kind kind : Kind.values()) {
+                    List<FeiDecompose.Cfg> cfgs = new ArrayList<>();
+                    List<FeiThreshold.Imp> imps = new ArrayList<>();
+                    int[] hub = new int[4];
+                    for (int ps = 0; ps < 2; ps++) {
+                        Set<String> mine = halves.get(ps);
+                        List<String> own = c.own().stream().filter(mine::contains).toList();
+                        Map<String, List<String>> gal = new LinkedHashMap<>();
+                        Map<String, List<String>> pro = new LinkedHashMap<>();
+                        for (String p : own) {
+                            gal.put(p, c.gal().get(p));
+                            pro.put(p, c.pro().get(p));
+                        }
+                        List<List<String>> extra = train(kind, List.of(), Map.of(), passPool.get(ps), Set.of(), Map.of()).extra();
+                        XBaseEval.Gt g = XBaseFeret.withOwn(base, own);
+                        List<List<String>> aug = new ArrayList<>(cohort);
+                        aug.addAll(extra);
+                        g.cohort = aug;
+                        List<Probe> probes = XBaseEval.probes(g, pro);
+                        List<List<String>> parts = XBaseOther.cvParts(own, tpl.seed, XBaseEval.CV_S + c.s());
+                        String name = String.format(Locale.ROOT, "p%d_%d_%d_%s", ps, c.s(), f, kind.name());
+                        String ls = cp.read(name);
+                        if (ls == null) {
+                            long t0 = System.nanoTime();
+                            ls = XBaseEval.fitLines(g, xs[f], EnumSet.of(V.L1), gal, probes, parts, c.s());
+                            double s = (System.nanoTime() - t0) / 1e9;
+                            fitS[0] += s;
+                            cp.save(name, ls);
+                            System.out.printf(Locale.ROOT, "feret-xs2: pass %d, s %d, %s, %s ready (%.0f s)%n", ps + 1, c.s(), FEATS[f], kind.name(), s);
+                        }
+                        lines.append("# проход ").append(ps + 1).append(", конфигурация ").append(c.name()).append(", строка ").append(label(f, kind))
+                                .append('\n').append(ls);
+                        XBaseEval.Parsed p = XBaseEval.parse(g, EnumSet.of(V.L1), gal, probes, parts, ls);
+                        cfgs.add(p.cfg.get(V.L1));
+                        imps.add(p.imp.get(V.L1));
+                        Map<String, Row> rows = new HashMap<>();
+                        for (String l : ls.lines().toList()) {
+                            Row row = FeiScores.parse(l);
+                            rows.put(row.method() + "\t" + row.role() + "\t" + row.person() + "\t" + row.image(), row);
+                        }
+                        for (Probe q : probes) {
+                            Row row = XBaseEval.choose(rows, V.L1, q.role(), q.person(), q.image(), g.rOf.get(q.key()) <= g.r0);
+                            boolean isHub = hubs.contains(row.bestId());
+                            if (q.role().equals(FeiScores.OWN)) {
+                                hub[0]++;
+                                if (isHub) hub[1]++;
+                                if (isHub && !row.bestId().equals(row.trueId())) hub[2]++;
+                            } else if (isHub) {
+                                hub[3]++;
+                            }
+                        }
+                        if (f == 0 && kind == Kind.XS0) {
+                            List<List<String>> e1 = train(Kind.XS, List.of(), Map.of(), passPool.get(ps), Set.of(), Map.of()).extra();
+                            vol.append(String.format(Locale.ROOT, "%s | %d | %d | %d | %d / %d | %d%n", c.name(), ps + 1, own.size(),
+                                    probes.stream().filter(q -> q.role().equals(FeiScores.OWN)).count(), e1.size(), extra.size(),
+                                    extra.stream().mapToInt(List::size).sum()));
+                        }
+                    }
+                    String label = c.name() + " " + label(f, kind);
+                    res.put(label, FeiThreshold.evaluate(label, V.L1.ratioId(), cfgs, imps, persons.size(), tpl.b, tpl.seed + FeiBootstrap.SEED_OFFSET));
+                    int ctrlN = cfgs.stream().mapToInt(cf -> cf.ctrlR.length).sum();
+                    hubT.append(String.format(Locale.ROOT, "%s | %d/%d = %.1f %% | %d | %d/%d = %.1f %%%n", label, hub[1], hub[0], 100.0 * hub[1] / hub[0], hub[2],
+                            hub[3], ctrlN, 100.0 * hub[3] / ctrlN));
+                }
+                String b = c.name() + " " + FEATS[f];
+                pairs.add(new String[] {b + Kind.XS.label, b});
+                pairs.add(new String[] {b + Kind.XS.label, b + Kind.XS0.label});
+                pairs.add(new String[] {b + Kind.XS0.label, b});
+            }
+        }
+        flush(body, res, pairs, persons.size(), tpl, "Роль (2): G1 и G2'");
+        r.append(vol);
+        r.append(String.format(Locale.ROOT, "Обучение и оценки: %.0f с (без блоков из контрольной точки); потоков %d.%n", fitS[0], tpl.threads));
+        r.append(hubT);
+        r.append(body);
+        XBaseOther.writeScores(out.resolve("xbase_feret_xs2_scores.tsv.gz"), "# FERET (П-д), XBaseXsF feret-xs2, только локально; блоки — проход, "
+                + "конфигурация, строка; s — номер конфигурации\n# Код: коммит " + FarMethods.commit() + "\n", lines.toString());
+        FarMethods.write(out.resolve("xbase_feret_xs2.txt"), r);
+        System.out.print(r);
+        cp.delete();
+    }
+
+    /** Таблицы группы ролей (разделимость, EER, парные разности; бутстреп по persons людям). */
+    static void flush(StringBuilder body, Map<String, FeiThreshold.Res> res, List<String[]> pairs, int persons, XBaseEval.Gt tpl, String title) {
+        int[][] w = tpl.b > 0 ? FeiBootstrap.weights(persons, tpl.b, tpl.seed + FeiBootstrap.SEED_OFFSET) : new int[0][];
+        int[] unit = FeiBootstrap.unit(persons);
+        Map<String, XBaseOther.Sep> sep = new LinkedHashMap<>();
+        for (Map.Entry<String, FeiThreshold.Res> e : res.entrySet()) sep.put(e.getKey(), XBaseOther.sep(e.getValue().cfgs, unit, w));
+        body.append("\n\n######## ").append(title).append(" — оба прохода ########\n");
+        XBaseOther.tables(body, res, sep, tpl.b, pairs);
+    }
 }
