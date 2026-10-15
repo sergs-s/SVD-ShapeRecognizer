@@ -279,19 +279,24 @@ final class FeretData {
 
     /**
      * (а2б) этап 2: кадры К4 — точки глаз кандидата 0б из derived/eyepts.tsv (XBaseEyePts), нос и середина уголков рта YuNet;
-     * derived/a_k4_0b (уже записанные пропускаются). Снимки без строки в eyepts.tsv пропускаются.
+     * derived/a_k4_0b (уже записанные пропускаются). Точки – из eyepts.tsv и (№4 от 15.10.2026, снимки без ручной разметки)
+     * eyepts_0b_add.tsv, если он есть. Снимки без строки в обоих файлах пропускаются.
      */
     static void framesK4(List<Img> imgs, Map<String, double[]> det, Path dir) throws IOException {
         Path derived = dir.resolve(DERIVED);
         Files.createDirectories(derived.resolve(K4_0B));
-        List<String> lines = Files.readAllLines(derived.resolve("eyepts.tsv"), StandardCharsets.UTF_8);
-        List<String> head = List.of(lines.get(0).split("\t"));
-        int c = head.indexOf("0б_re_x");
-        if (c < 0) throw new IllegalStateException("eyepts.tsv: нет столбцов 0б");
         Map<String, double[]> eyes = new HashMap<>();
-        for (String l : lines.subList(1, lines.size())) {
-            String[] f = l.split("\t");
-            eyes.put(f[0], new double[] {Double.parseDouble(f[c]), Double.parseDouble(f[c + 1]), Double.parseDouble(f[c + 2]), Double.parseDouble(f[c + 3])});
+        for (String file : new String[] {"eyepts.tsv", XBaseEyePts.ADD_FILE}) {
+            Path p = derived.resolve(file);
+            if (!file.equals("eyepts.tsv") && !Files.exists(p)) continue;
+            List<String> lines = Files.readAllLines(p, StandardCharsets.UTF_8);
+            List<String> head = List.of(lines.get(0).split("\t"));
+            int c = head.indexOf("0б_re_x");
+            if (c < 0) throw new IllegalStateException(file + ": нет столбцов 0б");
+            for (String l : lines.subList(1, lines.size())) {
+                String[] f = l.split("\t");
+                eyes.put(f[0], new double[] {Double.parseDouble(f[c]), Double.parseDouble(f[c + 1]), Double.parseDouble(f[c + 2]), Double.parseDouble(f[c + 3])});
+            }
         }
         int n = 0;
         for (Img im : imgs) {

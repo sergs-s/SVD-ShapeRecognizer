@@ -8,10 +8,12 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.TreeSet;
 import java.util.function.Predicate;
 import org.opencv.core.Mat;
@@ -229,6 +231,81 @@ final class XBaseEyePts {
     }
 
     /** Точка кандидата k (0 — YuNet); null — каскад не нашёл. */
+    /** Точки 0б для снимков без ручной разметки (№4 от 15.10.2026, К4) – отдельный файл, eyepts.tsv не меняется. */
+    static final String ADD_FILE = "eyepts_0b_add.tsv";
+
+    /**
+     * К4 для всех отобранных снимков (№4 от 15.10.2026): точки глаз 0б (каскад eye_tree_eyeglasses, не найден – точка YuNet,
+     * как в eyepts.tsv) для снимков с лицом и |r| ≤ R, которых нет в eyepts.tsv, – в derived/eyepts_0b_add.tsv; затем кадры К4
+     * только для недостающих ключей (FeretData.framesK4; уже записанные не трогаются). Режим XBaseEval feret-k4-add.
+     */
+    static void addMissing(List<String> selLines, SettingsStore settings) throws IOException {
+        String rawDir = settings.loadFacesFeretDir();
+        if (rawDir == null) throw new IllegalStateException("XBaseEval feret-k4-add: задайте faces.feret.dir / FACES_FERET_DIR");
+        Path dir = Paths.get(rawDir);
+        double rLimit = XBaseEval.poseLimit(selLines);
+        Path models = Paths.get(settings.loadFacesModelsDir());
+        FaceRecognizerSF sface = FaceRecognizerSF.create(models.resolve(FaceAlignment.SFACE_FILE).toString(), "");
+        List<Img> all = FeretData.frontal(dir);
+        Map<String, double[]> det = FeretData.detect(all, dir, models, sface);
+        CascadeClassifier tree = new CascadeClassifier(models.resolve(EYE_TREE).toString());
+        if (tree.empty()) throw new IllegalStateException("feret-k4-add: каскад глаз не загружен из " + models);
+        Path derived = dir.resolve(FeretData.DERIVED);
+        Set<String> have = new HashSet<>();
+        for (String f : new String[] {"eyepts.tsv", ADD_FILE}) {
+            Path p = derived.resolve(f);
+            if (!Files.exists(p)) continue;
+            List<String> ls = Files.readAllLines(p, StandardCharsets.UTF_8);
+            for (String l : ls.subList(1, ls.size())) have.add(l.substring(0, l.indexOf('\t')));
+        }
+        List<Img> sel = new ArrayList<>();
+        List<String> add = new ArrayList<>();
+        int fallback = 0;
+        for (Img im : all) {
+            double[] row = det.get(im.key());
+            if (row == null || Math.abs(FeiDataset.pose(row)) > rLimit) continue;
+            sel.add(im);
+            if (have.contains(im.key())) continue;
+            Mat color = FeretData.decode(im.file());
+            Mat g = EyeRefine.gray(color);
+            color.release();
+            double[] re = {row[4], row[5]};
+            double[] le = {row[6], row[7]};
+            double iod = Math.hypot(le[0] - re[0], le[1] - re[1]);
+            double[] r2 = refine(2, g, re, iod, tree, null);
+            double[] l2 = refine(2, g, le, iod, tree, null);
+            g.release();
+            if (r2 == null) {
+                r2 = re;
+                fallback++;
+            }
+            if (l2 == null) {
+                l2 = le;
+                fallback++;
+            }
+            add.add(String.format(Locale.ROOT, "%s\t%.3f\t%.3f\t%.3f\t%.3f", im.key(), r2[0], r2[1], l2[0], l2[1]));
+        }
+        Path f = derived.resolve(ADD_FILE);
+        List<String> out = new ArrayList<>();
+        if (Files.exists(f)) out.addAll(Files.readAllLines(f, StandardCharsets.UTF_8));
+        else out.add("key\t0б_re_x\t0б_re_y\t0б_le_x\t0б_le_y");
+        out.addAll(add);
+        Path tmp = derived.resolve(ADD_FILE + ".tmp");
+        Files.write(tmp, out, StandardCharsets.UTF_8);
+        Files.move(tmp, f, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+        int before;
+        try (java.util.stream.Stream<Path> s = Files.list(derived.resolve(FeretData.K4_0B))) {
+            before = (int) s.count();
+        }
+        FeretData.framesK4(sel, det, dir);
+        int after;
+        try (java.util.stream.Stream<Path> s = Files.list(derived.resolve(FeretData.K4_0B))) {
+            after = (int) s.count();
+        }
+        System.out.printf(Locale.ROOT, "feret-k4-add: отобрано %d, новых точек 0б %d (не найден каскадом – точка YuNet: %d глаз), кадров К4 %d → %d%n", sel.size(),
+                add.size(), fallback, before, after);
+    }
+
     static double[] refine(int k, Mat g, double[] p, double iod, CascadeClassifier tree, CascadeClassifier eye) {
         return switch (k) {
             case 0 -> p;
