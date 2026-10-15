@@ -186,6 +186,8 @@ final class XBaseUpdate {
         int galN;
         int wideN;
         int ctrlOnWide;
+        /** Кому после шага добавлены сессии своих (№8 от 16.10.2026; в отчёты feret-update не выводится). */
+        Set<String> updTo = new HashSet<>();
         /** Обновления шага: своих верных, своих неверных (дрейф), чужих (худший случай); вытеснено сессий. */
         int updOk;
         int updWrong;
@@ -233,6 +235,17 @@ final class XBaseUpdate {
      * датами.
      */
     static List<Step> simulate(Ctx c, Var v, Gate gate, List<Ctrl> ctrl, Map<String, Integer> pIdx, Set<String> measured, int maxStep, String tag) {
+        return simulate(c, v, gate, ctrl, pIdx, measured, maxStep, tag, null);
+    }
+
+    /** Переобучение W перед шагом (№8 от 16.10.2026, (Wа′)): шаг, текущие шаблоны, контекст → новый контекст (или тот же). */
+    interface Retrain {
+        Ctx apply(int step, Map<String, TemplateWindow> tpl, Ctx c);
+    }
+
+    /** То же; retrain (не null) – перед шагами j ≥ 2 контекст заменяется результатом retrain (без него – как прежде). */
+    static List<Step> simulate(Ctx c, Var v, Gate gate, List<Ctrl> ctrl, Map<String, Integer> pIdx, Set<String> measured, int maxStep, String tag,
+                               Retrain retrain) {
         Map<String, TemplateWindow> tpl = new HashMap<>();
         for (String p : c.gal) {
             TemplateWindow w = new TemplateWindow(v == Var.A ? TemplateWindow.UNBOUNDED : v.m);
@@ -243,6 +256,7 @@ final class XBaseUpdate {
         int[] unit = FeiBootstrap.unit(pIdx.size());
         List<Step> out = new ArrayList<>();
         for (int j = 1; j <= maxStep; j++) {
+            if (retrain != null && j > 1) c = retrain.apply(j, tpl, c);
             Step st = new Step();
             st.imp = impostors(c, tpl, pIdx, false);
             if (j == 1) st.impCommon = impostors(c, tpl, pIdx, true);
@@ -333,10 +347,12 @@ final class XBaseUpdate {
                     TemplateWindow.Session s = new TemplateWindow.Session(c.dateOf.get(keys.get(0)), p, keys);
                     if (v.oracle) {
                         tpl.get(p).add(s);
+                        st.updTo.add(p);
                         st.updOk++;
                     } else if (a.r() <= gateTh) {
                         String to = c.gal.get(a.best());
                         tpl.get(to).add(s);
+                        st.updTo.add(to);
                         if (to.equals(p)) st.updOk++;
                         else st.updWrong++;
                     }
