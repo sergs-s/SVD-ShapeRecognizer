@@ -396,6 +396,8 @@ public final class XBaseEval {
             XBaseEqCompare.feret(dir, selLines, settings);
         } else if (a[0].equals("feret-xs")) {
             XBaseXsF.feret(export, dir, feiKeys, selLines, settings);
+        } else if (a[0].equals("feret-sameday")) {
+            XBaseSameDay.run(dir, selLines, settings);
         } else if (a[0].equals("feret-calib")) {
             XBaseCalib.feret(export, dir, feiKeys, selLines, settings);
         } else if (a[0].equals("gt-calib")) {
