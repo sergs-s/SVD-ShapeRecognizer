@@ -398,6 +398,8 @@ public final class XBaseEval {
             XBaseXsF.feret(export, dir, feiKeys, selLines, settings);
         } else if (a[0].equals("feret-subsp")) {
             XBaseSubsp.feret(export, dir, feiKeys, selLines, settings);
+        } else if (a[0].equals("feret-update")) {
+            XBaseUpdate.feret(export, dir, feiKeys, selLines, settings);
         } else if (a[0].equals("gt-subsp")) {
             XBaseSubsp.gt(export, dir, feiKeys, selLines, settings, out);
         } else if (a[0].equals("feret-sameday")) {
