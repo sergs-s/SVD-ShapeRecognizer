@@ -402,6 +402,8 @@ public final class XBaseEval {
             XBaseSubsp.feret(export, dir, feiKeys, selLines, settings);
         } else if (a[0].equals("feret-wstatus")) {
             XBaseWStatus.feret(export, dir, feiKeys, selLines, settings);
+        } else if (a[0].equals("feret-wstatus4")) {
+            XBaseWStatus.feret4(export, dir, feiKeys, selLines, settings);
         } else if (a[0].equals("gt-wstatus")) {
             XBaseWStatus.gt(export, dir, feiKeys, selLines, settings, out);
         } else if (a[0].equals("feret-newcomer")) {

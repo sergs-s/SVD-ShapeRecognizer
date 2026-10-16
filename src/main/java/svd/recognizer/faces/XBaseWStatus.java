@@ -749,12 +749,22 @@ final class XBaseWStatus {
     }
 
     /**
-     * (Wа′): перед шагами 2 и 3 – W и модели частей заново на всех текущих сессиях шаблонов (дальше не меняется); центры –
-     * по-прежнему по шаблонам.
+     * Переобучать ли W перед шагом step (j ≥ 2): не дальше last и только если на шаге есть пробы своих (у кого-то из галереи есть
+     * дата START + step).
      */
-    static XBaseUpdate.Retrain retrain(Setup s, int pp, Proj pj) {
+    static boolean retrainAt(int step, int last, List<String> gal, Map<String, List<List<String>>> dates) {
+        if (step < 2 || step > last) return false;
+        for (String p : gal) if (dates.get(p).size() >= XBaseUpdate.START + step) return true;
+        return false;
+    }
+
+    /**
+     * (Wа′): перед шагами 2…last, на которых есть пробы своих, – W и модели частей заново на всех текущих сессиях шаблонов;
+     * центры – по-прежнему по шаблонам. №8 – last = 3.
+     */
+    static XBaseUpdate.Retrain retrain(Setup s, int pp, Proj pj, int last) {
         return (step, tpl, c) -> {
-            if (step > RETRAIN_LAST) return c;
+            if (!retrainAt(step, last, c.gal, c.dates)) return c;
             Map<String, List<String>> tr = new LinkedHashMap<>();
             for (String p : c.gal) tr.put(p, tpl.get(p).keys());
             System.out.printf(Locale.ROOT, "feret-wstatus: (Wа′) %s проход %d – переобучение W перед шагом %d%n", pj.label(), pp + 1, step);
@@ -762,8 +772,23 @@ final class XBaseWStatus {
         };
     }
 
+    /**
+     * Параметры части 1: схемы, варианты, варианты таблицы доли обновлённых, до какого шага переобучать (Wа′), пары
+     * «уменьшаемое − вычитаемое», строки файла оценок (null – не писать).
+     */
+    record P1(String[] schemes, List<Var> vars, List<Var> updVars, int retrainLast, List<Var[]> pairs, StringBuilder lines) {}
+
+    /** №8 (п. 4 и 4а): (а), (б), (д) при (Wа), (Wа′) (шаги 2–3), (Wб). */
+    static final P1 P1_N8 = new P1(new String[] {"Wa", "Wa2", "Wb"}, VARS, List.of(Var.B, Var.E), RETRAIN_LAST,
+            List.of(new Var[] {Var.E, Var.A}, new Var[] {Var.B, Var.A}), null);
+
     /** П. 4 и 4а: (а), (б), (д) при (Wа) (проверка против №4), (Wа′), (Wб); порог приёма П3. */
     static String part1(Setup s, XBaseOther.Checkpoint cp) throws IOException {
+        return part1(s, cp, P1_N8);
+    }
+
+    /** Часть 1 по параметрам p; (Wа) – проверка против файла оценок №4. */
+    static String part1(Setup s, XBaseOther.Checkpoint cp, P1 p) throws IOException {
         Map<String, String> old = new HashMap<>();
         Path sf = s.out.resolve(XBaseSession.SCORES);
         try (BufferedReader in = new BufferedReader(new InputStreamReader(new GZIPInputStream(Files.newInputStream(sf), 1 << 16), StandardCharsets.UTF_8))) {
@@ -774,8 +799,8 @@ final class XBaseWStatus {
                 old.put(c[0] + "\t" + c[1] + "\t" + c[3] + "\t" + c[4] + "\t" + c[5] + "\t" + c[6], c[8] + "\t" + c[9] + "\t" + c[10]);
             }
         }
-        StringBuilder check = new StringBuilder("\n=== П. 4, проверка: (Wа) (а), (б), (д) = строки feret-update №4 (порог приёма П3; ключ решающего снимка, лучший, d₁/d₂; "
-                + "свои и контроль, все шаги) ===\n");
+        StringBuilder check = new StringBuilder("\n=== П. 4, проверка: (Wа) " + String.join(", ", p.vars().stream().map(v -> v.label.substring(0, 3)).toList())
+                + " = строки feret-update №4 (порог приёма П3; ключ решающего снимка, лучший, d₁/d₂; свои и контроль, все шаги) ===\n");
         StringBuilder body = new StringBuilder();
         StringBuilder upd = new StringBuilder("\n=== П. 4: доля обновлённых после шага 1 среди лучших кандидатов контрольных чужих на шаге 2 против их доли в галерее "
                 + "(порог приёма П3; бутстреп по контрольным людям; критерий – заранее, поправка 2 №1 от 16.10; избыток значим, если нижняя граница "
@@ -785,13 +810,13 @@ final class XBaseWStatus {
         int[][] wc = FeiBootstrap.weights(ctrlP.size(), s.tpl.b, s.tpl.seed + FeiBootstrap.SEED_OFFSET);
         for (Proj pj : projs()) {
             if (!pj.pool() && !SMOKE) continue;
-            for (String sch : new String[] {"Wa", "Wa2", "Wb"}) {
+            for (String sch : p.schemes()) {
                 Map<Var, List<List<Step>>> all = new LinkedHashMap<>();
-                for (Var v : VARS) all.put(v, new ArrayList<>());
+                for (Var v : p.vars()) all.put(v, new ArrayList<>());
                 for (int pp = 0; pp < 2; pp++) {
                     List<String> gal = new ArrayList<>(s.halves.get(pp));
                     Ctx c = null;
-                    for (Var v : VARS) {
+                    for (Var v : p.vars()) {
                         String name = String.format(Locale.ROOT, "p1_%s_%s_p%d_%s", pj.label(), sch, pp, v.name());
                         String enc = cp.read(name);
                         if (enc == null) {
@@ -799,7 +824,13 @@ final class XBaseWStatus {
                             if (c == null) c = ctx(s, pp, pj, train(gal, s.pool, Set.of(), sch.equals("Wb")));
                             String tag = pj.label() + "\t" + (pp + 1) + "\t" + XBaseUpdate.Gate.P3.label + "\t" + v.label;
                             List<Step> steps = XBaseUpdate.simulate(c, v, XBaseUpdate.Gate.P3, s.ctrl, s.pIdx, s.measured, s.maxStep, tag,
-                                    sch.equals("Wa2") && v != Var.A ? retrain(s, pp, pj) : null);
+                                    sch.equals("Wa2") && v != Var.A ? retrain(s, pp, pj, p.retrainLast()) : null);
+                            if (p.lines() != null) {
+                                StringBuilder ls = new StringBuilder();
+                                for (Step st : steps) for (String l : st.lines.toString().split("\n")) if (!l.isEmpty()) ls.append(schName(sch)).append('\t').append(l)
+                                        .append('\n');
+                                cp.save(name + "_lines", ls.toString());
+                            }
                             if (sch.equals("Wa")) {
                                 int n = 0;
                                 for (Step st : steps) {
@@ -822,10 +853,11 @@ final class XBaseWStatus {
                         if (sch.equals("Wa")) check.append(String.format(Locale.ROOT, "%s проход %d %s: совпало %s строк%n", pj.label(), pp + 1, v.label,
                                 cp.read(name + "_check")));
                         all.get(v).add(decodeSteps(enc));
+                        if (p.lines() != null) p.lines().append(cp.read(name + "_lines"));
                     }
                 }
-                body.append(part1Tables(pj, sch, all, s));
-                for (Var v : List.of(Var.B, Var.E)) upd.append(updShare(pj, sch, v, all.get(v), s, ctrlP, wc));
+                body.append(part1Tables(pj, sch, all, s, p));
+                for (Var v : p.updVars()) upd.append(updShare(pj, sch, v, all.get(v), s, ctrlP, wc));
             }
         }
         return check + upd.toString() + body;
@@ -882,12 +914,12 @@ final class XBaseWStatus {
     }
 
     /** Общие таблицы части 1 схемы: шаг 2 и шаги ≥ 2; пары (д) − (а), (б) − (а). */
-    static String part1Tables(Proj pj, String sch, Map<Var, List<List<Step>>> all, Setup s) {
+    static String part1Tables(Proj pj, String sch, Map<Var, List<List<Step>>> all, Setup s, P1 p) {
         StringBuilder t = new StringBuilder("\n\n######## П. 4: часть 1 при " + schName(sch) + ", " + pj.label() + ", порог приёма П3 ########\n");
         int persons = s.persons.size();
         Map<String, FeiThreshold.Res> res = new LinkedHashMap<>();
         String p0 = pj.label() + " " + schName(sch) + " ";
-        for (Var v : VARS) {
+        for (Var v : p.vars()) {
             for (int j = 2; j <= XBaseUpdate.TABLE_STEPS + 1; j++) {
                 int from = j <= XBaseUpdate.TABLE_STEPS ? j : 2;
                 int to = j <= XBaseUpdate.TABLE_STEPS ? j : s.maxStep;
@@ -899,11 +931,8 @@ final class XBaseWStatus {
             }
         }
         List<String[]> pairs = new ArrayList<>();
-        for (String st : new String[] {" шаг 2", " шаги ≥ 2"}) {
-            pairs.add(new String[] {p0 + Var.E.label + st, p0 + Var.A.label + st});
-            pairs.add(new String[] {p0 + Var.B.label + st, p0 + Var.A.label + st});
-        }
-        pairs.removeIf(p -> !res.containsKey(p[0]) || !res.containsKey(p[1]));
+        for (String st : new String[] {" шаг 2", " шаги ≥ 2"}) for (Var[] pr : p.pairs()) pairs.add(new String[] {p0 + pr[0].label + st, p0 + pr[1].label + st});
+        pairs.removeIf(q -> !res.containsKey(q[0]) || !res.containsKey(q[1]));
         int[][] w = s.tpl.b > 0 ? FeiBootstrap.weights(persons, s.tpl.b, s.tpl.seed + FeiBootstrap.SEED_OFFSET) : new int[0][];
         Map<String, XBaseOther.Sep> sep = new LinkedHashMap<>();
         for (Map.Entry<String, FeiThreshold.Res> e : res.entrySet()) sep.put(e.getKey(), XBaseOther.sep(e.getValue().cfgs, FeiBootstrap.unit(persons), w));
@@ -946,6 +975,87 @@ final class XBaseWStatus {
         t.append(part1(s, cp));
         t.append(String.format(Locale.ROOT, "%nВсего %.0f с; потоков %d.%n", (System.nanoTime() - t0) / 1e9, s.tpl.threads));
         FarMethods.write(s.out.resolve("xbase_feret_wstatus" + (SMOKE ? "_smoke" : "") + ".txt"), t);
+        System.out.print(t);
+        cp.delete();
+    }
+
+    // ---------------------------------------------------------------- feret-wstatus4: часть 4 пункта (4)
+
+    /** Строки отчёта, начинающиеся с подписи строки таблицы («подпись | …»), по порядку. */
+    static List<String> rowsOf(List<String> report, String label) {
+        return report.stream().filter(l -> l.startsWith(label + " | ")).toList();
+    }
+
+    /**
+     * Часть 4 (задание Жорика №2 от 16.10.2026, план принят №3): (а), (д), (е) при (Wа) и (Wа′) – W и 5 моделей частей
+     * переобучаются перед каждым шагом с пробами своих; L1-xs-F и L1-tt-xs-F; порог приёма П3. Проверки: (Wа) – строки №4
+     * побайтно; (Wа′) (а), (д) шагов 2–3 – строки таблиц отчёта №8 побайтно. Отчёт и файл оценок – только D:\data\Feret\reports\eq\.
+     */
+    static void feret4(FarExport.Loaded export, Path exportDir, Map<String, Map<Integer, String>> feiKeys, List<String> selLines, SettingsStore settings)
+            throws IOException {
+        if (!settings.loadFacesFeretGalleryEqual()) throw new IllegalStateException("feret-wstatus4: только равные галереи (faces.feret.gallery = eq)");
+        long t0 = System.nanoTime();
+        Setup s = setup(export, exportDir, feiKeys, selLines, settings);
+        System.out.printf(Locale.ROOT, "feret-wstatus4: векторы готовы (%.0f с)%n", (System.nanoTime() - t0) / 1e9);
+        String sfx = SMOKE ? "_smoke" : "";
+        String fp = FeiCheckpoint.fingerprint(exportDir, String.format(Locale.ROOT, "feret-wstatus4 %s; снимков %d; seed %d; r0 %s; пул %d", s.su.dir, s.su.imgs.size(),
+                s.tpl.seed, s.tpl.r0, s.pool.size()));
+        XBaseOther.Checkpoint cp = new XBaseOther.Checkpoint(s.su.dir.resolve(FeretData.DERIVED).resolve("checkpoint_feret_wstatus4_eq" + sfx), fp);
+        StringBuilder lines = new StringBuilder();
+        P1 p = new P1(new String[] {"Wa", "Wa2"}, List.of(Var.A, Var.E, Var.F), List.of(Var.E, Var.F), Integer.MAX_VALUE,
+                List.of(new Var[] {Var.F, Var.A}, new Var[] {Var.E, Var.A}, new Var[] {Var.F, Var.E}), lines);
+        StringBuilder t = new StringBuilder();
+        t.append("PLAN.md п. 5.5, очередь (4), часть 4: польза подтверждённых обновлений при равных статусе в W и ширине шаблона (XBaseEval feret-wstatus4): "
+                + "Color FERET — только локально\n");
+        t.append("Код: коммит ").append(FarMethods.commit()).append('\n');
+        t.append("Данные: ").append(s.su.dir).append("; когорта FEI — экспорт ").append(exportDir).append(", коммит данных ").append(FarMethods.dataCommit(exportDir))
+                .append('\n');
+        t.append(XBaseFeret.EQ_NOTE);
+        t.append("""
+                Схема (задание №2 от 16.10, план принят №3): часть 1 как в №4 (половины №2, старт 2 даты, проход – пара, контроль 200, порог
+                приёма П3); варианты (а) статично, (д) оракул M = 3, (е) оракул M = 2 (у всех шаблон ровно из 2 сессий); схемы (Wа) – W и 5
+                моделей частей обучены на старте (как №4) и (Wа′) – W и 5 моделей частей заново на всех текущих сессиях шаблонов перед
+                каждым шагом, на котором есть пробы своих (шаги 2…9); у (а) шаблоны не меняются – (Wа′) = (Wа) без переобучения.
+                Основной ответ – (е) − (а) и (д) − (а) при (Wа′) по каждому кандидату. (е) − (д) – справочно: варианты различаются и окном
+                (2 / 3), и равенством ширины (в (д) у людей с 2 датами шаблон уже, чем у обновлённых), чистого ответа «окно 2 или 3»
+                разность не даёт.
+                """);
+        if (s.tpl.b > 0) t.append(String.format(Locale.ROOT, "Бутстреп по людям: B = %d, seed = %d; «*» – интервал разности не содержит 0.%n", s.tpl.b, s.tpl.seed
+                + FeiBootstrap.SEED_OFFSET));
+        String body = part1(s, cp, p);
+        // Сверка (Wа′) (а), (д), шаги 2 и 3, со строками таблиц отчёта №8.
+        StringBuilder check = new StringBuilder("\n=== Проверка: (Wа′) (а), (д), шаги 2 и 3 = строки таблиц отчёта №8 xbase_feret_wstatus.txt (побайтно) ===\n");
+        Path n8 = s.out.resolve("xbase_feret_wstatus.txt");
+        if (!SMOKE) {
+            List<String> old = Files.readAllLines(n8, StandardCharsets.UTF_8).stream().map(l -> l.replace("\r", "")).toList();
+            List<String> now = List.of(body.replace("\r", "").split("\n"));
+            for (Proj pj : projs()) {
+                if (!pj.pool()) continue;
+                for (Var v : List.of(Var.A, Var.E)) {
+                    for (int j = 2; j <= 3; j++) {
+                        String label = pj.label() + " " + schName("Wa2") + " " + v.label + " шаг " + j;
+                        List<String> a = rowsOf(old, label);
+                        List<String> b = rowsOf(now, label);
+                        boolean same = !a.isEmpty() && a.equals(b);
+                        check.append(String.format(Locale.ROOT, "%s: %s (%d строк)%n", label, same ? "совпало" : "НЕ СОВПАЛО", a.size()));
+                        if (!same) throw new IllegalStateException("feret-wstatus4: не совпало с №8: " + label);
+                    }
+                }
+            }
+            check.append("Отчёт №8: ").append(FeiThreshold.sha(n8)).append('\n');
+        } else {
+            check.append("пробный режим – сверка не делалась\n");
+        }
+        t.append(check).append(body);
+        t.append(String.format(Locale.ROOT, "%nВсего %.0f с; потоков %d.%n", (System.nanoTime() - t0) / 1e9, s.tpl.threads));
+        Path sf = s.out.resolve("xbase_feret_wstatus4" + sfx + "_scores.tsv.gz");
+        try (java.io.Writer w = new java.io.OutputStreamWriter(new java.util.zip.GZIPOutputStream(Files.newOutputStream(sf), 1 << 16), StandardCharsets.UTF_8)) {
+            w.write("# FERET, часть 4 пункта (4) (XBaseWStatus feret-wstatus4), только локально\n# Код: коммит " + FarMethods.commit() + "\n");
+            w.write("# Как файл feret-update, первым столбцом – схема W; строка threshold – пороги шага\n");
+            w.write("scheme\tproj\tpass\tgate\tvariant\tstep\trole\tperson\tmeasured\tkey\tbest\tratio\tfrontal\n");
+            w.write(lines.toString());
+        }
+        FarMethods.write(s.out.resolve("xbase_feret_wstatus4" + sfx + ".txt"), t);
         System.out.print(t);
         cp.delete();
     }
