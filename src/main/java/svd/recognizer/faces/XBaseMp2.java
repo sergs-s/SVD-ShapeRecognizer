@@ -925,11 +925,18 @@ final class XBaseMp2 {
         List<List<String>> parts = FeiMethods.cvParts(b.own, b.seed, XBaseEval.CV_S);
         double fitS = 0;
         String[][] projs = {{"L1-xs-F", "0"}, {"L1-tt-xs-F", "1"}};
+        Map<String, List<List<String>>> pool0 = XBaseXsF.pool(fs.su.ro, fs.su.byKey);
+        XBaseEval[] xsBase = null;
         for (int sc = 0; sc < 2; sc++) {
             boolean mpScheme = sc == 1;
             Map<String, Mat> fr = new LinkedHashMap<>();
             Set<String> gtKeys = new TreeSet<>();
             for (String pk : u) gtKeys.add(keyOf.get(pk));
+            if (!mpScheme && !sameRoles) {
+                // Для сверки базы на прежних ролях – ещё прежние снимки GT и прежний пул.
+                gtKeys.addAll(g0.samples.keySet());
+                pool0.values().forEach(ds -> ds.forEach(poolKeys::addAll));
+            }
             if (mpScheme) {
                 for (String k : gtKeys) {
                     Sample s = sampleOf.get(k);
@@ -951,6 +958,7 @@ final class XBaseMp2 {
             xs[0].vectors(fr, EnumSet.of(V.L1), b.params);
             xs[1].vectors(fr, EnumSet.of(V.L1), b.params, IlluminationNorm.TAN_TRIGGS);
             fr.values().forEach(Mat::release);
+            if (!mpScheme) xsBase = xs;
             XBaseEval.Gt g = gI[sc];
             // gU: g с U-снимками контрольных и своих (для проб (а)); rOf – по схеме.
             XBaseEval.Gt gUx = gtRoles(export, dir, feiKeys, settings, pk -> u.contains(pk), mpScheme ? yM : rB, mpScheme ? th.r0() : r0);
@@ -1000,7 +1008,7 @@ final class XBaseMp2 {
                                     XBaseSubsp.l1Rows(only(ls, ids(probesI))).size()));
                             if (!same) throw new IllegalStateException("gt-mp2: база не совпала с gt-subsp: " + mode + " " + pj[0]);
                         } else {
-                            check.append(mode).append(' ').append(pj[0]).append(": роли I отличаются от прежних – сверка с gt-subsp не делалась (НЕ ПРОВЕРЕНО)\n");
+                            check.append(mode).append(' ').append(pj[0]).append(": роли I отличаются от прежних – сверка – на прежних ролях (ниже)\n");
                         }
                     }
                     Set<String> rejected = new HashSet<>();
@@ -1011,6 +1019,31 @@ final class XBaseMp2 {
                     acc.computeIfAbsent(mode + " " + pj[0] + " " + SCHEMES[sc] + " (б)", x -> new Acc()).add(XBaseEval.parse(g, EnumSet.of(V.L1), gal, probesI, parts, ls));
                     acc.computeIfAbsent(mode + " " + pj[0] + " " + SCHEMES[sc] + " (а)", x -> new Acc())
                             .add(XBaseEval.parse(gU, EnumSet.of(V.L1), gal, probesU, parts, refuse(ls, rejected)));
+                }
+            }
+        }
+        if (!sameRoles) {
+            // База на прежних ролях (как gt-subsp, k = 0): только сверка с прежним файлом оценок.
+            List<List<String>> poolCls0 = XBaseXsF.train(XBaseXsF.Kind.XS, List.of(), Map.of(), pool0, Set.of(), Map.of()).extra();
+            List<List<String>> parts0 = FeiMethods.cvParts(g0.own, g0.seed, XBaseEval.CV_S);
+            Object[][] old0 = {{"межс.", galX0, g0.probeKeys}, {"внутри", galIn0, split0.get(1)}};
+            for (Object[] md : old0) {
+                @SuppressWarnings("unchecked")
+                Map<String, List<String>> gal = (Map<String, List<String>>) md[1];
+                @SuppressWarnings("unchecked")
+                Map<String, List<String>> pro = (Map<String, List<String>>) md[2];
+                for (String[] pj : projs) {
+                    List<List<String>> aug = new ArrayList<>(g0.cohort);
+                    aug.addAll(poolCls0);
+                    List<List<String>> keep = g0.cohort;
+                    g0.cohort = aug;
+                    String ls = XBaseEval.fitLines(g0, xsBase[Integer.parseInt(pj[1])], EnumSet.of(V.L1), gal, XBaseEval.probes(g0, pro), parts0, 0);
+                    g0.cohort = keep;
+                    String ob = old.get(md[0] + ", проекция " + pj[0] + ", k = 0");
+                    boolean same = ob != null && XBaseSubsp.l1Rows(ob).equals(XBaseSubsp.l1Rows(ls));
+                    check.append(String.format(Locale.ROOT, "%s %s (прежние роли): %s (%d строк)%n", md[0], pj[0], same ? "совпало" : "НЕ СОВПАЛО",
+                            XBaseSubsp.l1Rows(ls).size()));
+                    if (!same) throw new IllegalStateException("gt-mp2: база на прежних ролях не совпала с gt-subsp: " + md[0] + " " + pj[0]);
                 }
             }
         }
