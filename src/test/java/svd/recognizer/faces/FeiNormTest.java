@@ -49,7 +49,7 @@ public class FeiNormTest {
         cp.assembleVectors(dir, List.of("m1", "m2"), m -> "# шапка " + m + "\n", 2);
         assertEquals(List.of("# шапка m1", "m1\t0\t0\town\ta\t4\ta\t1.0\t2.0", "m1\t0\t1\tthr\tb\t5\t-\t5.0\t6.0"), lines(dir.resolve(FeiVectors.file("m1"))));
         assertEquals(List.of("# шапка m2", "m2\t0\t0\town\ta\t4\ta\t3.0\t4.0"), lines(dir.resolve(FeiVectors.file("m2"))));
-        cp.delete();
+        CheckpointCleanup.delete(cp);
     }
 
     private static List<String> lines(Path f) throws Exception {

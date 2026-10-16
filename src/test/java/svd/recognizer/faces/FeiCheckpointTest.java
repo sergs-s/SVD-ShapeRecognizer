@@ -67,7 +67,7 @@ public class FeiCheckpointTest {
         try (InputStream in = new GZIPInputStream(Files.newInputStream(out))) {
             assertEquals("# шапка\na\tb\nc\td\n", new String(in.readAllBytes(), StandardCharsets.UTF_8));
         }
-        cp.delete();
+        CheckpointCleanup.delete(cp);
         assertFalse(Files.exists(cp.dir));
     }
 
