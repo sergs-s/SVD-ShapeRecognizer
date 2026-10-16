@@ -3,7 +3,10 @@
 Запуск – venv с mediapipe (CLAUDE.md, «Тестовые данные»):
   python mp_points.py feret <каталог FERET> <face_landmarker.task> <выходной TSV>
   python mp_points.py gt <каталог gt_db> <face_landmarker.task> <выходной TSV>
-  python mp_points.py dump <каталог FERET или gt_db> <ключ>[,<ключ>…] <каталог PNG>   – раскодированные снимки для сверки с Java
+  python mp_points.py own <каталог своей базы> <face_landmarker.task> <выходной TSV>   – только локально
+  python mp_points.py fei <каталог FEI> <face_landmarker.task> <выходной TSV>          – originalimages, ключ – имя снимка
+  python mp_points.py <вид> <каталог> <face_landmarker.task> <выходной TSV> <рамки YuNet TSV> <k>   – на вырезке k · рамка
+  python mp_points.py dump<каталог FERET или gt_db> <ключ>[,<ключ>…] <каталог PNG>   – раскодированные снимки для сверки с Java
 
 Сеть в процессе запрещена (подключения дают ошибку): модель читается только с диска. FERET: все *.ppm.bz2 обоих дисков,
 распаковка в памяти (на диск не пишется). GT: все sNN/*.jpg. Снимок раскодируется OpenCV этого venv (BGR → RGB для
@@ -55,7 +58,12 @@ def images(kind, root):
                 for f in files:
                     if f.endswith(".ppm.bz2"):
                         out.append((f[:-len(".ppm.bz2")], os.path.join(d, f)))
-    else:
+    elif kind == "fei":
+        for d, _, files in os.walk(os.path.join(root, "originalimages")):
+            for f in files:
+                if f.lower().endswith(".jpg"):
+                    out.append((f[:-4], os.path.join(d, f)))
+    else:  # gt, own: <каталог>/<человек>/<снимок>.jpg, ключ «человек/снимок»
         for p in sorted(os.listdir(root)):
             pd = os.path.join(root, p)
             if os.path.isdir(pd):
@@ -117,12 +125,48 @@ def sha256(path):
     return h.hexdigest()
 
 
-def run(kind, root, model, out):
+def read_boxes(path):
+    """Рамки YuNet: «ключ \\t x \\t y \\t w \\t h» (строки «#» – шапка); нет строки – лица YuNet нет."""
+    out = {}
+    with open(path, encoding="utf-8") as f:
+        for l in f:
+            if l.startswith("#") or not l.strip():
+                continue
+            c = l.rstrip("\n").split("\t")
+            out[c[0]] = [float(v) for v in c[1:5]]
+    return out
+
+
+def crop_row(key, bgr, lm, box, factor):
+    """МП на квадратной вырезке: сторона factor · max(w, h) рамки, центр – центр рамки, обрезка по краю снимка; точки –
+    в пикселях полного снимка (сдвиг на начало вырезки), z – в пикселях ширины вырезки; в конце – вырезка x0, y0, ширина,
+    высота."""
+    h, w = bgr.shape[:2]
+    x, y, bw, bh = box
+    s = factor * max(bw, bh)
+    cx, cy = x + bw / 2, y + bh / 2
+    x0, y0 = int(max(0, round(cx - s / 2))), int(max(0, round(cy - s / 2)))
+    x1, y1 = int(min(w, round(cx + s / 2))), int(min(h, round(cy + s / 2)))
+    r = row(key, np.ascontiguousarray(bgr[y0:y1, x0:x1]), lm)
+    r[3], r[4] = str(w), str(h)
+    if r[1] == "1":
+        for j in range(len(POINTS)):
+            r[5 + 3 * j] = "%.3f" % (float(r[5 + 3 * j]) + x0)
+            r[6 + 3 * j] = "%.3f" % (float(r[6 + 3 * j]) + y0)
+    return r + [str(x0), str(y0), str(x1 - x0), str(y1 - y0)]
+
+
+CROP_COLS = ["crop_x0", "crop_y0", "crop_w", "crop_h"]
+
+
+def run(kind, root, model, out, boxes_file=None, factor=None):
+    boxes = read_boxes(boxes_file) if boxes_file else None
+    width = len(header()) + (len(CROP_COLS) if boxes is not None else 0)
     done = set()
     if os.path.exists(out):
         with open(out, "r", encoding="utf-8") as f:
             lines = f.read().split("\n")
-        good = [l for l in lines if l.startswith("#") or len(l.split("\t")) == len(header())]
+        good = [l for l in lines if l.startswith("#") or len(l.split("\t")) == width]
         with open(out, "w", encoding="utf-8", newline="\n") as f:
             f.write("".join(l + "\n" for l in good))
         done = {l.split("\t")[0] for l in good if not l.startswith("#") and not l.startswith("key\t")}
@@ -134,9 +178,18 @@ def run(kind, root, model, out):
             f.write("# mediapipe %s; opencv %s; numpy %s; python %s\n" % (mp.__version__, cv2.__version__, np.__version__, sys.version.split()[0]))
             f.write("# model %s SHA-256 %s\n" % (os.path.basename(model), sha256(model)))
             f.write("# %s %s; координаты – пиксели снимка; 468 – iris_re (на снимке слева), 473 – iris_le\n" % (kind, root))
-            f.write("\t".join(header()) + "\n")
+            if boxes is not None:
+                f.write("# вырезка: квадрат со стороной %g · max(w, h) рамки YuNet, центр – центр рамки, обрезка по краю снимка; "
+                        "рамки – %s (SHA-256 %s); нет рамки – found 0, вырезки нет\n" % (factor, boxes_file, sha256(boxes_file)))
+            f.write("\t".join(header() + (CROP_COLS if boxes is not None else [])) + "\n")
         for i, (k, p) in enumerate(todo):
-            f.write("\t".join(row(k, decode(p), lm)) + "\n")
+            if boxes is None:
+                r = row(k, decode(p), lm)
+            elif k not in boxes:
+                r = [k, "0", "0", "", ""] + [""] * (width - 5)
+            else:
+                r = crop_row(k, decode(p), lm, boxes[k], factor)
+            f.write("\t".join(r) + "\n")
             f.flush()
             if (i + 1) % 500 == 0:
                 print("mp_points %s: %d / %d" % (kind, i + 1, len(todo)), flush=True)
@@ -154,8 +207,10 @@ def dump(root, keys, outdir):
 
 if __name__ == "__main__":
     a = sys.argv[1:]
-    if len(a) == 4 and a[0] in ("feret", "gt"):
+    if len(a) == 4 and a[0] in ("feret", "gt", "own", "fei"):
         run(a[0], a[1], a[2], a[3])
+    elif len(a) == 6 and a[0] in ("feret", "gt", "own", "fei"):
+        run(a[0], a[1], a[2], a[3], a[4], float(a[5]))
     elif len(a) == 4 and a[0] == "dump":
         dump(a[1], a[2].split(","), a[3])
     else:

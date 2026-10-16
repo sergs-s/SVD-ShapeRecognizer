@@ -29,6 +29,8 @@ import org.opencv.objdetect.CascadeClassifier;
 import org.opencv.objdetect.FaceDetectorYN;
 import org.opencv.objdetect.FaceRecognizerSF;
 import svd.recognizer.faces.FeretData.Img;
+import svd.recognizer.faces.GalleryEvaluation.Base;
+import svd.recognizer.faces.GalleryEvaluation.Sample;
 import svd.recognizer.storage.SettingsStore;
 
 /**
@@ -646,6 +648,81 @@ final class XBaseMpPts {
             e[j] = Math.abs(nom[j] - (f[0] + f[1] * x[j]));
         }
         return e;
+    }
+
+    // ---------------------------------------------------------------- рамки YuNet для вырезок МП (этап 2)
+
+    static final String BOXES = "mp_boxes.tsv";
+
+    /** Файл рамок: «ключ, x, y, w, h» для снимков, где YuNet нашёл лицо (строка 15 чисел YuNet: 0–3 – рамка). */
+    static void writeBoxes(Path file, String head, Map<String, double[]> rows) throws IOException {
+        StringBuilder b = new StringBuilder("# ").append(head).append('\n');
+        int n = 0;
+        for (Map.Entry<String, double[]> e : new TreeMap<>(rows).entrySet()) {
+            double[] r = e.getValue();
+            if (r == null) continue;
+            b.append(e.getKey());
+            for (int i = 0; i < 4; i++) b.append('\t').append(Double.toString(r[i]));
+            b.append('\n');
+            n++;
+        }
+        Path tmp = file.resolveSibling(file.getFileName() + ".tmp");
+        Files.writeString(tmp, b, StandardCharsets.UTF_8);
+        Files.move(tmp, file, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+        System.out.printf(Locale.ROOT, "mp-boxes: %s – рамок %d из %d%n", file, n, rows.size());
+    }
+
+    /** Строки YuNet экспорта для базы base: «человек/снимок» → строка (null – не найдено). */
+    static Map<String, double[]> exportRows(Path exportDir, String base) throws IOException {
+        Map<String, double[]> out = new TreeMap<>();
+        for (String l : Files.readAllLines(exportDir.resolve("detections.tsv"), StandardCharsets.UTF_8)) {
+            String[] c = l.split("\t", -1);
+            if (!c[0].equals(base)) continue;
+            double[] row = null;
+            if (c[4].equals("1")) {
+                row = new double[15];
+                for (int i = 0; i < 15; i++) row[i] = Double.parseDouble(c[5 + i]);
+            }
+            out.put(c[1] + "/" + c[2], row);
+        }
+        return out;
+    }
+
+    /**
+     * Режим mp-boxes: рамки YuNet для вырезок МП во всех базах – FERET (все позы: detections.tsv и detections_allpose.tsv)
+     * → derived/mp_boxes.tsv; GT и своя база (экспорт) → mp_boxes.tsv рядом с каталогом gt_db / в каталоге своей базы
+     * (только локально); FEI (все 2800 исходных, кэш fei_detections.cache faces-far, порог 0,7; без пересчёта) → mp_boxes.tsv
+     * в каталоге FEI.
+     */
+    static void boxes(Path exportDir, SettingsStore settings) throws IOException {
+        Path feret = Paths.get(settings.loadFacesFeretDir());
+        Path models = Paths.get(settings.loadFacesModelsDir());
+        FaceRecognizerSF sface = FaceRecognizerSF.create(models.resolve(FaceAlignment.SFACE_FILE).toString(), "");
+        Map<String, double[]> det = FeretData.detect(FeretData.frontal(feret), feret, models, sface);
+        Map<String, double[]> all = detectAllPose(allFiles(feret), det, feret, models);
+        writeBoxes(feret.resolve(FeretData.DERIVED).resolve(BOXES), "FERET: YuNet 0,7, два прохода (derived/detections.tsv, " + ALLPOSE + ")", all);
+        writeBoxes(Paths.get(settings.loadFacesGtDir()).getParent().resolve(BOXES), "GT: YuNet экспорта " + exportDir, exportRows(exportDir, "gt"));
+        writeBoxes(Paths.get(settings.loadFacesOwnDir()).resolve(BOXES), "своя база: YuNet экспорта " + exportDir + " (снимки протокола)",
+                exportRows(exportDir, "own"));
+        Path feiDir = Paths.get(settings.loadFacesFeiDir());
+        Map<String, List<Sample>> orig = FeiDataset.originals(feiDir);
+        List<Sample> samples = new ArrayList<>();
+        orig.values().forEach(samples::addAll);
+        for (String p : orig.keySet()) {
+            for (int k = 0; k < 2; k++) {
+                Path f = FeiDataset.reference(feiDir, p, "ab".charAt(k));
+                if (f != null) samples.add(new Sample(Base.FEI, p, f, ' '));
+            }
+        }
+        float score = 0.7f;
+        Path cache = Paths.get(System.getProperty("user.dir"), "reports", "faces", "far").resolve(FeiDataset.CACHE_NAME);
+        Map<String, GalleryEvaluation.Det> dets = GalleryEvaluation.loadCache(cache, GalleryEvaluation.signature(samples, score, settings));
+        if (dets == null) throw new IllegalStateException("mp-boxes: кэш детекций FEI " + cache + " не подходит (подпись) – пересчёт здесь не делается");
+        Map<String, double[]> fei = new TreeMap<>();
+        for (List<Sample> list : orig.values()) {
+            for (Sample s : list) fei.put(s.file().getFileName().toString().replaceAll("(?i)\\.jpg$", ""), dets.get(s.file().toString()).row());
+        }
+        writeBoxes(feiDir.resolve(BOXES), "FEI: YuNet 0,7 (кэш " + cache + ")", fei);
     }
 
     // ---------------------------------------------------------------- GT
