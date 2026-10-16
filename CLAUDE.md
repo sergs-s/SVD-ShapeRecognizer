@@ -138,6 +138,12 @@ mvn compile exec:java@faces-fei-scores  # разбор файла оценок F
    только процент сдвинулся на 10 % и больше с последней показанной
    полоски; дискретность 10 % достаточна, чаще не нужно. Полоска – только
    строкой в чате (в панель задач Windows процент не выводится).
+   Уточнение Хозяина 16.10.2026 (образец – скриншот): полоска – отдельной
+   строкой в каждой реплике во время задачи, включая ответы на короткие
+   вопросы и реплики ожидания, в формате «Задача №N (ДД.ММ)», затем сама
+   полоска в обратных кавычках (code-span), затем «X % ⏱ осталось ≈ … ·
+   что идёт», например: Задача №7 (16.10) `▓▓▓▓▓▓▓░░░` 70 % ⏱ осталось
+   ≈ 1 ч 15 мин · идёт feret-mppts.
    В долгих задачах (от ~30 мин) на крупных этапах (примерно каждые
    20–30 %, начало и конец долгих прогонов, остановка с вопросом) –
    push-уведомление (PushNotification) одной строкой: «№N · X % · осталось
@@ -204,9 +210,12 @@ mvn compile exec:java@faces-fei-scores  # разбор файла оценок F
   камерой и в тех же условиях, что проход (21); сообщение «найден, но
   слишком близок второй»; выбор метода (классика / SFace / «только
   классика»).
-- Следующий пункт очереди – (8) MediaPipe (этап 1 – точки и поза без
-  распознавания; этап 2 – только по правилу), затем (4а) поочерёдное
-  отключение (постановки – PLAN.md, п. 5.5).
+- Пункт (8) MediaPipe: этап 1 (точки и поза без распознавания) сделан
+  16.10.2026 (`ab9c165`, TASKS.md) – критерий перехода к этапу 2 выполнен
+  (глаза МП значимо ближе к ручной разметке, чем Ю5 и 0б); этап 2 – по
+  решению Жорика и Хозяина; затем (4а) поочерёдное отключение
+  (постановки – PLAN.md, п. 5.5). В карточке BlazeFace распознавание
+  личности – «вне назначения» (TASKS.md, (8)).
 - Очередь работ – PLAN.md, п. 5.5, абзац «Очередь работ» (полный перечень).
 
 ## СОСТОЯНИЕ ПРОГРАММЫ ФИГУР (история; GUI, ветка svd-subspaces)
@@ -454,6 +463,40 @@ mvn compile exec:java@faces-fei-scores  # разбор файла оценок F
     `71cc64fc305a355dc60067880f6fbbd43dd155bd63ee3844661a1bda34b2fd8c`;
   - `haarcascade_eye_tree_eyeglasses.xml` (601 661 байт), SHA-256
     `e32f9c67935c33e9d1331eb14fa58554ff17835c03742663bcb97a892e936a57`.
+- MediaPipe Face Landmarker (пункт (8), этап 1; решение Хозяина 16.10.2026 –
+  Python отдельным процессом с кэшем точек; путь в Java, если понадобится, –
+  ONNX Runtime для Java, не OpenCV dnn): каталог `D:\data\models\mediapipe`,
+  в git не кладётся.
+  - venv `D:\data\models\mediapipe\venv` на CPython 3.14.0 под uv
+    (`C:\Users\ssv\AppData\Roaming\uv\python\cpython-3.14.0-windows-x86_64-none`;
+    другого Python на машине нет): mediapipe 1.0.1 (PyPI, Apache 2.0),
+    numpy 2.5.4, opencv-contrib-python 5.0.0.93, matplotlib 3.11.2,
+    absl-py 2.5.1, flatbuffers 25.12.19, sounddevice 0.5.6;
+  - `face_landmarker.task` (3 758 596 байт), источник
+    https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task ,
+    SHA-256 `64184e229b263107bc2b804c6625db1341ff2bb731874b0bcc2fe6544e0bc9ff`;
+    внутри face_detector.tflite (BlazeFace short range),
+    face_landmarks_detector.tflite (Face Mesh V2), face_blendshapes.tflite
+    (Blendshape V2), geometry_pipeline_metadata_landmarks.binarypb.
+    Лицензия по карточкам моделей – Apache 2.0; «вне назначения» в
+    карточках: BlazeFace – «any form of surveillance or identity
+    recognition», Face Mesh V2 и Blendshape V2 – решения, критичные для
+    жизни человека; назначение – AR, съёмка «селфи», BlazeFace – до 2 м;
+  - выгрузка точек – `src/main/python/mp_points.py` (сеть в процессе
+    запрещена, дозапись после обрыва): `cd D:/data/models/mediapipe &&
+    venv/Scripts/python.exe -I <репозиторий>/src/main/python/mp_points.py
+    feret D:/data/Feret face_landmarker.task
+    D:/data/Feret/derived/mp_points.tsv` (все 11 338 снимков, около 15 мин)
+    и `… gt D:/data/GeorgiaTech/gt_db face_landmarker.task
+    D:/data/GeorgiaTech/mp_points.tsv` (около 20 с); `… dump <каталог>
+    <ключи через запятую> <каталог PNG>` – снимки, раскодированные OpenCV
+    5.0, для сверки с Java (`D:\data\Feret\derived\mp_decode\`,
+    `D:\data\GeorgiaTech\mp_decode\`);
+  - индексы из 478 (проверено глазами на 24 снимках FERET и GT): 468 –
+    центр радужки глаза слева на снимке (правый глаз человека), 473 –
+    справа; углы глаз 33/133 и 362/263; кончик носа 1; углы рта 61 (слева
+    на снимке) и 291; yaw – из матрицы преобразования лица, знак
+    противоположен номинальному углу FERET.
 - Отладка способов (3) и (4) на ORL (проверка глазами, без метрик):
   `mvn compile exec:java@faces-haar` (`reports/faces/haar/`),
   `mvn compile exec:java@faces-dffs` (`reports/faces/dffs/`). Своя база:
@@ -866,6 +909,20 @@ mvn compile exec:java@faces-fei-scores  # разбор файла оценок F
   - `feret-k4-add` (`049f5f1`) – точки 0б для отобранных снимков FERET без
     ручной разметки (`derived\eyepts_0b_add.tsv`, `eyepts.tsv` не
     меняется) и кадры К4 только для недостающих ключей; около 40 с;
+  - `feret-mppts`, `gt-mppts` (`XBaseMpPts`; пункт (8) MediaPipe, этап 1) –
+    по кэшу точек МП (`mp_points.py`, раздел про MediaPipe выше), без
+    распознавания: обнаружение МП против YuNet; FERET – расхождение с
+    ручной разметкой на снимках feret-eyepts (глаза: МП радужки, МП углы,
+    Ю5, 0б – строки Ю5 и 0б сверяются побайтно с
+    `xbase_feret_eyepts.txt`, иначе остановка; нос и рот – МП и Ю5), парные
+    разности с бутстрепом и критерий перехода к этапу 2, yaw МП и r YuNet
+    против номинального угла позы (`recordings.xml`) на всех позах (YuNet
+    для поз кроме fa/fb – кэш `derived\detections_allpose.tsv`; перевод в
+    градусы на половинах людей, seed faces.seed + 9990), eyeBlink, сверка
+    раскодирования с Python (`mp_decode`); нужен `FACES_FERET_DIR`; отчёт
+    – только `D:\data\Feret\reports\xbase_feret_mppts.txt`. GT – МП против
+    Ю5 и r (ручной разметки нет), нужен `faces.gt.dir`, около 1 с,
+    `reports/faces/xbase/xbase_gt_mppts.txt`;
   `SFaceScorer`: наименьшее число снимков шаблона – параметр (по умолчанию
   2, прежние отчёты не меняются; `XBaseEval.sfaceMin`; FERET – 1, `29837b1`).
   Долгий прогон (MUCT и т. п.) – из отдельной рабочей копии git (`git
@@ -877,7 +934,10 @@ mvn compile exec:java@faces-fei-scores  # разбор файла оценок F
   удаления строк «Код:», «Данные:», «# Код:», «# Данные:», строк времени;
   у gt-sep и gt-quality в шапке ещё SHA-256 входных файлов оценок (меняются
   с коммитом в их шапке) – сравнивать без строк «Файл оценок». Последние
-  коммиты на 16.10.2026: код `4093de1` (часть 5, feret-aging), `8bb1365`
+  коммиты на 16.10.2026: код `ab9c165` ((8) MediaPipe этап 1,
+  feret-mppts, gt-mppts), `dd12af2` (повтор удаления контрольных точек),
+  `2cf953c` (тесты); документы `cdf672e` (правки Жорика по (8)); данные
+  `b0cf51a2` (`reports/xbase_ab9c165/`); раньше – код `4093de1` (часть 5, feret-aging), `8bb1365`
   (часть 4, feret-wstatus4), `e6ff24c` (№8, feret-wstatus, gt-wstatus),
   `41e5e79` (№7), `5264282` (feret-session), `bf7d9a5` и `049f5f1` (№4);
   документы – `4b967c3` (итоги части 5), `ee7a593` (правки Жорика в
