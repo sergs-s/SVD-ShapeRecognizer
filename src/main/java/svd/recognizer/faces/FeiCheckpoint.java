@@ -194,10 +194,35 @@ final class FeiCheckpoint {
     /** Удалить каталог контрольной точки (после записи всех отчётов). */
     void delete() throws IOException {
         if (!Files.exists(dir)) return;
-        try (Stream<Path> s = Files.list(dir)) {
-            for (Path p : s.toList()) Files.delete(p);
+        deleteDir(dir);
+    }
+
+    private static final int DELETE_ATTEMPTS = 100;
+    private static final long DELETE_PAUSE_MS = 10;
+
+    /**
+     * Удалить каталог с файлами (без подкаталогов). В Windows только что записанный файл ненадолго открывает внешний
+     * процесс (проверка файлов); если удалить каталог в это окно, Files.delete(каталог) даёт DirectoryNotEmptyException,
+     * хотя файлы уже удалены. Поэтому при этой ошибке — повтор с паузой (до 100 раз через 10 мс); прочие ошибки — сразу.
+     */
+    static void deleteDir(Path dir) throws IOException {
+        for (int i = 1;; i++) {
+            try (Stream<Path> s = Files.list(dir)) {
+                for (Path p : s.toList()) Files.delete(p);
+            }
+            try {
+                Files.delete(dir);
+                return;
+            } catch (java.nio.file.DirectoryNotEmptyException e) {
+                if (i == DELETE_ATTEMPTS) throw e;
+                try {
+                    Thread.sleep(DELETE_PAUSE_MS);
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    throw e;
+                }
+            }
         }
-        Files.delete(dir);
     }
 
     private static void move(Path from, Path to) throws IOException {

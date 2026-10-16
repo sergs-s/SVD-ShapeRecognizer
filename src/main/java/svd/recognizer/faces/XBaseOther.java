@@ -262,10 +262,7 @@ final class XBaseOther {
         }
 
         void delete() throws IOException {
-            try (Stream<Path> s = Files.list(dir)) {
-                for (Path p : s.toList()) Files.delete(p);
-            }
-            Files.delete(dir);
+            FeiCheckpoint.deleteDir(dir);
         }
 
         private static void write(Path f, String text) throws IOException {
