@@ -368,6 +368,10 @@ public final class XBaseEval {
             XBaseFeretEyes.run(export, dir, feiKeys, selLines, settings, XBaseFeretEyes.EYES2);
         } else if (a[0].equals("feret-eyepts")) {
             XBaseEyePts.run(dir, selLines, settings);
+        } else if (a[0].equals("feret-mppts")) {
+            XBaseMpPts.feret(selLines, settings);
+        } else if (a[0].equals("gt-mppts")) {
+            XBaseMpPts.gt(dir, selLines, settings, out);
         } else if (a[0].equals("feret-k4-add")) {
             XBaseEyePts.addMissing(selLines, settings);
         } else if (a[0].equals("feret-hubs")) {
