@@ -944,6 +944,18 @@ mvn compile exec:java@faces-fei-scores  # разбор файла оценок F
     r0_МП = 5,26°) против базы; U и I, таблицы (а) и (б), условие остановки
     (I меньше прежнего больше чем на 5 %), сверка базы с feret-xs2 /
     feret-subsp / gt-subsp; кадры «МП» FERET – `derived\a_mp\`;
+  - `abl-haar` (`HaarFrames`; (4а), отключение (9), шаг 1) – каскады Хаара
+    без распознавания: лицо frontalface_default (наибольшая рамка,
+    наименьшее лицо 0,05 меньшей стороны входа), глаза eye_tree_eyeglasses
+    в полосе рамки, поза r_H, R_H (своя база) и r0_H (№11–14 FEI), отказы
+    (i) / (ii), ложные рамки (IoU с YuNet < 0,3), глаза против Ю5 и ручной
+    разметки FERET; FERET fa/fb, GT, FEI (все исходные), своя база (вход
+    0,25); кэши `haar.tsv` (FERET – `derived\`, GT – рядом с `gt_db`, FEI и
+    своя база – в их каталогах); нужны `FACES_FERET_DIR`, `faces.gt.dir`,
+    `faces.fei.dir`, `faces.own.dir`, кэш `reports/faces/far/
+    fei_detections.cache`; около 6 мин (из кэшей – секунды); отчёты
+    `reports/faces/xbase/xbase_abl_haar.txt` и только `D:\data\Feret\
+    reports\eq\xbase_feret_abl_haar.txt`, листы – `abl_haar\` рядом;
   `SFaceScorer`: наименьшее число снимков шаблона – параметр (по умолчанию
   2, прежние отчёты не меняются; `XBaseEval.sfaceMin`; FERET – 1, `29837b1`).
   Долгий прогон (MUCT и т. п.) – из отдельной рабочей копии git (`git
