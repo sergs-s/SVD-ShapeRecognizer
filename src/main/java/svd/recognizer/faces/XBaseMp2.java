@@ -925,6 +925,8 @@ final class XBaseMp2 {
         List<List<String>> parts = FeiMethods.cvParts(b.own, b.seed, XBaseEval.CV_S);
         double fitS = 0;
         String[][] projs = {{"L1-xs-F", "0"}, {"L1-tt-xs-F", "1"}};
+        // Когорта FEI без пула – копия до циклов: g.cohort ниже заменяется (g может быть тем же объектом, что b).
+        List<List<String>> cohort0 = new ArrayList<>(b.cohort);
         Map<String, List<List<String>>> pool0 = XBaseXsF.pool(fs.su.ro, fs.su.byKey);
         XBaseEval[] xsBase = null;
         for (int sc = 0; sc < 2; sc++) {
@@ -985,7 +987,7 @@ final class XBaseMp2 {
                 List<Probe> probesU = XBaseEval.probes(gU, proUa);
                 for (String[] pj : projs) {
                     int f = Integer.parseInt(pj[1]);
-                    List<List<String>> aug = new ArrayList<>(b.cohort);
+                    List<List<String>> aug = new ArrayList<>(cohort0);
                     aug.addAll(poolCls);
                     g.cohort = aug;
                     gU.cohort = aug;
