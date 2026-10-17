@@ -953,7 +953,7 @@ mvn compile exec:java@faces-fei-scores  # разбор файла оценок F
     0,25); кэши `haar.tsv` (FERET – `derived\`, GT – рядом с `gt_db`, FEI и
     своя база – в их каталогах); нужны `FACES_FERET_DIR`, `faces.gt.dir`,
     `faces.fei.dir`, `faces.own.dir`, кэш `reports/faces/far/
-    fei_detections.cache`; около 6 мин (из кэшей – секунды); отчёты
+    fei_detections.cache`; около 6 мин и из кэшей (листы, чтение снимков); отчёты
     `reports/faces/xbase/xbase_abl_haar.txt` и только `D:\data\Feret\
     reports\eq\xbase_feret_abl_haar.txt`, листы – `abl_haar\` рядом;
   `SFaceScorer`: наименьшее число снимков шаблона – параметр (по умолчанию
