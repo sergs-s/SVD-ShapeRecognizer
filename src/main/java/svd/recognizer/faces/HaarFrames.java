@@ -204,75 +204,27 @@ final class HaarFrames {
         CascadeClassifier face = HaarDebug.load(models.resolve(HaarDebug.FACE_FILE));
         CascadeClassifier eye = HaarDebug.load(models.resolve(HaarDebug.EYE_GLASSES_FILE));
 
-        // Своя база: все снимки (кэш) и снимки протокола (экспорт) – для R_H.
-        Path ownDir = Paths.get(settings.loadFacesOwnDir());
-        Map<String, Path> ownFiles = new TreeMap<>();
-        for (OwnDataset.Person p : OwnDataset.load(ownDir).persons())
-            for (OwnDataset.Moment m : p.moments()) for (OwnDataset.Frame f : m.frames()) ownFiles.put(p.name() + "/" + FarExport.stem(f.file()), f.file());
-        Map<String, double[]> ownY = XBaseMpPts.exportRows(exportDir, "own");
-        List<String> ownKeys = new ArrayList<>(ownFiles.keySet());
-        Map<String, Det> ownH = cached(ownDir.resolve(CACHE), ownKeys, k -> Imgcodecs.imread(ownFiles.get(k).toString(), Imgcodecs.IMREAD_COLOR),
-                OwnEvaluation.INPUT_SCALE, face, eye, "своя база");
-        Map<String, List<String>> ownG = new LinkedHashMap<>();
-        ownG.put("все снимки", ownKeys);
-        ownG.put("снимки протокола", new ArrayList<>(ownY.keySet()));
-        for (String k : ownY.keySet()) if (!ownFiles.containsKey(k)) throw new IllegalStateException("abl-haar: нет снимка своей базы " + k);
-
-        // FEI: все исходные; YuNet – кэш faces-far.
-        Path feiDir = Paths.get(settings.loadFacesFeiDir());
-        Map<String, List<Sample>> orig = FeiDataset.originals(feiDir);
-        Map<String, Path> feiFiles = new TreeMap<>();
-        for (List<Sample> l : orig.values()) for (Sample s : l) feiFiles.put(s.person() + "-" + String.format(Locale.ROOT, "%02d", FeiDataset.number(s)), s.file());
-        Map<String, double[]> feiY = feiYunet(feiDir, orig, settings);
-        List<String> feiKeysAll = new ArrayList<>(feiFiles.keySet());
-        Map<String, Det> feiH = cached(feiDir.resolve(CACHE), feiKeysAll, k -> Imgcodecs.imread(feiFiles.get(k).toString(), Imgcodecs.IMREAD_COLOR), 1.0,
-                face, eye, "FEI");
-        List<String> fei1114 = feiKeysAll.stream().filter(k -> Integer.parseInt(k.substring(4)) >= 11).toList();
-        List<String> cohort = new ArrayList<>();
-        for (String p : XBaseEval.cohortPersons(feiKeys, seed))
-            for (int num : feiKeys.get(p).keySet()) cohort.add(p + "-" + String.format(Locale.ROOT, "%02d", num));
-        Map<String, List<String>> feiG = new LinkedHashMap<>();
-        feiG.put("все исходные", feiKeysAll);
-        feiG.put("№11–14", fei1114);
-        feiG.put("когорта (20 человек, отобранные)", cohort);
-
-        // GT: все снимки gt_db; отобранные по YuNet.
-        Path gtDir = Paths.get(settings.loadFacesGtDir());
-        Map<String, double[]> gtY = XBaseMpPts.exportRows(exportDir, "gt");
-        List<String> gtKeys = new ArrayList<>(gtY.keySet());
-        Map<String, Det> gtH = cached(gtDir.getParent().resolve(CACHE), gtKeys, k -> Imgcodecs.imread(gtDir.resolve(k + ".jpg").toString(),
-                Imgcodecs.IMREAD_COLOR), 1.0, face, eye, "GT");
-        Map<String, List<String>> gtG = new LinkedHashMap<>();
-        gtG.put("все", gtKeys);
-        gtG.put("отобранные (YuNet, |r| ≤ R)", gtKeys.stream().filter(k -> gtY.get(k) != null && Math.abs(FeiDataset.pose(gtY.get(k))) <= rLimit).toList());
-
-        // FERET fa/fb.
-        Path feretDir = Paths.get(settings.loadFacesFeretDir());
-        FaceRecognizerSF sface = FaceRecognizerSF.create(models.resolve(FaceAlignment.SFACE_FILE).toString(), "");
-        List<Img> fr = FeretData.frontal(feretDir);
-        Map<String, double[]> frY = FeretData.detect(fr, feretDir, models, sface);
-        Map<String, Img> frImg = new LinkedHashMap<>();
-        for (Img im : fr) frImg.put(im.key(), im);
-        List<String> frKeys = new ArrayList<>(frImg.keySet());
-        Map<String, Det> frH = cached(feretDir.resolve(FeretData.DERIVED).resolve(CACHE), frKeys, k -> FeretData.decode(frImg.get(k).file()), 1.0, face,
-                eye, "FERET");
-        Map<String, List<String>> frG = new LinkedHashMap<>();
-        frG.put("fa, fb (все)", frKeys);
-        frG.put("fa", frKeys.stream().filter(k -> frImg.get(k).pose().equals("fa")).toList());
-        frG.put("fb", frKeys.stream().filter(k -> frImg.get(k).pose().equals("fb")).toList());
-        frG.put("в очках (a, c)", frKeys.stream().filter(k -> frImg.get(k).flag().equals("a") || frImg.get(k).flag().equals("c")).toList());
+        Bases b = bases(exportDir, feiKeys, rLimit, settings, face, eye);
+        Set own = b.own();
+        Set gt = b.gt();
+        Set fei = b.fei();
+        Set feret = b.feret();
+        Map<String, Det> ownH = own.haar();
+        Map<String, Det> feiH = fei.haar();
+        List<String> ownProto = b.ownProto();
+        List<String> fei1114 = b.fei1114();
+        Path gtDir = b.gtDir();
+        Path feiDir = b.feiDir();
+        Path ownDir = b.ownDir();
+        Path feretDir = b.feretDir();
+        Map<String, Img> frImg = b.frImg();
 
         // Пороги позы.
-        double bigR = percentileAbs(ownG.get("снимки протокола"), ownH);
+        double bigR = percentileAbs(ownProto, ownH);
         double r0 = percentileAbs(fei1114, feiH);
-        int ownBoth = (int) ownG.get("снимки протокола").stream().filter(k -> ownH.get(k).both()).count();
+        int ownBoth = (int) ownProto.stream().filter(k -> ownH.get(k).both()).count();
         int feiBoth = (int) fei1114.stream().filter(k -> feiH.get(k).both()).count();
         String r0Base = settings.loadFacesFeiPoseR0();
-
-        Set own = new Set("своя база", ownH, ownY, ownG, k -> Imgcodecs.imread(ownFiles.get(k).toString(), Imgcodecs.IMREAD_COLOR), OwnEvaluation.INPUT_SCALE);
-        Set gt = new Set("GT", gtH, gtY, gtG, k -> Imgcodecs.imread(gtDir.resolve(k + ".jpg").toString(), Imgcodecs.IMREAD_COLOR), 1.0);
-        Set fei = new Set("FEI", feiH, feiY, feiG, k -> Imgcodecs.imread(feiFiles.get(k).toString(), Imgcodecs.IMREAD_COLOR), 1.0);
-        Set feret = new Set("FERET", frH, frY, frG, k -> FeretData.decode(frImg.get(k).file()), 1.0);
 
         String head = String.format(Locale.ROOT, "Код: коммит %s%nКаскады: лицо %s, глаза %s; scaleFactor %.2f, minNeighbors %d; наименьшее лицо – %.2f меньшей "
                 + "стороны входа (все базы); глаза – полоса 20–60 %% высоты рамки, размер %.2f–%.2f ширины рамки; при нескольких рамках – наибольшая.%n"
@@ -283,7 +235,7 @@ final class HaarFrames {
                 + "«Ложная рамка» – IoU с рамкой YuNet < %.1f (только диагностика, на снимках, где лицо нашли оба).%n"
                 + "Отказ (i) – нет лица или глаз меньше двух; отказ (ii) – нет лица (глаза по геометрии рамки %.2f; %.2f).%n",
                 FarMethods.commit(), HaarDebug.FACE_FILE, HaarDebug.EYE_GLASSES_FILE, HaarDebug.SCALE_FACTOR, HaarDebug.MIN_NEIGHBORS, MIN_FACE_FRACTION,
-                HaarDebug.MIN_EYE, HaarDebug.MAX_EYE, OwnEvaluation.INPUT_SCALE, ownBoth, ownG.get("снимки протокола").size(), bigR, rLimit, feiBoth,
+                HaarDebug.MIN_EYE, HaarDebug.MAX_EYE, OwnEvaluation.INPUT_SCALE, ownBoth, ownProto.size(), bigR, rLimit, feiBoth,
                 fei1114.size(), r0, r0Base == null ? "не задан" : r0Base, IOU_FALSE, GEOM_X, GEOM_Y);
 
         StringBuilder r = new StringBuilder("PLAN.md п. 5.5, (4а), отключение (9) YuNet → каскады Хаара: проверка без распознавания (XBaseEval abl-haar)\n");
@@ -500,5 +452,79 @@ final class HaarFrames {
             in.release();
         }
         Imgcodecs.imwrite(file.toString(), sheet);
+    }
+
+    /** Базы abl-haar: своя база, GT, FEI, FERET; снимки протокола своей базы, №11–14 FEI, каталоги. */
+    record Bases(Set own, Set gt, Set fei, Set feret, Map<String, Img> frImg, List<String> ownProto, List<String> fei1114, Path gtDir, Path feiDir,
+                 Path ownDir, Path feretDir) {}
+
+    /** Снимки, строки YuNet и итоги Хаара (кэши haar.tsv) по базам. */
+    static Bases bases(Path exportDir, Map<String, Map<Integer, String>> feiKeys, double rLimit, SettingsStore settings, CascadeClassifier face,
+                       CascadeClassifier eye) throws IOException {
+        long seed = settings.loadFacesSeed();
+        Path models = Paths.get(settings.loadFacesModelsDir());
+        // Своя база: все снимки (кэш) и снимки протокола (экспорт) – для R_H.
+        Path ownDir = Paths.get(settings.loadFacesOwnDir());
+        Map<String, Path> ownFiles = new TreeMap<>();
+        for (OwnDataset.Person p : OwnDataset.load(ownDir).persons())
+            for (OwnDataset.Moment m : p.moments()) for (OwnDataset.Frame f : m.frames()) ownFiles.put(p.name() + "/" + FarExport.stem(f.file()), f.file());
+        Map<String, double[]> ownY = XBaseMpPts.exportRows(exportDir, "own");
+        List<String> ownKeys = new ArrayList<>(ownFiles.keySet());
+        Map<String, Det> ownH = cached(ownDir.resolve(CACHE), ownKeys, k -> Imgcodecs.imread(ownFiles.get(k).toString(), Imgcodecs.IMREAD_COLOR),
+                OwnEvaluation.INPUT_SCALE, face, eye, "своя база");
+        Map<String, List<String>> ownG = new LinkedHashMap<>();
+        ownG.put("все снимки", ownKeys);
+        ownG.put("снимки протокола", new ArrayList<>(ownY.keySet()));
+        for (String k : ownY.keySet()) if (!ownFiles.containsKey(k)) throw new IllegalStateException("abl-haar: нет снимка своей базы " + k);
+
+        // FEI: все исходные; YuNet – кэш faces-far.
+        Path feiDir = Paths.get(settings.loadFacesFeiDir());
+        Map<String, List<Sample>> orig = FeiDataset.originals(feiDir);
+        Map<String, Path> feiFiles = new TreeMap<>();
+        for (List<Sample> l : orig.values()) for (Sample s : l) feiFiles.put(s.person() + "-" + String.format(Locale.ROOT, "%02d", FeiDataset.number(s)), s.file());
+        Map<String, double[]> feiY = feiYunet(feiDir, orig, settings);
+        List<String> feiKeysAll = new ArrayList<>(feiFiles.keySet());
+        Map<String, Det> feiH = cached(feiDir.resolve(CACHE), feiKeysAll, k -> Imgcodecs.imread(feiFiles.get(k).toString(), Imgcodecs.IMREAD_COLOR), 1.0,
+                face, eye, "FEI");
+        List<String> fei1114 = feiKeysAll.stream().filter(k -> Integer.parseInt(k.substring(4)) >= 11).toList();
+        List<String> cohort = new ArrayList<>();
+        for (String p : XBaseEval.cohortPersons(feiKeys, seed))
+            for (int num : feiKeys.get(p).keySet()) cohort.add(p + "-" + String.format(Locale.ROOT, "%02d", num));
+        Map<String, List<String>> feiG = new LinkedHashMap<>();
+        feiG.put("все исходные", feiKeysAll);
+        feiG.put("№11–14", fei1114);
+        feiG.put("когорта (20 человек, отобранные)", cohort);
+
+        // GT: все снимки gt_db; отобранные по YuNet.
+        Path gtDir = Paths.get(settings.loadFacesGtDir());
+        Map<String, double[]> gtY = XBaseMpPts.exportRows(exportDir, "gt");
+        List<String> gtKeys = new ArrayList<>(gtY.keySet());
+        Map<String, Det> gtH = cached(gtDir.getParent().resolve(CACHE), gtKeys, k -> Imgcodecs.imread(gtDir.resolve(k + ".jpg").toString(),
+                Imgcodecs.IMREAD_COLOR), 1.0, face, eye, "GT");
+        Map<String, List<String>> gtG = new LinkedHashMap<>();
+        gtG.put("все", gtKeys);
+        gtG.put("отобранные (YuNet, |r| ≤ R)", gtKeys.stream().filter(k -> gtY.get(k) != null && Math.abs(FeiDataset.pose(gtY.get(k))) <= rLimit).toList());
+
+        // FERET fa/fb.
+        Path feretDir = Paths.get(settings.loadFacesFeretDir());
+        FaceRecognizerSF sface = FaceRecognizerSF.create(models.resolve(FaceAlignment.SFACE_FILE).toString(), "");
+        List<Img> fr = FeretData.frontal(feretDir);
+        Map<String, double[]> frY = FeretData.detect(fr, feretDir, models, sface);
+        Map<String, Img> frImg = new LinkedHashMap<>();
+        for (Img im : fr) frImg.put(im.key(), im);
+        List<String> frKeys = new ArrayList<>(frImg.keySet());
+        Map<String, Det> frH = cached(feretDir.resolve(FeretData.DERIVED).resolve(CACHE), frKeys, k -> FeretData.decode(frImg.get(k).file()), 1.0, face,
+                eye, "FERET");
+        Map<String, List<String>> frG = new LinkedHashMap<>();
+        frG.put("fa, fb (все)", frKeys);
+        frG.put("fa", frKeys.stream().filter(k -> frImg.get(k).pose().equals("fa")).toList());
+        frG.put("fb", frKeys.stream().filter(k -> frImg.get(k).pose().equals("fb")).toList());
+        frG.put("в очках (a, c)", frKeys.stream().filter(k -> frImg.get(k).flag().equals("a") || frImg.get(k).flag().equals("c")).toList());
+
+        Set own = new Set("своя база", ownH, ownY, ownG, k -> Imgcodecs.imread(ownFiles.get(k).toString(), Imgcodecs.IMREAD_COLOR), OwnEvaluation.INPUT_SCALE);
+        Set gt = new Set("GT", gtH, gtY, gtG, k -> Imgcodecs.imread(gtDir.resolve(k + ".jpg").toString(), Imgcodecs.IMREAD_COLOR), 1.0);
+        Set fei = new Set("FEI", feiH, feiY, feiG, k -> Imgcodecs.imread(feiFiles.get(k).toString(), Imgcodecs.IMREAD_COLOR), 1.0);
+        Set feret = new Set("FERET", frH, frY, frG, k -> FeretData.decode(frImg.get(k).file()), 1.0);
+        return new Bases(own, gt, fei, feret, frImg, ownG.get("снимки протокола"), fei1114, gtDir, feiDir, ownDir, feretDir);
     }
 }

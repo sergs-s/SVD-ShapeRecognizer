@@ -468,6 +468,12 @@ mvn compile exec:java@faces-fei-scores  # разбор файла оценок F
     `71cc64fc305a355dc60067880f6fbbd43dd155bd63ee3844661a1bda34b2fd8c`;
   - `haarcascade_eye_tree_eyeglasses.xml` (601 661 байт), SHA-256
     `e32f9c67935c33e9d1331eb14fa58554ff17835c03742663bcb97a892e936a57`.
+  Модель Facemark LBF (там же; скачана 19.10.2026 с разрешения Хозяина):
+  `lbfmodel.yaml` (56 375 857 байт), источник
+  https://raw.githubusercontent.com/kurnianggoro/GSOC2017/master/data/lbfmodel.yaml
+  (git-хеш blob `417d6db318df9867ebd1f8a0a7cf3a2a82eb1610`), SHA-256
+  `70dd8b1657c42d1595d6bd13d97d932877b3bed54a95d3c4733a0f740d1fd66b`;
+  лицензии у репозитория нет, набор обучения не установлен.
 - MediaPipe Face Landmarker (пункт (8), этап 1; решение Хозяина 16.10.2026 –
   Python отдельным процессом с кэшем точек; путь в Java, если понадобится, –
   ONNX Runtime для Java, не OpenCV dnn): каталог `D:\data\models\mediapipe`,
@@ -956,6 +962,16 @@ mvn compile exec:java@faces-fei-scores  # разбор файла оценок F
     fei_detections.cache`; около 6 мин и из кэшей (листы, чтение снимков); отчёты
     `reports/faces/xbase/xbase_abl_haar.txt` и только `D:\data\Feret\
     reports\eq\xbase_feret_abl_haar.txt`, листы – `abl_haar\` рядом;
+  - `abl-lbf` (`LbfFrames`; (4а), строка (9б)) – Хаар (лицо) + Facemark
+    LBF (модель `lbfmodel.yaml` в `faces.models.dir`), без распознавания:
+    пять точек (центры глаз – средние 36–41 и 42–47, нос 30, рот 48 и 54),
+    поза r_LBF, R_LBF и r0_LBF, глаза и нос против ручной разметки FERET
+    рядом с Ю5, 0б и Хааром (строки Ю5 и 0б сверяются побайтно с
+    `xbase_feret_eyepts.txt`), бутстреп по людям, листы; базы и кэши Хаара –
+    как abl-haar (`HaarFrames.bases`), кэши точек `lbf.tsv` рядом с
+    `haar.tsv`; около 11 мин; отчёты `reports/faces/xbase/xbase_abl_lbf.txt`
+    и только `D:\data\Feret\reports\eq\xbase_feret_abl_lbf.txt`, листы –
+    `abl_lbf\` рядом;
   `SFaceScorer`: наименьшее число снимков шаблона – параметр (по умолчанию
   2, прежние отчёты не меняются; `XBaseEval.sfaceMin`; FERET – 1, `29837b1`).
   Долгий прогон (MUCT и т. п.) – из отдельной рабочей копии git (`git
