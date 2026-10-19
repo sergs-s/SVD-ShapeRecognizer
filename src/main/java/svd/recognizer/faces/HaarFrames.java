@@ -147,11 +147,12 @@ final class HaarFrames {
                 throw new IllegalStateException(file + ": другая подпись кэша Хаара – удалите файл и повторите (ожидалось «# " + SIGNATURE + "»)");
             for (String l : lines.subList(1, lines.size())) {
                 String[] c = l.split("\t", -1);
-                if (c.length != 10) continue;
+                // Строка: ключ, рамок, рамка (4), два пустых поля, глаз слева (2), справа (2) – 12 полей.
+                if (c.length != 12) continue;
                 double[] f = c[2].isEmpty() ? null : new double[] {Double.parseDouble(c[2]), Double.parseDouble(c[3]), Double.parseDouble(c[4]),
                     Double.parseDouble(c[5])};
-                double[] le = c[6].isEmpty() ? null : new double[] {Double.parseDouble(c[6]), Double.parseDouble(c[7])};
-                double[] re = c[8].isEmpty() ? null : new double[] {Double.parseDouble(c[8]), Double.parseDouble(c[9])};
+                double[] le = c[8].isEmpty() ? null : new double[] {Double.parseDouble(c[8]), Double.parseDouble(c[9])};
+                double[] re = c[10].isEmpty() ? null : new double[] {Double.parseDouble(c[10]), Double.parseDouble(c[11])};
                 done.put(c[0], new Det(Integer.parseInt(c[1]), f, le, re));
             }
         }

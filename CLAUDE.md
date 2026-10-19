@@ -959,7 +959,7 @@ mvn compile exec:java@faces-fei-scores  # разбор файла оценок F
     0,25); кэши `haar.tsv` (FERET – `derived\`, GT – рядом с `gt_db`, FEI и
     своя база – в их каталогах); нужны `FACES_FERET_DIR`, `faces.gt.dir`,
     `faces.fei.dir`, `faces.own.dir`, кэш `reports/faces/far/
-    fei_detections.cache`; около 6 мин и из кэшей (листы, чтение снимков); отчёты
+    fei_detections.cache`; около 6 мин, из кэшей – секунды (до `5a38420` кэш не читался – 12 полей против 10; исправлено 20.10); отчёты
     `reports/faces/xbase/xbase_abl_haar.txt` и только `D:\data\Feret\
     reports\eq\xbase_feret_abl_haar.txt`, листы – `abl_haar\` рядом;
   - `abl-lbf` (`LbfFrames`; (4а), строка (9б)) – Хаар (лицо) + Facemark
@@ -981,10 +981,10 @@ mvn compile exec:java@faces-fei-scores  # разбор файла оценок F
     зеркало), (9)(i)/(ii) Хаар (всегда X+mirror), справочно r_H, таблица
     (б) Хаара, (9б) Хаар + LBF; нужны кэши haar.tsv и lbf.tsv (abl-haar,
     abl-lbf), `FACES_FERET_DIR`, `faces.gt.dir`, `faces.fei.dir`,
-    `faces.own.dir`, модель LBF. FERET – около 2 ч 45 мин, кадры (8), (9),
+    `faces.own.dir`, модель LBF. FERET – 2 ч 20 мин (19.10), кадры (8), (9),
     (9б) – кэш `derived\a_box`, `a_haar`, `a_lbf` (при смене k, d – удалить),
     контрольная точка `derived\checkpoint_feret_abl_eq`, отчёт, оценки и
-    `xbase_feret_abl_summary.tsv` – только `reports\eq\`; GT – около 4 ч,
+    `xbase_feret_abl_summary.tsv` – только `reports\eq\`; GT – 3 ч 17 мин (20.10),
     `reports/faces/xbase/checkpoint_gt_abl`, `xbase_gt_abl*`; оба – только
     отдельным процессом Windows. Пробный режим `FACES_ABL_SMOKE=1` (межс.,
     L1-xs-F, проход 1; FERET около 15 мин, GT около 65 мин; файлы
