@@ -3,6 +3,7 @@
 python3 -I compare.py <набор> [B] – наборы: orl, muct, gt-subsp, gt-xs-f; пути – переменные VERIFY_DATA (SVD-faces-data).
 Вывод – таблица «отчёт / Ахмед» по ячейкам и итог.
 """
+import math
 import os
 import sys
 from decimal import Decimal, ROUND_HALF_UP
@@ -232,8 +233,17 @@ def metrics(res):
     return v
 
 
+# Процентиль: по умолчанию – линейная интерполяция numpy без реплик NaN (нет попыток в группе); вариант «как в коде»
+# (найден после расхождений в столбце «поворот», FeiBootstrap.java:292–294) – элемент ⌈p·B⌉ по возрастанию, NaN – в конце.
+PCT_JAVA = False
+
+
 def pct(a, q):
     a = np.asarray(a, dtype=float)
+    if PCT_JAVA:
+        s = np.sort(a)  # NaN – в конце, как Arrays.sort
+        i = int(math.ceil(q / 100 * len(s) - 1e-9)) - 1
+        return float(s[max(0, min(len(s) - 1, i))])
     a = a[~np.isnan(a)]
     return float(np.percentile(a, q)) if len(a) else float("nan")
 
