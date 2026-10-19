@@ -378,6 +378,12 @@ public final class XBaseEval {
             XBaseMp2.cropCheck(dir, selLines, settings, out);
         } else if (a[0].equals("mp2-sheet")) {
             XBaseMp2.sheet(export, dir, selLines, settings, out);
+        } else if (a[0].equals("feret-abl")) {
+            XBaseAbl.feret(export, dir, feiKeys, selLines, settings);
+        } else if (a[0].equals("gt-abl")) {
+            XBaseAbl.gt(export, dir, feiKeys, selLines, settings, out);
+        } else if (a[0].equals("abl-summary")) {
+            XBaseAbl.summary(settings, out);
         } else if (a[0].equals("abl-lbf")) {
             LbfFrames.ablLbf(dir, feiKeys, selLines, settings, out);
         } else if (a[0].equals("abl-haar")) {

@@ -183,6 +183,16 @@ final class LbfFrames {
         return out;
     }
 
+    /** Подпись кэшей lbf.tsv: модель (размер, SHA-256) и подпись кэшей Хаара. */
+    static String signature(String file, long size, String sha) {
+        return String.format(Locale.ROOT, "lbf v1|%s %d bytes sha256 %s|%s", file, size, sha, HaarFrames.SIGNATURE);
+    }
+
+    static String signature(Path models) throws IOException {
+        Path f = models.resolve(MODEL_FILE);
+        return signature(MODEL_FILE, Files.size(f), sha256(f));
+    }
+
     static Path cacheFile(HaarFrames.Bases b, String name) {
         return switch (name) {
             case "FERET" -> b.feretDir().resolve(FeretData.DERIVED).resolve(CACHE);
@@ -207,7 +217,7 @@ final class LbfFrames {
         Path modelFile = models.resolve(MODEL_FILE);
         String sha = sha256(modelFile);
         long size = Files.size(modelFile);
-        String signature = String.format(Locale.ROOT, "lbf v1|%s %d bytes sha256 %s|%s", MODEL_FILE, size, sha, HaarFrames.SIGNATURE);
+        String signature = signature(MODEL_FILE, size, sha);
         Facemark fm = load(models);
         Map<String, Map<String, Lm>> lbf = new LinkedHashMap<>();
         for (HaarFrames.Set s : List.of(b.own(), b.fei(), b.gt(), b.feret())) lbf.put(s.name(), cached(cacheFile(b, s.name()), signature, s, fm, s.name()));

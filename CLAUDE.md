@@ -972,6 +972,25 @@ mvn compile exec:java@faces-fei-scores  # разбор файла оценок F
     `haar.tsv`; около 11 мин; отчёты `reports/faces/xbase/xbase_abl_lbf.txt`
     и только `D:\data\Feret\reports\eq\xbase_feret_abl_lbf.txt`, листы –
     `abl_lbf\` рядом;
+  - `feret-abl`, `gt-abl`, `abl-summary` (`XBaseAbl`; (4а) поочерёдное
+    отключение): кандидаты L1-xs-F, L1-tt-xs-F; база – роли feret-xs2 /
+    feret-subsp и gt-subsp (сверка побайтно, иначе остановка); строки (1)
+    без пула, (2) без корня, (3) χ² L0-mean / L0, (4) d₁ (второе расстояние
+    – постоянная 1e6), (5) r0 = +∞, (6) r0 = −1, (7) только GT (пробы U),
+    (8) кадр по рамке YuNet (k, d – медианы по своей базе, простое
+    зеркало), (9)(i)/(ii) Хаар (всегда X+mirror), справочно r_H, таблица
+    (б) Хаара, (9б) Хаар + LBF; нужны кэши haar.tsv и lbf.tsv (abl-haar,
+    abl-lbf), `FACES_FERET_DIR`, `faces.gt.dir`, `faces.fei.dir`,
+    `faces.own.dir`, модель LBF. FERET – около 2 ч 45 мин, кадры (8), (9),
+    (9б) – кэш `derived\a_box`, `a_haar`, `a_lbf` (при смене k, d – удалить),
+    контрольная точка `derived\checkpoint_feret_abl_eq`, отчёт, оценки и
+    `xbase_feret_abl_summary.tsv` – только `reports\eq\`; GT – около 4 ч,
+    `reports/faces/xbase/checkpoint_gt_abl`, `xbase_gt_abl*`; оба – только
+    отдельным процессом Windows. Пробный режим `FACES_ABL_SMOKE=1` (межс.,
+    L1-xs-F, проход 1; FERET около 15 мин, GT около 65 мин; файлы
+    `*_smoke*`). `abl-summary` – по двум `*_summary.tsv`: таблица
+    «отключено − база» (разделимость при FAR 1 %) и правило «убрать»,
+    только `D:\data\Feret\reports\eq\xbase_abl_summary.txt`;
   `SFaceScorer`: наименьшее число снимков шаблона – параметр (по умолчанию
   2, прежние отчёты не меняются; `XBaseEval.sfaceMin`; FERET – 1, `29837b1`).
   Долгий прогон (MUCT и т. п.) – из отдельной рабочей копии git (`git
