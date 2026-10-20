@@ -114,12 +114,14 @@ public final class FeiThreshold {
             snn += (double) wt * e.getValue() * e.getValue();
         }
         if (r.length == 0 || n == 0) return new Th(Double.POSITIVE_INFINITY, false);
-        if (!marginOk(0, n, k, 0, 0, snn, far)) return new Th(Math.nextDown(r[0]), true);
+        // Порог – только по оценкам людей с весом > 0 (люди с весом 0 в реплике не вытянуты; исправление 20.10.2026, №4 Жорика).
+        int first = nextWeighted(r, p, w, -1);
+        if (!marginOk(0, n, k, 0, 0, snn, far)) return new Th(Math.nextDown(r[first]), true);
         Map<Integer, Integer> xi = new HashMap<>();
         double x = 0;
         double sxx = 0;
         double sxn = 0;
-        double theta = Math.nextDown(r[0]);
+        double theta = Math.nextDown(r[first]);
         for (int i = 0; i < r.length; i++) {
             int q = p[i];
             int wt = w[q];
@@ -130,9 +132,17 @@ public final class FeiThreshold {
             xi.put(q, xq + 1);
             if (i + 1 < r.length && r[i + 1] == r[i]) continue;
             if (!marginOk(x, n, k, sxx, sxn, snn, far)) break;
-            theta = i + 1 < r.length ? Math.nextDown(r[i + 1]) : Double.POSITIVE_INFINITY;
+            int nx = nextWeighted(r, p, w, i);
+            theta = nx < r.length ? Math.nextDown(r[nx]) : Double.POSITIVE_INFINITY;
         }
         return new Th(theta, false);
+    }
+
+    /** Индекс первой оценки после i (i = −1 – с начала) у человека с весом > 0; r.length – нет такой. */
+    static int nextWeighted(double[] r, int[] p, int[] w, int i) {
+        int j = i + 1;
+        while (j < r.length && w[p[j]] == 0) j++;
+        return j;
     }
 
     // ---------------------------------------------------------------- критерий
