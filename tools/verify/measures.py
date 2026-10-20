@@ -15,6 +15,9 @@ R0 = 0.12
 # идёт по всем попыткам, включая людей с нулевым весом в реплике бутстрепа (их оценки задают места θ, в том числе
 # θ = nextDown(r[0]) при недопустимом m = 0). По определению (люди вытягиваются целиком) – только попытки с весом > 0.
 P3_ZERO_W = False
+# Вариант для разбора (п. 2 Жорика №4, 20.10): EER в реплике без своих или без контрольных – как в коде, заготовка
+# {−∞, 100 %, 0 %, 50 %} (XBaseSep.java:157, 171–175: 0/0 = NaN, «gap < bestGap» ложно); по умолчанию – NaN.
+EER_EMPTY_50 = False
 
 
 def ratio(d1, d2):
@@ -242,6 +245,8 @@ def eer(own_r, own_wrong, own_w, ctrl_r, ctrl_w):
     crr, cw = ctrl_r[co], ctrl_w[co].astype(float)
     Wo, Wc = ow.sum(), cw.sum()
     if Wo == 0 or Wc == 0:
+        if EER_EMPTY_50:
+            return -math.inf, 1.0, 0.0, 0.5
         return math.nan, math.nan, math.nan, math.nan
     cum_ow = np.concatenate([[0.0], np.cumsum(ow)])
     cum_owr = np.concatenate([[0.0], np.cumsum(ow * owr)])

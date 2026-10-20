@@ -280,13 +280,47 @@ def run(name, B, seed=7042):
     return _boot(spec, rep_path, rows, persons, B, seed)
 
 
+class JavaRandom:
+    """java.util.Random (линейный конгруэнтный генератор, 48 бит) – для повтора реплик кода один в один."""
+
+    MASK = (1 << 48) - 1
+
+    def __init__(self, seed):
+        self.s = (seed ^ 0x5DEECE66D) & self.MASK
+
+    def next(self, bits):
+        self.s = (self.s * 0x5DEECE66D + 0xB) & self.MASK
+        v = self.s >> (48 - bits)
+        return v - (1 << 32) if v >= (1 << 31) else v
+
+    def next_int(self, n):
+        if n & (-n) == n:
+            return (n * self.next(31)) >> 31
+        while True:
+            bits = self.next(31)
+            val = bits % n
+            t = bits - val + (n - 1)
+            if t < (1 << 31):
+                return val
+
+
+# Веса реплик: False – свой генератор (numpy); True – как код (FeiBootstrap.weights: java.util.Random(seed), по n вызовов
+# nextInt(n) на реплику; люди – по возрастанию идентификатора, как TreeSet в коде).
+JAVA_RNG = False
+
+
 def _boot(spec, rep_path, rows, persons, B, seed):
     ones = np.ones(len(persons), dtype=np.int64)
     point = {lab: evaluate(r, ones) for lab, r in rows.items()}
     rng = np.random.default_rng(seed)
+    jr = JavaRandom(seed)
     boot = {lab: [] for lab in rows}
     for _ in range(B):
-        w = np.bincount(rng.integers(0, len(persons), len(persons)), minlength=len(persons))
+        if JAVA_RNG:
+            n = len(persons)
+            w = np.bincount([jr.next_int(n) for _ in range(n)], minlength=n)
+        else:
+            w = np.bincount(rng.integers(0, len(persons), len(persons)), minlength=len(persons))
         for lab, r in rows.items():
             boot[lab].append(metrics(evaluate(r, w)))
     return spec, rep_path, rows, point, boot, persons

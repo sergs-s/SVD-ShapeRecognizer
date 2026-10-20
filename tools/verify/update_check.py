@@ -78,6 +78,11 @@ def parts_of(conf, lab):
     return [(ps, step, c) for ps, c in conf[(base, step)].items()]
 
 
+# Люди бутстрепа: False – только люди файла (свои с пробами и контроль); True – как код (XBaseUpdate.java:459–462): весь пул
+# (173 человека с ≥ 2 датами, обе половины – берутся из файла xs2) и контроль, по возрастанию.
+ALL_POOL = False
+
+
 def update_rows(kind):
     conf = load(kind)
     rep_path = FERET + "/xbase_feret_%s.txt" % kind
@@ -86,7 +91,12 @@ def update_rows(kind):
         {k[0] for k in rep.get("far", {})}
     for k in list(rep.get("pair", {})) + [(p,) for p in rep.get("psep", {})]:
         labels |= set(k[0].split(" − "))
-    persons = sorted({a[2] for v in conf.values() for c in v.values() for a in c["own"] + c["ctrl"]})
+    persons = {a[2] for v in conf.values() for c in v.values() for a in c["own"] + c["ctrl"]}
+    if ALL_POOL:
+        from diag_check import blocks_feret
+        for rows in blocks_feret("xs2")["межс. L1"].values():
+            persons |= {d["person"] for d in rows if d["role"] == "own"}
+    persons = sorted(persons)
     pidx = {p: i for i, p in enumerate(persons)}
     rows = {}
     for lab in labels:
