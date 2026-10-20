@@ -18,6 +18,9 @@ P3_ZERO_W = False
 # Вариант для разбора (п. 2 Жорика №4, 20.10): EER в реплике без своих или без контрольных – как в коде, заготовка
 # {−∞, 100 %, 0 %, 50 %} (XBaseSep.java:157, 171–175: 0/0 = NaN, «gap < bestGap» ложно); по умолчанию – NaN.
 EER_EMPTY_50 = False
+# Вариант для разбора (Жорик №5, 20.10): выбор точки EER при равных |ошибка − FAR| как в коде – по процентам в плавающей
+# точке, первое строгое «<»; по умолчанию – доли и точное равенство (первый θ среди равных с допуском 1e-12).
+EER_JAVA_FLOAT = False
 
 
 def ratio(d1, d2):
@@ -255,6 +258,17 @@ def eer(own_r, own_wrong, own_w, ctrl_r, ctrl_w):
     ic = np.searchsorted(crr, cand, side="right")
     acc_o = cum_ow[io]
     acc_wrong = cum_owr[io]
+    if EER_JAVA_FLOAT:
+        # как XBaseSep.java:171–176: проценты 100·(ownN − okN)/ownN и 100·acc/ctrlN в плавающей точке, выбор – первое
+        # строгое «gap < bestGap» от bestGap = 100 (то есть первый точный минимум); при всех gap ≥ 100 – заготовка
+        ok_n = acc_o - acc_wrong
+        frr = 100 * (Wo - ok_n) / Wo
+        farp = 100 * cum_cw[ic] / Wc
+        g = np.abs(frr - farp)
+        i = int(np.argmin(g))
+        if not g[i] < 100:
+            return -math.inf, 1.0, 0.0, 0.5
+        return float(cand[i]), float(frr[i] / 100), float(farp[i] / 100), float((frr[i] + farp[i]) / 2 / 100)
     err = (Wo - acc_o + acc_wrong) / Wo
     far = cum_cw[ic] / Wc
     d = np.abs(err - far)
