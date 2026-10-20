@@ -265,7 +265,7 @@ final class LbpNormReport {
         String s = String.format(Locale.ROOT, "%d/%d = %.2f %%", x, n, FeiThreshold.farPct(r, m, k));
         if (b == 0) return s;
         double[] ci = FeiNorm.ci(r.farRep[m][k]);
-        return s + String.format(Locale.ROOT, " [%.2f; %.2f] ↑%.2f %%", ci[0], ci[1], FeiBootstrap.quantile(FeiBootstrap.sorted(r.farRep[m][k]), 0.95));
+        return s + String.format(Locale.ROOT, " [%.2f; %.2f] ↑%.2f %%", ci[0], ci[1], FeiBootstrap.quantile(FeiBootstrap.sorted(r.farRep[m][k]), 0.95)) + FeiBootstrap.note(r.farRep[m][k]);
     }
 
     static boolean admissible(FeiThreshold.Res r, int m, int k) {

@@ -162,6 +162,7 @@ final class FeiBootstrap {
     static double threshold(double[] sorted, int[] person, int[] w, double far) {
         long total = 0;
         for (int p : person) total += w[p];
+        if (total == 0 && sorted.length > 0) return Double.NaN;
         long allowed = (long) Math.floor(far * total + 1e-9);
         long cum = 0;
         for (int i = 0; i < sorted.length; i++) {
@@ -290,8 +291,20 @@ final class FeiBootstrap {
 
     /** Процентиль p ∈ (0, 1) отсортированной выборки: элемент с номером ⌈p·B⌉ (с 1). */
     static double quantile(double[] sorted, double p) {
-        int i = (int) Math.ceil(p * sorted.length - 1e-9) - 1;
-        return sorted[Math.max(0, Math.min(sorted.length - 1, i))];
+        // Только непустые реплики (NaN – пустая реплика, после сортировки – в конце; решение Хозяина 20.10.2026, №6 Жорика).
+        int n = sorted.length;
+        while (n > 0 && Double.isNaN(sorted[n - 1])) n--;
+        if (n == 0) return Double.NaN;
+        int i = (int) Math.ceil(p * n - 1e-9) - 1;
+        return sorted[Math.max(0, Math.min(n - 1, i))];
+    }
+
+    /** Пометка интервала: непустых реплик меньше 0,95·B – « (мало людей: непустых N из B)»; иначе пусто. */
+    static String note(double[] reps) {
+        if (reps == null || reps.length == 0) return "";
+        int n = 0;
+        for (double x : reps) if (!Double.isNaN(x)) n++;
+        return n < 0.95 * reps.length ? String.format(Locale.ROOT, " (мало людей: непустых реплик %d из %d)", n, reps.length) : "";
     }
 
     static double[] sorted(double[] v) {
@@ -377,14 +390,14 @@ final class FeiBootstrap {
     static String ci(double point, double[] reps, int dec) {
         double[] s = sorted(reps);
         String f = "%." + dec + "f";
-        return String.format(Locale.ROOT, f + " %% [" + f + "; " + f + "]", point, quantile(s, 0.025), quantile(s, 0.975));
+        return String.format(Locale.ROOT, f + " %% [" + f + "; " + f + "]", point, quantile(s, 0.025), quantile(s, 0.975)) + note(reps);
     }
 
     /** FAR контроля: «p % [lo; hi] ↑u %; КП x/n ↑c %». */
     static String far(double point, double[] reps, int[] xn) {
         double[] s = sorted(reps);
         return String.format(Locale.ROOT, "%.2f %% [%.2f; %.2f] ↑%.2f %%; КП %d/%d ↑%.2f %%", point, quantile(s, 0.025),
-                quantile(s, 0.975), quantile(s, 0.95), xn[0], xn[1], 100 * FaceEvaluation.binomialUpperBound(xn[0], xn[1], 0.95));
+                quantile(s, 0.975), quantile(s, 0.95), xn[0], xn[1], 100 * FaceEvaluation.binomialUpperBound(xn[0], xn[1], 0.95)) + note(reps);
     }
 
     /** Разность, п. п.: «+d [lo; hi]», «*» — интервал не содержит 0. */
@@ -393,6 +406,6 @@ final class FeiBootstrap {
         double lo = quantile(s, 0.025);
         double hi = quantile(s, 0.975);
         String f = "%+." + dec + "f";
-        return String.format(Locale.ROOT, f + " [" + f + "; " + f + "]%s", point, lo, hi, lo > 0 || hi < 0 ? " *" : "");
+        return String.format(Locale.ROOT, f + " [" + f + "; " + f + "]%s", point, lo, hi, lo > 0 || hi < 0 ? " *" : "") + note(reps);
     }
 }

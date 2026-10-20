@@ -66,7 +66,8 @@ public class FeiBootstrapTest {
                 ps[i] = person[idx[i]];
             }
             for (double far : new double[] {0.01, 0.05, 0.25}) {
-                double expected = dup.isEmpty() ? Double.POSITIVE_INFINITY
+                // Все веса 0 – пустая реплика, порог не определён (NaN; решение Хозяина 20.10.2026, прежде +∞).
+                double expected = dup.isEmpty() ? Double.NaN
                         : FaceEvaluation.neymanPearsonThreshold(dup.stream().mapToDouble(Double::doubleValue).toArray(), far);
                 assertEquals(expected, FeiBootstrap.threshold(s, ps, w, far), 0);
             }

@@ -615,7 +615,7 @@ public final class FeiNorm {
         String s = FeiMethods.pctOf((int) x, (int) n);
         if (reps == null) return s;
         double[] c = ci(reps);
-        return s + String.format(Locale.ROOT, " [%.1f; %.1f]", c[0], c[1]);
+        return s + String.format(Locale.ROOT, " [%.1f; %.1f]", c[0], c[1]) + FeiBootstrap.note(reps);
     }
 
     static StringBuilder report(List<Part> parts, String dir, String scores, double r0, int b, long seed, int persons) {

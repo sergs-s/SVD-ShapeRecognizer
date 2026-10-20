@@ -111,6 +111,7 @@ final class XBaseSep {
 
     /** Ошибка своих при пороге θ (отказ или неверный кандидат), % с весами. */
     static double ownErr(Data d, int[] w, double theta) {
+        if (Double.isNaN(theta)) return Double.NaN;
         double e = 0;
         double n = 0;
         for (int i = 0; i < d.ownR.length; i++) {
@@ -123,6 +124,7 @@ final class XBaseSep {
 
     /** FAR контроля по снимкам при θ, % с весами. */
     static double ctrlFar(Data d, int[] w, double theta) {
+        if (Double.isNaN(theta)) return Double.NaN;
         double x = 0;
         double n = 0;
         for (int i = 0; i < d.ctrlR.length; i++) {
@@ -151,6 +153,8 @@ final class XBaseSep {
         for (int i = 0; i < no; i++) ownN += w[d.ownP[i]];
         double ctrlN = 0;
         for (int i = 0; i < nc; i++) ctrlN += w[d.ctrlP[i]];
+        // Пустая реплика (нет своих или контрольных с весом > 0) – EER не определён (NaN; решение Хозяина 20.10.2026).
+        if (ownN == 0 || ctrlN == 0) return new double[] {Double.NaN, Double.NaN, Double.NaN, Double.NaN};
         TreeSet<Double> cand = new TreeSet<>();
         for (double v : d.ownR) cand.add(v);
         for (double v : d.ctrlR) cand.add(v);
@@ -187,7 +191,7 @@ final class XBaseSep {
 
     static String ci(double point, double[] reps) {
         double[] c = FeiNorm.ci(reps);
-        return String.format(Locale.ROOT, "%.1f %% [%.1f; %.1f]", point, c[0], c[1]);
+        return String.format(Locale.ROOT, "%.1f %% [%.1f; %.1f]", point, c[0], c[1]) + FeiBootstrap.note(reps);
     }
 
     static void run(Path dir, List<String> selLines, SettingsStore settings, Path out) throws IOException {

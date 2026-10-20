@@ -535,6 +535,7 @@ final class XBaseOther {
         for (FeiDecompose.Cfg c : cs) {
             XBaseSep.Data d = data(c);
             double th = XBaseSepLtp.ctrlThreshold(d, w, far);
+            if (Double.isNaN(th)) return new double[] {Double.NaN, Double.NaN};
             for (int i = 0; i < d.ownR.length; i++) {
                 int wt = w[d.ownP[i]];
                 n += wt;

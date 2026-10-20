@@ -113,7 +113,9 @@ public final class FeiThreshold {
             n += (double) wt * e.getValue();
             snn += (double) wt * e.getValue() * e.getValue();
         }
-        if (r.length == 0 || n == 0) return new Th(Double.POSITIVE_INFINITY, false);
+        if (r.length == 0) return new Th(Double.POSITIVE_INFINITY, false);
+        // Пустая реплика: у чужих порога суммарный вес 0 – порог не определён (NaN; решение Хозяина 20.10.2026, №6 Жорика).
+        if (n == 0) return new Th(Double.NaN, false);
         // Порог – только по оценкам людей с весом > 0 (люди с весом 0 в реплике не вытянуты; исправление 20.10.2026, №4 Жорика).
         int first = nextWeighted(r, p, w, -1);
         if (!marginOk(0, n, k, 0, 0, snn, far)) return new Th(Math.nextDown(r[first]), true);
@@ -271,6 +273,7 @@ public final class FeiThreshold {
     /** Числа [порог][деление][группа] и FAR контроля [порог] {x, n} способа m при весах w; zero[порог] — счётчик «ноль недопустим». */
     static double[][][] counts(int m, List<FeiDecompose.Cfg> cs, List<Imp> gs, int[] w, double[][] far, long[] zero, double[][] theta) {
         double[][][] t = new double[KS][FeiDecompose.SPLITS][FeiDecompose.GROUPS];
+        boolean[] empty = new boolean[KS];
         for (int ci = 0; ci < cs.size(); ci++) {
             FeiDecompose.Cfg c = cs.get(ci);
             for (int k = 0; k < KS; k++) {
@@ -288,7 +291,14 @@ public final class FeiThreshold {
                     far[k][1] += wt;
                     if (c.ctrlR[i] <= th.theta()) far[k][0] += wt;
                 }
+                if (Double.isNaN(th.theta())) empty[k] = true;
             }
+        }
+        // Порог не определён хотя бы в одной конфигурации – реплика для этого порога пустая (NaN).
+        for (int k = 0; k < KS; k++) {
+            if (!empty[k]) continue;
+            for (double[] sp : t[k]) java.util.Arrays.fill(sp, Double.NaN);
+            far[k][0] = Double.NaN;
         }
         return t;
     }
@@ -694,7 +704,7 @@ public final class FeiThreshold {
 
     static String farCell(Res r, int m, int k, int b) {
         String s = String.format(Locale.ROOT, "%.2f %%", farPct(r, m, k));
-        if (b > 0) s += String.format(Locale.ROOT, " ↑%.2f %%", FeiBootstrap.quantile(FeiBootstrap.sorted(r.farRep[m][k]), 0.95));
+        if (b > 0) s += String.format(Locale.ROOT, " ↑%.2f %%", FeiBootstrap.quantile(FeiBootstrap.sorted(r.farRep[m][k]), 0.95)) + FeiBootstrap.note(r.farRep[m][k]);
         int x = (int) r.far[m][k][0];
         int n = (int) r.far[m][k][1];
         return s + String.format(Locale.ROOT, "; КП %d/%d ↑%.2f %%", x, n, 100 * FaceEvaluation.binomialUpperBound(x, n, 0.95));
