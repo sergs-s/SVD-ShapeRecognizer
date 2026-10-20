@@ -159,7 +159,11 @@ final class XBaseSep {
         for (double v : d.ownR) cand.add(v);
         for (double v : d.ctrlR) cand.add(v);
         double[] best = {Double.NEGATIVE_INFINITY, 100, 0, 50};
-        double bestGap = 100;
+        // Сравнение разностей без деления, в целых (веса и счётчики целые): |(ownN − okN)·ctrlN − acc·ownN| при знаменателе ownN·ctrlN;
+        // при равенстве – первая точка по θ (решение Хозяина 20.10.2026, №8 Жорика; прежде – в double, из равных бралась случайная).
+        long on = (long) ownN;
+        long cn = (long) ctrlN;
+        long bestGap = on * cn;
         int po = 0;
         int pc = 0;
         double acc = 0;
@@ -174,7 +178,7 @@ final class XBaseSep {
             }
             double frr = 100 * (ownN - okN) / ownN;
             double far = 100 * acc / ctrlN;
-            double gap = Math.abs(frr - far);
+            long gap = Math.abs((on - (long) okN) * cn - (long) acc * on);
             if (gap < bestGap) {
                 bestGap = gap;
                 best = new double[] {th, frr, far, (frr + far) / 2};
