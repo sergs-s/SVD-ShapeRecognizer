@@ -367,6 +367,7 @@ final class XBaseNewcomer {
     static double[] metrics(List<Cfg> cs, int rule, int[] w) {
         double[] x = new double[8];
         double[] n = new double[8];
+        boolean[] nan = new boolean[8]; // порог не определён у пробы с весом – мера NaN (решение Хозяина 20.10.2026, №9 Жорика)
         for (Cfg c : cs) {
             double[] th = new double[4]; // П3 общий, П3 новичка, П2 общий, П2 новичка
             th[0] = thr(3, c.all, w);
@@ -382,9 +383,11 @@ final class XBaseNewcomer {
                 for (int k = 0; k < 2; k++) {
                     double t = a.bestNew() ? th[2 * k + 1] : th[2 * k];
                     n[2 * k + g] += q;
+                    nan[2 * k + g] |= Double.isNaN(t);
                     if (!(a.ok() && a.r() <= t)) x[2 * k + g] += q;
                 }
                 n[6 + g] += q;
+                nan[6 + g] |= Double.isNaN(sep);
                 if (!(a.ok() && a.r() <= sep)) x[6 + g] += q;
             }
             for (CtrlA a : c.sd.ctrl) {
@@ -393,13 +396,19 @@ final class XBaseNewcomer {
                 for (int k = 0; k < 2; k++) {
                     double t = a.bestNew() ? th[2 * k + 1] : th[2 * k];
                     n[4 + k] += q;
+                    nan[4 + k] |= Double.isNaN(t);
                     if (a.r() <= t) x[4 + k] += q;
                 }
             }
         }
         double[] out = new double[8];
-        for (int i = 0; i < 8; i++) out[i] = n[i] == 0 ? Double.NaN : 100.0 * x[i] / n[i];
+        for (int i = 0; i < 8; i++) out[i] = n[i] == 0 || nan[i] ? Double.NaN : 100.0 * x[i] / n[i];
         return out;
+    }
+
+    /** Реплика «доля той же сессии − ожидаемая», п. п., по суммам z = {проб, той же сессии, ожидаемо}; пустая реплика – NaN (№9 Жорика). */
+    static double sameExcess(double[] z) {
+        return z[0] == 0 ? Double.NaN : 100 * (z[1] - z[2]) / z[0];
     }
 
     /** Строка таблицы: точка и реплики мер. */
@@ -1118,12 +1127,12 @@ final class XBaseNewcomer {
                     for (int q = 0; q < w.length; q++) {
                         double[] z = new double[3];
                         for (Map.Entry<Integer, double[]> e : byP.entrySet()) for (int i = 0; i < 3; i++) z[i] += w[q][e.getKey()] * e.getValue()[i];
-                        reps[q] = z[0] == 0 ? 0 : 100 * (z[1] - z[2]) / z[0];
+                        reps[q] = sameExcess(z);
                     }
                     double[] ci = w.length > 0 ? FeiNorm.ci(reps) : new double[] {Double.NaN, Double.NaN};
                     String oldCell = s[1][0] == 0 ? "–" : String.format(Locale.ROOT, "%d, %.1f %% / %.1f %%, %+.1f%s", (int) s[1][0], 100 * s[1][1] / s[1][0],
                             100 * s[1][2] / s[1][0], 100 * (s[1][1] - s[1][2]) / s[1][0], s[1][0] < XBaseSession.MIN_N ? " (мало проб, без интервала)"
-                                    : String.format(Locale.ROOT, " [%+.1f; %+.1f]", ci[0], ci[1]));
+                                    : String.format(Locale.ROOT, " [%+.1f; %+.1f]", ci[0], ci[1]) + FeiBootstrap.note(reps));
                     t.append(String.format(Locale.ROOT, "%.0f %% | %s | %d | %s | %s%n", 100 * SHARES[si], tr.label + (tr == Traj.N0 ? " (вся галерея)" : ""), j,
                             s[0][0] == 0 ? "–" : String.format(Locale.ROOT, "%d, %.1f %% / %.1f %%", (int) s[0][0], 100 * s[0][1] / s[0][0], 100 * s[0][2] / s[0][0]),
                             oldCell));

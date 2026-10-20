@@ -396,6 +396,7 @@ final class ProkaevOther {
         double fn = 0;
         for (FCfg c : cs) {
             double th = FeiBootstrap.threshold(c.thrR, c.thrP, w, far);
+            if (Double.isNaN(th)) return new double[] {Double.NaN, Double.NaN}; // порог не определён (№9 Жорика)
             for (int i = 0; i < c.ownR.length; i++) {
                 n += w[c.ownP[i]];
                 if (!(c.ownOk[i] && c.ownR[i] <= th)) e += w[c.ownP[i]];

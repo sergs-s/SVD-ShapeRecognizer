@@ -182,9 +182,14 @@ final class FeiBootstrap {
         double farPX = 0;
         double farPN = 0;
         boolean[] accP = new boolean[w.length];
+        boolean nan1 = false;
+        boolean nan5 = false;
         for (Cfg c : cs) {
             double t1 = threshold(c.thrS, c.thrP, w, FeiScores.FARS[0]);
             double t5 = threshold(c.thrS, c.thrP, w, FeiScores.FARS[1]);
+            // Порог не определён (пустая реплика) – меры при нём NaN (решение Хозяина 20.10.2026, №9 Жорика).
+            nan1 |= Double.isNaN(t1);
+            nan5 |= Double.isNaN(t5);
             int fr = c.frontal ? 1 : 0;
             for (int i = 0; i < c.ownP.length; i++) {
                 int q = w[c.ownP[i]];
@@ -220,6 +225,8 @@ final class FeiBootstrap {
         m[FAR1] = 100.0 * farX[0] / farN;
         m[FAR5] = 100.0 * farX[1] / farN;
         m[FARP1] = 100.0 * farPX / farPN;
+        if (nan1) m[ERR1] = m[FAR1] = m[FARP1] = Double.NaN;
+        if (nan5) m[ERR5] = m[ERR5_FRONTAL] = m[ERR5_TURN] = m[FAR5] = Double.NaN;
         return m;
     }
 
@@ -390,14 +397,14 @@ final class FeiBootstrap {
     static String ci(double point, double[] reps, int dec) {
         double[] s = sorted(reps);
         String f = "%." + dec + "f";
-        return String.format(Locale.ROOT, f + " %% [" + f + "; " + f + "]", point, quantile(s, 0.025), quantile(s, 0.975)) + note(reps);
+        return String.format(Locale.ROOT, f + " %% [" + f + "; " + f + "]", point, quantile(s, 0.025), quantile(s, 0.975)) + (Double.isNaN(point) ? "" : note(reps));
     }
 
     /** FAR контроля: «p % [lo; hi] ↑u %; КП x/n ↑c %». */
     static String far(double point, double[] reps, int[] xn) {
         double[] s = sorted(reps);
         return String.format(Locale.ROOT, "%.2f %% [%.2f; %.2f] ↑%.2f %%; КП %d/%d ↑%.2f %%", point, quantile(s, 0.025),
-                quantile(s, 0.975), quantile(s, 0.95), xn[0], xn[1], 100 * FaceEvaluation.binomialUpperBound(xn[0], xn[1], 0.95)) + note(reps);
+                quantile(s, 0.975), quantile(s, 0.95), xn[0], xn[1], 100 * FaceEvaluation.binomialUpperBound(xn[0], xn[1], 0.95)) + (Double.isNaN(point) ? "" : note(reps));
     }
 
     /** Разность, п. п.: «+d [lo; hi]», «*» — интервал не содержит 0. */

@@ -88,6 +88,7 @@ final class XBaseEqCompare {
     /** Ошибка своих П2 при весах людей w (порог заново по «чужим» с теми же весами). */
     static double ownErrW(Pair p, Map<String, Integer> pIdx, int[] w) {
         double th = FeiBootstrap.threshold(p.cvR, p.cvP, w, FAR);
+        if (Double.isNaN(th)) return Double.NaN; // порог не определён (решение Хозяина 20.10.2026, №9 Жорика)
         double e = 0;
         double n = 0;
         for (Att a : p.atts) {
