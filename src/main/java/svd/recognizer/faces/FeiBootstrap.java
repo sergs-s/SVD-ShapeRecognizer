@@ -406,6 +406,6 @@ final class FeiBootstrap {
         double lo = quantile(s, 0.025);
         double hi = quantile(s, 0.975);
         String f = "%+." + dec + "f";
-        return String.format(Locale.ROOT, f + " [" + f + "; " + f + "]%s", point, lo, hi, lo > 0 || hi < 0 ? " *" : "") + note(reps);
+        return String.format(Locale.ROOT, f + " [" + f + "; " + f + "]%s", point, lo, hi, lo > 0 || hi < 0 ? " *" : "") + (Double.isNaN(point) ? "" : note(reps));
     }
 }

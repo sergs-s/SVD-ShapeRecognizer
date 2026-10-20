@@ -191,7 +191,7 @@ final class XBaseSep {
 
     static String ci(double point, double[] reps) {
         double[] c = FeiNorm.ci(reps);
-        return String.format(Locale.ROOT, "%.1f %% [%.1f; %.1f]", point, c[0], c[1]) + FeiBootstrap.note(reps);
+        return String.format(Locale.ROOT, "%.1f %% [%.1f; %.1f]", point, c[0], c[1]) + (Double.isNaN(point) ? "" : FeiBootstrap.note(reps));
     }
 
     static void run(Path dir, List<String> selLines, SettingsStore settings, Path out) throws IOException {
