@@ -23,7 +23,8 @@ GT, (7):
 - «база (а)» – пробы U, отвергнутая отбором – отказ и непринятый;
 - «отключено» – пробы U как есть.
 
-Кэши Хаара и LBF – только FERET (derived/haar.tsv, lbf.tsv); у GT в облаке их нет – строки, которым они нужны, не строятся.
+Кэши Хаара и LBF: FERET – derived/haar.tsv, lbf.tsv; GT – VERIFY_GT_RAW/haar.tsv, lbf.tsv (SVD-faces-data main 7f40554e, raw/; Жорик
+№17 от 20.10.2026). Без VERIFY_GT_RAW строки GT, которым нужны кэши, не строятся (как прежде).
 """
 import collections
 import os
@@ -35,6 +36,7 @@ from compare import DATA, FERET, read_scores  # noqa: E402
 from measures import R0, Row, pose_r, ratio  # noqa: E402
 
 GT_ABL = os.environ.get("VERIFY_GT_ABL", "")
+GT_RAW = os.environ.get("VERIFY_GT_RAW", "")
 R = 0.3869555959643167
 # r0_H в отчёте – 4 знака (0.0549); точное значение ≥ 0,054945 (|r_H| снимка, модель X по отчёту) – берём 0,054948
 R_H, R0_H = 0.0594, 0.054948
@@ -56,9 +58,9 @@ def feret_keys():
     return out
 
 
-def haar():
+def haar(path=None):
     out = {}
-    with open(FERET + "/derived/haar.tsv", encoding="utf-8") as f:
+    with open(path or FERET + "/derived/haar.tsv", encoding="utf-8") as f:
         for line in f:
             if line.startswith("#"):
                 continue
@@ -75,9 +77,9 @@ def haar():
     return out
 
 
-def lbf():
+def lbf(path=None):
     out = {}
-    with open(FERET + "/derived/lbf.tsv", encoding="utf-8") as f:
+    with open(path or FERET + "/derived/lbf.tsv", encoding="utf-8") as f:
         for line in f:
             if line.startswith("#"):
                 continue
@@ -235,8 +237,40 @@ def rows_gt():
             out[p + "(7) без отбора по позе"] = build(b, b, "5-lbp-mlda", yun, pose_of=pose)
             out[p + "(8) кадр по рамке YuNet"] = build(bl[("(8) кадр по рамке", role, cand)], b, "5-lbp-mlda", yun, include=inI,
                                                        pose_of=pose)
-            out[p + "(9)(ii) Хаар, глаза по рамке"] = build(bl[("(9) Хаар", role, cand)], b, "5-lbp-mlda", lambda p_, i: True,
-                                                             include=inI, missing_fail=True, pose_of=pose)
+            h = bl[("(9) Хаар", role, cand)]
+            if not GT_RAW:
+                out[p + "(9)(ii) Хаар, глаза по рамке"] = build(h, b, "5-lbp-mlda", lambda p_, i: True, include=inI, missing_fail=True,
+                                                                 pose_of=pose)
+                continue
+            # ключ кэша GT – «человек/номер снимка» (как detections.tsv экспорта, compare.gt_pose)
+            hz = haar(GT_RAW + "/haar.tsv")
+            lb = lbf(GT_RAW + "/lbf.tsv")
+            key = lambda p_, i: "%s/%02d" % (p_, int(i))  # noqa: E731
+            h_two = lambda p_, i: hz[key(p_, i)][0] and hz[key(p_, i)][1] == 2  # noqa: E731
+            no_face = lambda p_, i: not hz[key(p_, i)][0]  # noqa: E731
+            out[p + "(9)(i) Хаар"] = build(h, b, "5-lbp-mlda", lambda p_, i: True, reject=lambda p_, i: not h_two(p_, i), include=inI,
+                                           missing_fail=True, pose_of=pose)
+            out[p + "(9)(ii) Хаар, глаза по рамке"] = build(h, b, "5-lbp-mlda", lambda p_, i: True, reject=no_face, include=inI,
+                                                             missing_fail=True, pose_of=pose)
+
+            def rh(p_, i):
+                v = hz[key(p_, i)][2]
+                return 0.0 if v != v else v
+            out[p + "(9)(i) Хаар + отбор и модель по r_H (справочно)"] = build(
+                h, b, "5-lbp-mlda", lambda p_, i: not (abs(rh(p_, i)) <= R0_H),
+                reject=lambda p_, i: not h_two(p_, i) or not (abs(rh(p_, i)) <= R_H), include=inI, missing_fail=True, pose_of=pose)
+
+            def rl(p_, i):
+                v = lb.get(key(p_, i), float("nan"))
+                return v
+            lchoose = lambda p_, i: not (abs(rl(p_, i) if rl(p_, i) == rl(p_, i) else 0.0) <= R0_LBF)  # noqa: E731
+            lrej = lambda p_, i: not (abs(rl(p_, i)) <= R_LBF)  # noqa: E731
+            out[p + "(9б) Хаар + LBF"] = build(bl[("(9б) Хаар + LBF", role, cand)], b, "5-lbp-mlda", lchoose, reject=lrej, include=inI,
+                                                missing_fail=True, pose_of=pose)
+            both = lambda p_, i: inI(p_, i) and h_two(p_, i)  # noqa: E731
+            out[p + "база [Хаар: лицо и два глаза]"] = build(b, b, "5-lbp-mlda", yun, include=both, pose_of=pose)
+            out[p + "(9)(ii) Хаар [Хаар: лицо и два глаза]"] = build(h, b, "5-lbp-mlda", lambda p_, i: True, include=both,
+                                                                       missing_fail=True, pose_of=pose)
     persons = set()
     for parts in bl.values():
         for ps, rows in parts:

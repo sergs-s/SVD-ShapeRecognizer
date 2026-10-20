@@ -21,6 +21,10 @@ WAYS = {"П2": "P2", "П3": "P3"}
 
 def fmt(x, dec):
     """Округление половины вверх (как String.format в Java)."""
+    if x != x:
+        return "NaN"
+    if x in (float("inf"), float("-inf")):
+        return "Infinity" if x > 0 else "-Infinity"  # как String.format в Java
     q = Decimal(1).scaleb(-dec)
     return str(Decimal(x).quantize(q, rounding=ROUND_HALF_UP))
 
