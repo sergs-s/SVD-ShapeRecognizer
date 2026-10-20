@@ -218,18 +218,24 @@ def parse_report(path):
 def metrics(res):
     """Плоский вектор мер для бутстрепа (доли)."""
     v = {}
+    def dv(a, b):
+        # проценты как 100,0·x/n (так округляет код: разности на половинах сотых совпадают только так)
+        return 100.0 * a / b if b > 0 else np.nan
+
     for far in FARS:
         for way in ("P2", "P3", "sep"):
+            if (way, far) not in res:
+                continue
             x = res[(way, far)]
             e, n = x["err"], x["nown"]
-            v[(way, far, "all")] = e["all"] / n["all"]
-            v[(way, far, "fr")] = e["fr"] / n["fr"] if n["fr"] > 0 else np.nan
-            v[(way, far, "tu")] = e["tu"] / n["tu"] if n["tu"] > 0 else np.nan
+            v[(way, far, "all")] = dv(e["all"], n["all"])
+            v[(way, far, "fr")] = dv(e["fr"], n["fr"])
+            v[(way, far, "tu")] = dv(e["tu"], n["tu"])
             for q in ("i", "ii", "iii", "iv"):
-                v[(way, far, q)] = e[q] / n["all"]
-            v[(way, far, "cand")] = (e["i"] + e["ii"]) / n["all"]
-            v[(way, far, "far")] = x["cacc"] / x["cn"]
-    v["EER"] = res["EER"][3]
+                v[(way, far, q)] = dv(e[q], n["all"])
+            v[(way, far, "cand")] = dv(e["i"] + e["ii"], n["all"])
+            v[(way, far, "far")] = dv(x["cacc"], x["cn"])
+    v["EER"] = 100.0 * res["EER"][3]
     return v
 
 
@@ -249,6 +255,10 @@ def pct(a, q):
 
 
 def run(name, B, seed=7042):
+    if name in ("feret-update", "feret-wstatus4"):
+        from update_check import update_rows
+        rows, rep_path, persons = update_rows(name[6:])
+        return _boot(None, rep_path, rows, persons, B, seed)
     spec, rep_path, pose_of = dataset(name)
     persons = set()
     for lab, (b, m, sf, *_) in spec.items():
@@ -267,6 +277,10 @@ def run(name, B, seed=7042):
         if sf is not None:
             conf = {s: v for s, v in conf.items() if s in sf}
         rows[lab] = Row(conf, pidx, r0)
+    return _boot(spec, rep_path, rows, persons, B, seed)
+
+
+def _boot(spec, rep_path, rows, persons, B, seed):
     ones = np.ones(len(persons), dtype=np.int64)
     point = {lab: evaluate(r, ones) for lab, r in rows.items()}
     rng = np.random.default_rng(seed)
@@ -278,12 +292,12 @@ def run(name, B, seed=7042):
     return spec, rep_path, rows, point, boot, persons
 
 
-def ci(boot, lab, key, scale=100.0):
+def ci(boot, lab, key, scale=1.0):
     a = [m[key] for m in boot[lab]]
     return pct(a, 2.5) * scale, pct(a, 97.5) * scale
 
 
-def diff_ci(boot, a, b, key, scale=100.0):
+def diff_ci(boot, a, b, key, scale=1.0):
     x = np.array([m[key] for m in boot[a]]) - np.array([m[key] for m in boot[b]])
     return pct(x, 2.5) * scale, pct(x, 97.5) * scale
 
@@ -294,6 +308,7 @@ class Cmp:
         self.n_pt = self.ok_pt = 0
         self.n_ci = self.ok_ci = 0
         self.bad = []
+        self.na = []
 
     def pt(self, where, ref, ours):
         self.n_pt += 1
@@ -305,7 +320,11 @@ class Cmp:
 
     def iv(self, where, ref_lo, ref_hi, lo, hi, tol=2.0):
         self.n_ci += 1
-        d = max(abs(ref_lo - lo), abs(ref_hi - hi))
+        def gap(x, y):
+            if np.isnan(x) and np.isnan(y):
+                return 0.0
+            return abs(x - y) if not (np.isnan(x) or np.isnan(y)) else math.inf
+        d = max(gap(ref_lo, lo), gap(ref_hi, hi))
         ok = d <= tol
         self.ok_ci += ok
         if not ok:
@@ -322,59 +341,90 @@ def split_cell(c):
     return c[:i].strip(), float(lo), float(hi), c[j + 1:].strip()
 
 
+# Квартили d₁/d₂ (раздел «Разделимость»): «java» – элемент ⌈p·n⌉ по возрастанию (как FeiBootstrap.quantile), «linear» –
+# линейная интерполяция numpy. Какое соглашение в отчётах – выясняется сверкой (обе печатаются в файл ячеек).
+QUART = "java"
+
+
+def quart(v, p):
+    v = np.sort(np.asarray(v, dtype=float))
+    if QUART == "java":
+        i = int(math.ceil(p * len(v) - 1e-9)) - 1
+        return float(v[max(0, min(len(v) - 1, i))])
+    return float(np.percentile(v, 100 * p))
+
+
+def frac(num, den, dec):
+    if den == 0:
+        return "%d/%d = — %%" % (num, den)
+    return "%d/%d = %s %%" % (num, den, fmt(100 * num / den, dec))
+
+
 def compare(name, B):
     spec, rep_path, rows, point, boot, persons = run(name, B)
     rep = parse_report(rep_path)
     C = Cmp()
-    for lab, cells in rep.get("sum", {}).items():
+
+    def have(lab, key=None):
         if lab not in rows:
-            C.bad.append("строка отчёта без данных: " + lab)
+            C.na.append("строка без попыток в файле оценок: " + lab)
+            return False
+        if key is not None and key not in point[lab]:
+            C.na.append("нет порога в файле оценок: %s %s" % (lab, key))
+            return False
+        return True
+
+    for lab, cells in rep.get("sum", {}).items():
+        if not have(lab):
             continue
         res = point[lab]
-        k = 0
+        k = -1
         for far in FARS:
             for way in ("P2", "P3", "sep"):
+                k += 1
+                if not have(lab, (way, far)):
+                    continue
                 x = res[(way, far)]
                 e, n = x["err"]["all"], x["nown"]["all"]
                 farc = 100 * x["cacc"] / x["cn"]
                 if way == "sep":
                     ours = "%s %%" % fmt(100 * e / n, 1)
                 else:
-                    ours = "%d/%d = %s %%" % (e, n, fmt(100 * e / n, 1))
+                    ours = frac(e, n, 1)
                 p, lo, hi, tail = split_cell(cells[k])
                 C.pt("%s | сводка %s %g%%" % (lab, way, far * 100), p + " " + tail, ours + " (" + fmt(farc, 2) + " %)")
                 blo, bhi = ci(boot, lab, (way, far, "all"))
                 C.iv("%s | сводка %s %g%%" % (lab, way, far * 100), lo, hi, blo, bhi)
-                k += 1
         p, lo, hi, tail = split_cell(cells[6])
         C.pt("%s | EER" % lab, p, fmt(100 * res["EER"][3], 1) + " %")
         blo, bhi = ci(boot, lab, "EER")
         C.iv("%s | EER" % lab, lo, hi, blo, bhi)
     names = ["all", "fr", "tu", "i", "ii", "iii", "iv", "cand"]
     for (lab, way, far_s), cells in rep.get("dec", {}).items():
-        res = point[lab]
         far = float(far_s.split()[1]) / 100
         w = WAYS[way]
-        x = res[(w, far)]
+        if not have(lab, (w, far)):
+            continue
+        x = point[lab][(w, far)]
         e, nn = x["err"], x["nown"]
         vals = [(e["all"], nn["all"]), (e["fr"], nn["fr"]), (e["tu"], nn["tu"]), (e["i"], nn["all"]), (e["ii"], nn["all"]),
                 (e["iii"], nn["all"]), (e["iv"], nn["all"]), (e["i"] + e["ii"], nn["all"])]
         for q, (num, den), cell in zip(names, vals, cells):
             p, lo, hi, _ = split_cell(cell)
-            ours = "%d/%d = %s %%" % (num, den, fmt(100 * num / den if den else 0, 1))
-            C.pt("%s | разлож. %s %s %s" % (lab, way, far_s, q), p, ours)
+            C.pt("%s | разлож. %s %s %s" % (lab, way, far_s, q), p, frac(num, den, 1))
             blo, bhi = ci(boot, lab, (w, far, q))
             C.iv("%s | разлож. %s %s %s" % (lab, way, far_s, q), lo, hi, blo, bhi)
     for (lab, way, far_s), cells in rep.get("far", {}).items():
-        res = point[lab]
         far = float(far_s.split()[1]) / 100
         w = WAYS[way]
-        x = res[(w, far)]
+        if not have(lab, (w, far)):
+            continue
+        x = point[lab][(w, far)]
         cacc, cn = x["cacc"], x["cn"]
         p, lo, hi, tail = split_cell(cells[0])
         a = np.array([m[(w, far, "far")] for m in boot[lab]])
-        up = pct(a, 95) * 100
-        C.pt("%s | FAR контроля %s %s по снимкам" % (lab, way, far_s), p, "%d/%d = %s %%" % (cacc, cn, fmt(100 * cacc / cn, 2)))
+        up = pct(a, 95)
+        C.pt("%s | FAR контроля %s %s по снимкам" % (lab, way, far_s), p, frac(cacc, cn, 2))
         blo, bhi = ci(boot, lab, (w, far, "far"))
         C.iv("%s | FAR контроля %s %s по снимкам" % (lab, way, far_s), lo, hi, blo, bhi)
         ref_up = float(tail.replace("↑", "").replace("%", "").strip())
@@ -392,30 +442,50 @@ def compare(name, B):
         C.pt("%s | FAR контроля %s %s допуск" % (lab, way, far_s), cells[3],
              "да" if float(fmt(100 * cacc / cn, 2)) <= lim else "нет")
     for lab, cells in rep.get("eer", {}).items():
+        if not have(lab):
+            continue
         th, eo, ef, ee = point[lab]["EER"]
         C.pt("%s | EER θ, ошибка, FAR" % lab, " | ".join(cells[:3]),
              "%s | %s %% | %s %%" % (fmt(th, 6), fmt(100 * eo, 1), fmt(100 * ef, 2)))
+        p, lo, hi, _ = split_cell(cells[3])
+        C.pt("%s | EER (раздел)" % lab, p, fmt(100 * ee, 1) + " %")
+        blo, bhi = ci(boot, lab, "EER")
+        C.iv("%s | EER (раздел)" % lab, lo, hi, blo, bhi)
+        r = rows[lab]
+        own = np.concatenate([r.c[s]["own"][0] for s in r.s])
+        ctl = np.concatenate([r.c[s]["ctrl"][0] for s in r.s])
+        for i, v, what in ((4, own, "своих"), (5, ctl, "контрольных")):
+            C.pt("%s | квартили d₁/d₂ %s" % (lab, what), cells[i],
+                 " / ".join(fmt(quart(v, p), 4) for p in (0.25, 0.5, 0.75)))
     for (pair, way), cells in rep.get("pair", {}).items():
         a, b = pair.split(" − ")
         w = WAYS[way]
+        if not (have(a) and have(b)):
+            continue
         keys = [(w, 0.01, "all", 1), (w, 0.01, "fr", 1), (w, 0.01, "tu", 1), (w, 0.05, "all", 1), (w, 0.01, "cand", 1),
                 (w, 0.01, "far", 2), (w, 0.05, "far", 2)]
+        ma, mb = metrics(point[a]), metrics(point[b])
         for kk, cell in zip(keys, cells):
             key, dec = kk[:3], kk[3]
-            pa_, pb_ = metrics(point[a])[key], metrics(point[b])[key]
+            if key not in ma or key not in mb:
+                C.na.append("нет порога в файле оценок: пара %s %s" % (pair, key))
+                continue
             p, lo, hi, _ = split_cell(cell)
-            C.pt("%s | пара %s %s" % (pair, way, key[1:]), p, fsign(100 * pa_ - 100 * pb_, dec))
+            d = ma[key] - mb[key]
+            C.pt("%s | пара %s %s" % (pair, way, key[1:]), p, "NaN" if np.isnan(d) else fsign(d, dec))
             blo, bhi = diff_ci(boot, a, b, key)
             C.iv("%s | пара %s %s" % (pair, way, key[1:]), lo, hi, blo, bhi)
     for pair, cells in rep.get("psep", {}).items():
         a, b = pair.split(" − ")
+        if not (have(a) and have(b)):
+            continue
+        ma, mb = metrics(point[a]), metrics(point[b])
         for key, cell in zip([("sep", 0.01, "all"), ("sep", 0.05, "all"), "EER"], cells):
-            pa_, pb_ = metrics(point[a])[key], metrics(point[b])[key]
             p, lo, hi, _ = split_cell(cell)
-            C.pt("%s | пара разд. %s" % (pair, key), p, fsign(100 * pa_ - 100 * pb_, 1))
+            C.pt("%s | пара разд. %s" % (pair, key), p, fsign(ma[key] - mb[key], 1))
             blo, bhi = diff_ci(boot, a, b, key)
             C.iv("%s | пара разд. %s" % (pair, key), lo, hi, blo, bhi)
-    p3m0 = sum(point[l][(w, f)]["p3_m0"] for l in point for (w, f) in [("P3", 0.01), ("P3", 0.05)])
+    p3m0 = sum(point[l][k]["p3_m0"] for l in point for k in [("P3", 0.01), ("P3", 0.05)] if k in point[l])
     return C, len(persons), p3m0
 
 
@@ -426,7 +496,8 @@ if __name__ == "__main__":
     out = sys.argv[3] if len(sys.argv) > 3 else None
     head = ["набор %s; бутстреп B = %d, людей %d; П3 с недопустимым m = 0: %d" % (name, B, npers, p3m0),
             "точки: %d из %d совпали; интервалы: %d из %d в допуске ±2 п. п." % (C.ok_pt, C.n_pt, C.ok_ci, C.n_ci)]
-    text = "\n".join(head + ["", "РАСХОЖДЕНИЯ:"] + C.bad + ["", "ВСЕ ЯЧЕЙКИ (где | отчёт | Ахмед | итог):"] + C.lines) + "\n"
+    head.append("ячеек, не вычислимых из файла оценок: %d" % len(C.na))
+    text = "\n".join(head + ["", "РАСХОЖДЕНИЯ:"] + C.bad + ["", "НЕ ВЫЧИСЛИМО ИЗ ФАЙЛА:"] + sorted(set(C.na)) + ["", "ВСЕ ЯЧЕЙКИ (где | отчёт | Ахмед | итог):"] + C.lines) + "\n"
     if out:
         open(out, "w", encoding="utf-8").write(text)
     print("\n".join(head))

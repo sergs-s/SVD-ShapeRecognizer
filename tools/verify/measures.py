@@ -241,6 +241,8 @@ def eer(own_r, own_wrong, own_w, ctrl_r, ctrl_w):
     co = np.argsort(ctrl_r, kind="stable")
     crr, cw = ctrl_r[co], ctrl_w[co].astype(float)
     Wo, Wc = ow.sum(), cw.sum()
+    if Wo == 0 or Wc == 0:
+        return math.nan, math.nan, math.nan, math.nan
     cum_ow = np.concatenate([[0.0], np.cumsum(ow)])
     cum_owr = np.concatenate([[0.0], np.cumsum(ow * owr)])
     cum_cw = np.concatenate([[0.0], np.cumsum(cw)])
@@ -280,6 +282,8 @@ class Row:
             d["cv_n"] = cnt
             self.c[s] = d
         self.np_ = len(pindex)
+        # Пороги П2 / П3, записанные в файле оценок (feret-update, feret-wstatus4): {s: {(way, far): θ}}; None – по cv.
+        self.fixed = None
 
 
 def evaluate(row, pw, fars=(0.01, 0.05)):
@@ -287,6 +291,8 @@ def evaluate(row, pw, fars=(0.01, 0.05)):
     res = {}
     for far in fars:
         for way in ("P2", "P3", "sep"):
+            if row.fixed is not None and way != "sep" and any((way, far) not in row.fixed[s] for s in row.s):
+                continue
             err = {"all": 0.0, "fr": 0.0, "tu": 0.0, "i": 0.0, "ii": 0.0, "iii": 0.0, "iv": 0.0}
             nown = {"all": 0.0, "fr": 0.0, "tu": 0.0}
             cacc = 0.0
@@ -303,7 +309,9 @@ def evaluate(row, pw, fars=(0.01, 0.05)):
                 cw = pw[cpid]
                 kr, _, kpid, _ = d["ctrl"]
                 kw = pw[kpid]
-                if way == "P2":
+                if row.fixed is not None and way != "sep":
+                    th = row.fixed[s][(way, far)]
+                elif way == "P2":
                     th = np_threshold(cr, cw, far)
                 elif way == "P3":
                     th, m0 = p3_threshold(cr, cw, cpid, (pw * (d["cv_n"] > 0)), d["cv_n"], far)
