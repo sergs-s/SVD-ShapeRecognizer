@@ -243,7 +243,7 @@ def eer(own_r, own_wrong, own_w, ctrl_r, ctrl_w):
     первый θ по возрастанию с наименьшим |ошибка своих − FAR|, EER – полусумма)."""
     cand = np.sort(np.concatenate([own_r[own_w > 0], ctrl_r[ctrl_w > 0]]))
     o = np.argsort(own_r, kind="stable")
-    orr, ow, owr = own_r[o], own_w[o].astype(float), own_wrong[o]
+    orr, ow, owr = own_r[o], own_w[o].astype(float), (np.asarray(own_wrong)[o] == 1)
     co = np.argsort(ctrl_r, kind="stable")
     crr, cw = ctrl_r[co], ctrl_w[co].astype(float)
     Wo, Wc = ow.sum(), cw.sum()
@@ -291,7 +291,8 @@ class Row:
             for role in ("own", "ctrl", "cv"):
                 L = conf[s][role]
                 r = np.array([a[0] for a in L], dtype=float)
-                wrong = np.array([a[1] for a in L], dtype=bool)
+                # 0 – верный лучший, 1 – неверный, 2 – принудительный отказ (нет лица, отвергнут отбором): ошибка, но ни (ii), ни (iii)
+                wrong = np.array([int(a[1]) for a in L], dtype=np.int8)
                 pid = np.array([pindex[a[2]] for a in L], dtype=np.int64)
                 pose = np.array([a[3] for a in L], dtype=float)
                 o = np.argsort(r, kind="stable")
@@ -337,7 +338,9 @@ def evaluate(row, pw, fars=(0.01, 0.05)):
                     p3_m0 += m0
                 else:
                     th = np_threshold(kr, kw, far)
-                orr, owr, opid, opose = d["own"]
+                orr, owk, opid, opose = d["own"]
+                owr = owk == 1
+                forced = owk == 2
                 ow = pw[opid].astype(float)
                 acc = orr <= th
                 front = np.abs(opose) <= row.r0
@@ -346,7 +349,7 @@ def evaluate(row, pw, fars=(0.01, 0.05)):
                 err["fr"] += (ow * e * front).sum()
                 err["tu"] += (ow * e * ~front).sum()
                 err["i"] += (ow * (acc & ~owr)).sum()
-                err["ii"] += (ow * (~acc & ~owr)).sum()
+                err["ii"] += (ow * (~acc & ~owr & ~forced)).sum()
                 err["iii"] += (ow * (~acc & owr)).sum()
                 err["iv"] += (ow * (acc & owr)).sum()
                 nown["all"] += ow.sum()

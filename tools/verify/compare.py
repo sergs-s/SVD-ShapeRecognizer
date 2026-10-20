@@ -255,6 +255,10 @@ def pct(a, q):
 
 
 def run(name, B, seed=7042):
+    if name in ("abl-feret", "abl-gt"):
+        from abl_check import abl_rows
+        rows, rep_path, persons = abl_rows(name[4:])
+        return _boot(None, rep_path, rows, persons, B, seed)
     if name in ("feret-update", "feret-wstatus4"):
         from update_check import update_rows
         rows, rep_path, persons = update_rows(name[6:])
