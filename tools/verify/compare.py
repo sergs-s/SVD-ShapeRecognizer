@@ -244,8 +244,18 @@ def metrics(res):
 PCT_JAVA = False
 
 
+# Процентиль по исправленному правилу (svd-subspaces dd734c9): элемент ⌈p·N⌉ по N непустым репликам (NaN отбрасываются).
+PCT_NONAN = False
+
+
 def pct(a, q):
     a = np.asarray(a, dtype=float)
+    if PCT_NONAN:
+        s = np.sort(a[~np.isnan(a)])
+        if len(s) == 0:
+            return float("nan")
+        i = int(math.ceil(q / 100 * len(s) - 1e-9)) - 1
+        return float(s[max(0, min(len(s) - 1, i))])
     if PCT_JAVA:
         s = np.sort(a)  # NaN – в конце, как Arrays.sort
         i = int(math.ceil(q / 100 * len(s) - 1e-9)) - 1
