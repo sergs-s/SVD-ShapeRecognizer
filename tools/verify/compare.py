@@ -290,6 +290,12 @@ def run(name, B, seed=7042):
         for part in (b if isinstance(b, tuple) else (b,)):
             for d in part:
                 persons.add(d["person"])
+    if name == "feret-subsp":
+        # люди бутстрепа – пул FERET и контроль (XBaseSubsp.java:343–345), а не только встреченные в файле оценок subsp:
+        # пул и контроль – те же, что в feret-xs2 (обе половины пула встречаются там как свои)
+        for title, b in read_scores(FERET + "/xbase_feret_xs2_scores.tsv.gz"):
+            for d in b:
+                persons.add(d["person"])
     persons = sorted(persons)
     pidx = {p: i for i, p in enumerate(persons)}
     rows = {}
