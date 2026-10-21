@@ -15,6 +15,13 @@ from measures import (R0, Row, cp_upper, deff_of, detections_pose, evaluate, rea
                       select_by_pose)
 
 DATA = os.environ.get("VERIFY_DATA", "/home/user/svd-faces-data")
+# Каталог отчётов и файлов оценок наборов orl, muct, gt-subsp, gt-xs-f (по умолчанию – прежние папки xbase_<код>; для
+# пересчёта №7 – reports/xbase_2ea947f).
+REP_DIR = os.environ.get("VERIFY_REP_DIR", "")
+
+
+def rdir(default):
+    return (REP_DIR.rstrip("/") + "/") if REP_DIR else DATA + "/reports/" + default + "/"
 FARS = (0.01, 0.05)
 WAYS = {"П2": "P2", "П3": "P3"}
 
@@ -55,13 +62,13 @@ def dataset(name):
     """Строки отчёта: метка → (блоки файла, метод, фильтр s); отчёт; функция позы."""
     rows = {}
     if name == "orl":
-        rep = DATA + "/reports/xbase_72c3195/xbase_orl.txt"
-        b = read_scores(DATA + "/reports/xbase_72c3195/xbase_orl_scores.tsv.gz")[0][1]
+        rep = rdir("xbase_72c3195") + "xbase_orl.txt"
+        b = read_scores(rdir("xbase_72c3195") + "xbase_orl_scores.tsv.gz")[0][1]
         for lab, m in (("L1", "5-lbp-mlda"), ("L1-in", "5-lbp-mlda-in"), ("A", "2c-mlda")):
             rows[lab] = (b, m, None)
         return rows, rep, orl_pose()
     if name == "muct":
-        d = DATA + "/reports/xbase_72c3195/"
+        d = rdir("xbase_72c3195")
         rep = d + "xbase_muct.txt"
         b = read_scores(d + "xbase_muct_scores.tsv.gz")[0][1]
         bf = read_scores(d + "xbase_muct_fei_scores.tsv.gz")[0][1]
@@ -73,7 +80,7 @@ def dataset(name):
         rows["L1 (ротация 0)"] = (b, "5-lbp-mlda", {0})
         return rows, rep, muct_pose()
     if name == "gt-subsp":
-        d = DATA + "/reports/xbase_f12513c/"
+        d = rdir("xbase_f12513c")
         rep = d + "xbase_gt_subsp.txt"
         for title, b in read_scores(d + "xbase_gt_subsp_scores.tsv.gz"):
             mode, proj, k = [x.strip() for x in title.split(",")]
@@ -82,7 +89,7 @@ def dataset(name):
             rows[lab] = (b, "5-lbp-mlda", None)
         return rows, rep, gt_pose()
     if name == "gt-xs-f":
-        d = DATA + "/reports/xbase_1d78ea7/"
+        d = rdir("xbase_1d78ea7")
         rep = d + "xbase_gt_xs_f.txt"
         for title, b in read_scores(d + "xbase_gt_xs_f_scores.tsv.gz"):
             mode, var = [x.strip() for x in title.split(",")]
@@ -361,6 +368,16 @@ class Cmp:
         self.n_ci = self.ok_ci = 0
         self.bad = []
         self.na = []
+        self.n_star = 0
+        self.star_bad = []
+
+    def star(self, where, tail, lo, hi):
+        """Звёздочка пары: в отчёте – «*» в хвосте ячейки; у меня – интервал (точный) не содержит 0."""
+        self.n_star += 1
+        rs = tail.startswith("*")
+        ms = (not np.isnan(lo)) and (lo > 0 or hi < 0)
+        if rs != ms:
+            self.star_bad.append("%s\tотчёт %s\tАхмед %s [%.4f; %.4f]" % (where, "*" if rs else "–", "*" if ms else "–", lo, hi))
 
     def pt(self, where, ref, ours):
         self.n_pt += 1
@@ -522,21 +539,23 @@ def compare(name, B):
             if key not in ma or key not in mb:
                 C.na.append("нет порога в файле оценок: пара %s %s" % (pair, key))
                 continue
-            p, lo, hi, _ = split_cell(cell)
+            p, lo, hi, tail = split_cell(cell)
             d = ma[key] - mb[key]
             C.pt("%s | пара %s %s" % (pair, way, key[1:]), p, "NaN" if np.isnan(d) else fsign(d, dec))
             blo, bhi = diff_ci(boot, a, b, key)
             C.iv("%s | пара %s %s" % (pair, way, key[1:]), lo, hi, blo, bhi)
+            C.star("%s | пара %s %s" % (pair, way, key[1:]), tail, blo, bhi)
     for pair, cells in rep.get("psep", {}).items():
         a, b = pair.split(" − ")
         if not (have(a) and have(b)):
             continue
         ma, mb = metrics(point[a]), metrics(point[b])
         for key, cell in zip([("sep", 0.01, "all"), ("sep", 0.05, "all"), "EER"], cells):
-            p, lo, hi, _ = split_cell(cell)
+            p, lo, hi, tail = split_cell(cell)
             C.pt("%s | пара разд. %s" % (pair, key), p, fsign(ma[key] - mb[key], 1))
             blo, bhi = diff_ci(boot, a, b, key)
             C.iv("%s | пара разд. %s" % (pair, key), lo, hi, blo, bhi)
+            C.star("%s | пара разд. %s" % (pair, key), tail, blo, bhi)
     p3m0 = sum(point[l][k]["p3_m0"] for l in point for k in [("P3", 0.01), ("P3", 0.05)] if k in point[l])
     return C, len(persons), p3m0
 
