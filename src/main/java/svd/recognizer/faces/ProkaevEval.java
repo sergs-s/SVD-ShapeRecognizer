@@ -61,6 +61,8 @@ final class ProkaevEval {
     static final String BASE_ROW = "база (4а) L1-xs-F";
     static final String BASE_ROW_TT = "база (4а) L1-tt-xs-F";
     static final String MAIN = "метод Прокаева (Б2-К), гости 10";
+    /** FACES_PROKAEV_ONLY=main – считается только основная строка (Д-№3); иначе все строки cfgs(). */
+    static final Set<Integer> ONLY = "main".equals(System.getenv("FACES_PROKAEV_ONLY")) ? Set.of(0) : null;
 
     enum Gs {
         NONE, G10, G20, G30, FEI, AUTH, HALF
@@ -645,6 +647,7 @@ final class ProkaevEval {
                 }
                 if (j.baseL1 == null) throw new IllegalStateException("prokaev: нет блока базы (4а) " + c.name() + ", проход " + (ps + 1) + " – сначала feret-abl");
                 checkGuests(j, personOf);
+                j.only = ONLY;
                 jobs.add(j);
                 for (String p : own) used.addAll(c.gal().get(p));
                 for (Probe q : j.probes) used.add(q.key());
@@ -798,6 +801,7 @@ final class ProkaevEval {
                 }
             if (j.baseL1 == null) throw new IllegalStateException("prokaev: нет блока базы (4а) GT " + j.conf + " – сначала gt-abl");
             checkGuests(j, personOf);
+            j.only = ONLY;
             jobs.add(j);
             // Справочно: контроль пополам, гости – люди GT другой половины (по одному снимку), два прохода.
             for (int h = 0; h < 2; h++) {
@@ -821,7 +825,7 @@ final class ProkaevEval {
                     jh.half.add(ks.get(rh.nextInt(ks.size())));
                 }
                 checkGuests(jh, personOf);
-                jobs.add(jh);
+                if (ONLY == null) jobs.add(jh);
             }
         }
         // Кадры: GT – исходные снимки gt_db и YuNet экспорта, кадр «а» – экспорт; гости FERET – исходные снимки, derived/a; FEI – экспорт.

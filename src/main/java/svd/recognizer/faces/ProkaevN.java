@@ -391,8 +391,12 @@ final class ProkaevN {
 
     // ---------------------------------------------------------------- GT межс.
 
-    static void gt(FarExport.Loaded export, Path dir, Map<String, Map<Integer, String>> feiKeys, List<String> selLines, SettingsStore settings, Path out)
-            throws IOException {
+    /** GT: межсессионно (within = false; gt-prokaev-n) или внутри сессии (within = true; gt-prokaev-n-in, Д-№3 – без L1-xs-F, отдельный отчёт «_in»). */
+    static void gt(FarExport.Loaded export, Path dir, Map<String, Map<Integer, String>> feiKeys, List<String> selLines, SettingsStore settings, Path out,
+            boolean within) throws IOException {
+        String mode = within ? "gt-prokaev-n-in" : "gt-prokaev-n";
+        String in = within ? "_in" : "";
+        String conf = within ? "внутри" : "межс.";
         long t0 = System.nanoTime();
         XBaseA0.FeretSetup su = XBaseA0.feretSetup(dir, selLines, settings);
         double rLimit = XBaseEval.poseLimit(selLines);
@@ -408,6 +412,10 @@ final class ProkaevN {
         XBaseEval.Gt g0 = XBaseMp2.gtRoles(export, dir, feiKeys, settings, pk -> rOld.containsKey(pk) && rOld.get(pk) <= rLimit, rOld, r0);
         g0.rLimit = rLimit;
         Map<String, List<String>> galX = XBaseEval.equalize(g0.own, g0.galleryAll, g0.seed + XBaseEval.EQ_SEED_OFFSET);
+        // Внутри сессии – как gt-prokaev (протокол 5): снимки даты галереи пополам, галерея по правилу №8 из первой половины.
+        List<Map<String, List<String>>> split = XBaseEval.withinSplit(g0.own, g0.galleryAll, g0.seed);
+        Map<String, List<String>> galP = within ? XBaseEval.equalize(g0.own, split.get(0), g0.seed + XBaseEval.EQ_SEED_OFFSET) : galX;
+        Map<String, List<String>> proAll = within ? split.get(1) : g0.probeKeys;
         Map<String, List<List<String>>> pool = XBaseXsF.pool(su.ro, su.byKey);
         Map<String, List<String>> keysOf = new HashMap<>();
         pool.forEach((p, ds) -> {
@@ -418,11 +426,11 @@ final class ProkaevN {
         Map<String, Sample> sampleOf = new HashMap<>();
         for (List<Sample> l : export.data().gt().values()) for (Sample s : l) sampleOf.put(s.file().toString(), s);
         ProkaevEval.Job b = new ProkaevEval.Job();
-        b.conf = "межс.";
+        b.conf = conf;
         b.pass = 0;
-        b.proto = 4;
+        b.proto = within ? 5 : 4;
         b.g = g0;
-        b.gal = galX;
+        b.gal = galP;
         b.s = 0;
         ProkaevEval.pickGuests(b, new ArrayList<>(pool.keySet()), keysOf, g0.seed);
         int[] ns = {5, 10, 20};
@@ -443,15 +451,15 @@ final class ProkaevN {
             m.release();
         }
         Acc acc = new Acc(g0.pIdx);
-        String fp = FeiCheckpoint.fingerprint(dir, String.format(Locale.ROOT, "gt-prokaev-n; seed %d; r0 %s; R %s; кадр %s", g0.seed, r0, rLimit, ProkaevFrames.sheetTag()));
-        XBaseOther.Checkpoint cp = new XBaseOther.Checkpoint(out.resolve("checkpoint_gt_prokaev_n" + ProkaevFrames.tag()), fp);
+        String fp = FeiCheckpoint.fingerprint(dir, String.format(Locale.ROOT, "%s; seed %d; r0 %s; R %s; кадр %s", mode, g0.seed, r0, rLimit, ProkaevFrames.sheetTag()));
+        XBaseOther.Checkpoint cp = new XBaseOther.Checkpoint(out.resolve("checkpoint_gt_prokaev_n" + in + ProkaevFrames.tag()), fp);
         for (int n : grid) {
             for (int s = 0; s < (n == g0.own.size() ? 1 : SAMPLES); s++) {
                 List<String> sub = sample(g0.own, n, s, g0.seed);
-                prokaev(List.of(subJob(b, sub, withOwn(g0, sub), g0.probeKeys)), n, s, v, cp, acc, "gt-prokaev-n");
+                prokaev(List.of(subJob(b, sub, withOwn(g0, sub), proAll)), n, s, v, cp, acc, mode);
             }
         }
-        if (!ProkaevFrames.PLAIN) {
+        if (!ProkaevFrames.PLAIN && !within) {
             List<List<String>> train = new ArrayList<>(g0.cohort);
             train.addAll(XBaseXsF.train(XBaseXsF.Kind.XS, List.of(), Map.of(), pool, Set.of(), Map.of()).extra());
             Set<String> cohortKeys = new HashSet<>();
@@ -484,16 +492,17 @@ final class ProkaevN {
                 acc.cell(L1_N, s, L1_ROW).cfgs.add(XBaseEval.parse(g, EnumSet.of(V.L1), gal, probes, parts, ls).cfg.get(V.L1));
             }
         }
-        StringBuilder r = new StringBuilder("PLAN.md п. 5.5, Д-№1 п. 5: метод Прокаева – зависимость от N, GT межс. (XBaseEval gt-prokaev-n); справочно\n");
+        StringBuilder r = new StringBuilder("PLAN.md п. 5.5, Д-№1 п. 5" + (within ? " и Д-№3" : "") + ": метод Прокаева – зависимость от N, GT " + conf + " (XBaseEval " + mode + "); справочно\n");
         r.append("Код: коммит ").append(FarMethods.commit()).append('\n');
         r.append("Данные: экспорт ").append(dir).append(", коммит данных ").append(FarMethods.dataCommit(dir)).append(" (a/gt, YuNet – detections.tsv); снимки GT – ")
                 .append(gtDir).append("; гости и пул L1-xs-F – Color FERET (имён снимков FERET нет)\n");
-        r.append(head("GT межс. (галерея – правило №8, N = 6 снимков; «все» – " + g0.own.size() + ")", ns));
+        r.append(head("GT " + conf + " (галерея – правило №8, N = " + (within ? 3 : 6) + " снимков" + (within ? ", снимки даты галереи пополам" : "") + "; «все» – " + g0.own.size() + ")", ns));
         r.append(String.format(Locale.ROOT, "Кадр метода Прокаева: %s. Гости – 10 первых гостей основной строки (люди FERET); контроль – %d человек GT.%n",
                 ProkaevFrames.describe(v.clipped), g0.ctrl.size()));
-        if (ProkaevFrames.PLAIN) r.append("L1-xs-F – в отчёте К-лицо (xbase_gt_prokaev_n_face0.700.txt).\n");
-        table(r, "GT межс.: N × строка", acc, grid, g0.persons.size());
-        finish(r, t0, out.resolve("xbase_gt_prokaev_n" + ProkaevFrames.tag() + ".txt"), cp);
+        if (within) r.append("L1-xs-F внутри сессии не считается (п. 5 – только межс.).\n");
+        else if (ProkaevFrames.PLAIN) r.append("L1-xs-F – в отчёте К-лицо (xbase_gt_prokaev_n_face0.700.txt).\n");
+        table(r, "GT " + conf + ": N × строка", acc, grid, g0.persons.size());
+        finish(r, t0, out.resolve("xbase_gt_prokaev_n" + in + ProkaevFrames.tag() + ".txt"), cp);
     }
 
     /** Копия Gt GT со своими sub (порядок own – индексы проб). */

@@ -39,12 +39,12 @@ public class ProkaevPlainHaarTest {
     @Test
     public void plainWindowGt() {
         // 640 × 480: окно 320 × 480 по центру рамки; рамка у левого края – сдвиг внутрь (x0 = 0).
-        Mat out = ProkaevFrames.plain(columns(640, 480), new double[] {300, 100, 100, 120}, new int[1]);
+        Mat out = ProkaevFrames.plain(columns(640, 480), new double[] {300, 100, 100, 120}, new int[1], 0);
         assertEquals(400, out.cols());
         assertEquals(600, out.rows());
         double[] first = out.get(300, 0);
         assertEquals(190, first[0], 1.0); // x0 = 350 − 160 = 190
-        Mat edge = ProkaevFrames.plain(columns(640, 480), new double[] {10, 100, 100, 120}, new int[1]);
+        Mat edge = ProkaevFrames.plain(columns(640, 480), new double[] {10, 100, 100, 120}, new int[1], 0);
         assertEquals(0, edge.get(300, 0)[0], 1.0);
     }
 
@@ -52,12 +52,29 @@ public class ProkaevPlainHaarTest {
     public void plainWindowNarrow() {
         // 92 × 112 (уже 2:3 по ширине? 92/112 > 2/3 – окно на всю высоту: 75 × 112).
         int[] cl = new int[1];
-        Mat out = ProkaevFrames.plain(columns(92, 112), new double[] {10, 20, 80, 80}, cl);
+        Mat out = ProkaevFrames.plain(columns(92, 112), new double[] {10, 20, 80, 80}, cl, 0);
         assertEquals(400, out.cols());
         assertEquals(1, cl[0]); // рамка 80 шире окна 75
         // 300 × 600 (уже 2:3): окно на всю ширину, высота 450.
-        Mat tall = ProkaevFrames.plain(columns(300, 600), new double[] {100, 0, 100, 100}, new int[1]);
+        Mat tall = ProkaevFrames.plain(columns(300, 600), new double[] {100, 0, 100, 100}, new int[1], 0);
         assertEquals(0, tall.get(0, 0)[0], 1.0);
+    }
+
+    @Test
+    public void ellipseMasks() {
+        // Д-№3: рамка с центром (320, 240) в снимке 640 × 480 – центр кадра (200, 300); угол кадра – вне эллипса.
+        double[] box = {280, 180, 80, 120};
+        Mat base = ProkaevFrames.plain(columns(640, 480), box, new int[1], 0);
+        double mean = Math.round(org.opencv.core.Core.mean(base).val[0]);
+        Mat t1 = ProkaevFrames.plain(columns(640, 480), box, new int[1], 1);
+        Mat t2 = ProkaevFrames.plain(columns(640, 480), box, new int[1], 2);
+        assertEquals(mean, t1.get(0, 0)[0], 0.0);
+        assertEquals(base.get(300, 200)[0], t1.get(300, 200)[0], 0.0);
+        assertEquals(mean, t2.get(300, 200)[0], 0.0);
+        assertEquals(base.get(0, 0)[0], t2.get(0, 0)[0], 0.0);
+        // Край эллипса по горизонтали: полуось 80 · 1,1 / 2 · 1,25 = 55 пикселей кадра.
+        assertEquals(base.get(300, 250)[0], t1.get(300, 250)[0], 0.0);
+        assertEquals(mean, t1.get(300, 260)[0], 0.0);
     }
 
     @Test

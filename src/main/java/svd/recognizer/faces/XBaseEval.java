@@ -395,11 +395,17 @@ public final class XBaseEval {
         } else if (a[0].equals("feret-prokaev-n")) {
             ProkaevN.feret(export, dir, feiKeys, selLines, settings);
         } else if (a[0].equals("gt-prokaev-n")) {
-            ProkaevN.gt(export, dir, feiKeys, selLines, settings, out);
+            ProkaevN.gt(export, dir, feiKeys, selLines, settings, out, false);
+        } else if (a[0].equals("gt-prokaev-n-in")) {
+            ProkaevN.gt(export, dir, feiKeys, selLines, settings, out, true);
         } else if (a[0].equals("fei-prokaev-n")) {
             ProkaevN.fei(export, dir, feiKeys, settings, out);
         } else if (a[0].equals("prokaev-sheet")) {
             ProkaevFrames.sheet(dir, settings, out);
+        } else if (a[0].equals("prokaev-sheet-mask")) {
+            ProkaevFrames.sheetMask(dir, settings, out);
+        } else if (a[0].equals("prokaev-mask")) {
+            ProkaevMask.run(settings, out);
         } else if (a[0].equals("abl-lbf")) {
             LbfFrames.ablLbf(dir, feiKeys, selLines, settings, out);
         } else if (a[0].equals("abl-haar")) {

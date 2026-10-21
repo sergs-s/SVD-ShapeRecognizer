@@ -143,6 +143,7 @@ final class ProkaevOther {
                 j.extraBases.add(new Object[] {"L1-in (xbase_72c3195)", method(rl, V.L1IN.id), V.L1IN});
                 if (!muct) j.extraBases.add(new Object[] {"A (xbase_72c3195)", method(rl, V.A.id), V.A});
                 ProkaevEval.checkGuests(j, personOf);
+                j.only = ProkaevEval.ONLY;
                 jobs.add(j);
             }
         }
@@ -286,6 +287,7 @@ final class ProkaevOther {
                 ProkaevEval.checkGuests(j, personOf);
                 // Пороговые – тоже вне гостей.
                 for (String k : j.guests(ProkaevEval.Gs.G30)) if (sp.threshold().contains(personOf.get(k))) throw new IllegalStateException("prokaev: гость FEI среди пороговых");
+                j.only = ProkaevEval.ONLY;
                 jobs.add(j);
             }
         }
