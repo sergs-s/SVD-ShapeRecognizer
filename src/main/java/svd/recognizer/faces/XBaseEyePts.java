@@ -326,6 +326,7 @@ final class XBaseEyePts {
         double[] s = FeiBootstrap.sorted(rep);
         double lo = FeiBootstrap.quantile(s, 0.025);
         double hi = FeiBootstrap.quantile(s, 0.975);
-        return String.format(Locale.ROOT, fmt + " [" + fmt + "; " + fmt + "]%s", mult * point, mult * lo, mult * hi, lo > 0 || hi < 0 ? " *" : "") + FeiBootstrap.note(rep);
+        return String.format(Locale.ROOT, fmt + " [" + fmt + "; " + fmt + "]%s", FeiBootstrap.nz(mult * point, fmt), FeiBootstrap.nz(mult * lo, fmt),
+                FeiBootstrap.nz(mult * hi, fmt), FeiBootstrap.sig(lo, hi) ? " *" : "") + FeiBootstrap.note(rep);
     }
 }

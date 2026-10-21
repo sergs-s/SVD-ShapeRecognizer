@@ -339,7 +339,8 @@ final class XBaseAging {
         double[] s = FeiBootstrap.sorted(ok);
         double lo = FeiBootstrap.quantile(s, 0.025);
         double hi = FeiBootstrap.quantile(s, 0.975);
-        return String.format(Locale.ROOT, "%+.1f [%+.1f; %+.1f]%s", point, lo, hi, lo > 0 || hi < 0 ? " *" : "");
+        return String.format(Locale.ROOT, "%+.1f [%+.1f; %+.1f]%s", FeiBootstrap.nz(point, "%+.1f"), FeiBootstrap.nz(lo, "%+.1f"), FeiBootstrap.nz(hi, "%+.1f"),
+                FeiBootstrap.sig(lo, hi) ? " *" : "");
     }
 
     static String tables(String name, List<Pass> passes, int persons, int[][] w) {

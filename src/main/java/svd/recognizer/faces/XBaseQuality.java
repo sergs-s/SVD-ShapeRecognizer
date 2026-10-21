@@ -144,7 +144,7 @@ final class XBaseQuality {
             double[] reps = new double[w.length];
             for (int q = 0; q < w.length; q++) reps[q] = wmean(d, p, w[q]);
             double[] c = FeiNorm.ci(reps);
-            ci = String.format(Locale.ROOT, " [%s; %s]%s", fmt(c[0]), fmt(c[1]), c[0] > 0 || c[1] < 0 ? " *" : "");
+            ci = String.format(Locale.ROOT, " [%s; %s]%s", fmt(c[0]), fmt(c[1]), FeiBootstrap.sig(c[0], c[1]) ? " *" : "");
         }
         int same = 0;
         int zero = 0;
@@ -160,7 +160,8 @@ final class XBaseQuality {
 
     static String fmt(double x) {
         double a = Math.abs(x);
-        return String.format(Locale.ROOT, a >= 100 ? "%.1f" : a >= 1 ? "%.3f" : "%.4f", x);
+        String f = a >= 100 ? "%.1f" : a >= 1 ? "%.3f" : "%.4f";
+        return String.format(Locale.ROOT, f, FeiBootstrap.nz(x, f));
     }
 
     static void run(FarExport.Loaded export, Path dir, Map<String, Map<Integer, String>> feiKeys, List<String> selLines, SettingsStore settings,

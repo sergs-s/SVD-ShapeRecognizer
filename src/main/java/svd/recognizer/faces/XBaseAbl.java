@@ -1047,7 +1047,7 @@ final class XBaseAbl {
                     double hi = c[7].isEmpty() ? pt : Double.parseDouble(c[7]);
                     boolean okP = p < 3 ? (pt <= 0 || hi <= 3) : hi <= 3;
                     if (!okP) all = false;
-                    boolean sig = !c[6].isEmpty() && (Double.parseDouble(c[6]) > 0 || hi < 0);
+                    boolean sig = !c[6].isEmpty() && FeiBootstrap.sig(Double.parseDouble(c[6]), hi);
                     row.add(String.format(Locale.ROOT, "%s [%s; %s]%s (%s → %s)", fmt(c[5]), fmt(c[6]), fmt(c[7]), sig ? " *" : "", c[16], c[15]));
                 }
                 if (rule[0].equals("(7)")) {
@@ -1080,6 +1080,6 @@ final class XBaseAbl {
     static String fmt(String v) {
         if (v.isEmpty()) return "–";
         double d = Double.parseDouble(v);
-        return String.format(Locale.ROOT, "%+.1f", d);
+        return String.format(Locale.ROOT, "%+.1f", FeiBootstrap.nz(d, "%+.1f"));
     }
 }

@@ -429,7 +429,7 @@ public final class AlignmentEvaluation {
         String diff = "—";
         if (base != null) {
             double[] d = diffCi(c, base, boot);
-            String mark = d[1] < 0 ? " *" : d[0] > 0 ? " !" : "";
+            String mark = d[1] < -FeiBootstrap.SIG_EPS ? " *" : d[0] > FeiBootstrap.SIG_EPS ? " !" : "";
             diff = String.format(Locale.ROOT, "%+.1f [%+.1f; %+.1f]%s", 100 * (c.frr() - base.frr()), 100 * d[0], 100 * d[1], mark);
         }
         int total = c.sum(c.attempts);

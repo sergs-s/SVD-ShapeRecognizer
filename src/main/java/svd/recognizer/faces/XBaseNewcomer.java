@@ -468,7 +468,8 @@ final class XBaseNewcomer {
         double[] s = FeiBootstrap.sorted(Arrays.copyOf(d, k));
         double lo = FeiBootstrap.quantile(s, 0.025);
         double hi = FeiBootstrap.quantile(s, 0.975);
-        return String.format(Locale.ROOT, "%+.1f [%+.1f; %+.1f]%s", p, lo, hi, lo > 0 || hi < 0 ? " *" : "");
+        String f = "%+.1f";
+        return String.format(Locale.ROOT, "%+.1f [%+.1f; %+.1f]%s", FeiBootstrap.nz(p, f), FeiBootstrap.nz(lo, f), FeiBootstrap.nz(hi, f), FeiBootstrap.sig(lo, hi) ? " *" : "");
     }
 
     // ---------------------------------------------------------------- запуск
@@ -885,7 +886,8 @@ final class XBaseNewcomer {
             double[] ci = FeiNorm.ci(reps);
             double[] cd = FeiNorm.ci(dreps);
             t.append(String.format(Locale.ROOT, "%s | %d из %d (%.1f %%) | %.1f %% (%d/%d) [%.1f; %.1f] | %+.1f [%+.1f; %+.1f]%s%n", pj.label(), upd, galN, 100.0 * upd / galN,
-                    100 * p[0] / p[1], (int) p[0], (int) p[1], ci[0], ci[1], 100 * (p[0] - p[2]) / p[1], cd[0], cd[1], cd[0] > 0 || cd[1] < 0 ? " *" : ""));
+                    100 * p[0] / p[1], (int) p[0], (int) p[1], ci[0], ci[1], FeiBootstrap.nz(100 * (p[0] - p[2]) / p[1], "%+.1f"), FeiBootstrap.nz(cd[0], "%+.1f"),
+                    FeiBootstrap.nz(cd[1], "%+.1f"), FeiBootstrap.sig(cd[0], cd[1]) ? " *" : ""));
         }
         return t.toString();
     }

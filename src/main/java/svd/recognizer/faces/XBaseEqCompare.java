@@ -118,7 +118,8 @@ final class XBaseEqCompare {
             double point = mn[0] - mo[0];
             double lo = XBaseA0Check.q(d, 0.025);
             double hi = XBaseA0Check.q(d, 0.975);
-            s.append(String.format(Locale.ROOT, " | %+.1f [%+.1f; %+.1f]%s", point, lo, hi, lo > 0 || hi < 0 ? " *" : ""));
+            s.append(String.format(Locale.ROOT, " | %+.1f [%+.1f; %+.1f]%s", FeiBootstrap.nz(point, "%+.1f"), FeiBootstrap.nz(lo, "%+.1f"), FeiBootstrap.nz(hi, "%+.1f"),
+                    FeiBootstrap.sig(lo, hi) ? " *" : ""));
         } else {
             s.append(" | –");
         }

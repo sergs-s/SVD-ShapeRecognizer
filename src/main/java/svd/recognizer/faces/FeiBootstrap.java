@@ -417,6 +417,20 @@ final class FeiBootstrap {
         double lo = quantile(s, 0.025);
         double hi = quantile(s, 0.975);
         String f = "%+." + dec + "f";
-        return String.format(Locale.ROOT, f + " [" + f + "; " + f + "]%s", point, lo, hi, lo > 0 || hi < 0 ? " *" : "") + (Double.isNaN(point) ? "" : note(reps));
+        return String.format(Locale.ROOT, f + " [" + f + "; " + f + "]%s", nz(point, f), nz(lo, f), nz(hi, f), sig(lo, hi) ? " *" : "")
+                + (Double.isNaN(point) ? "" : note(reps));
+    }
+
+    /** Допуск признака значимости (№5 Жорика от 21.10.2026): конец интервала, равный 0 с точностью до ошибки округления, 0 не исключает. */
+    static final double SIG_EPS = 1e-9;
+
+    /** «Интервал не содержит 0» с допуском SIG_EPS (в единицах интервала, у разностей – п. п.). */
+    static boolean sig(double lo, double hi) {
+        return lo > SIG_EPS || hi < -SIG_EPS;
+    }
+
+    /** Для печати в формате fmt: отрицательное число, которое печатается нулём («−0,0»), – 0 (печатается как 0 со знаком формата). */
+    static double nz(double x, String fmt) {
+        return x <= 0 && String.format(Locale.ROOT, fmt, x).replaceAll("[^0-9]", "").chars().allMatch(c -> c == '0') ? 0.0 : x;
     }
 }

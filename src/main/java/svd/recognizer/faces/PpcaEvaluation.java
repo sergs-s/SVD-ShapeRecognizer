@@ -525,7 +525,7 @@ public final class PpcaEvaluation {
     private static String diffText(Outcome a, Outcome b, int[][] boot) {
         double[] ci = diffCi(a, b, boot);
         double d = a.frr() - b.frr();
-        String mark = ci[1] < 0 ? " *" : ci[0] > 0 ? " !" : "";
+        String mark = ci[1] < -FeiBootstrap.SIG_EPS ? " *" : ci[0] > FeiBootstrap.SIG_EPS ? " !" : "";
         return String.format(Locale.ROOT, "%+.1f [%+.1f; %+.1f]%s", 100 * d, 100 * ci[0], 100 * ci[1], mark);
     }
 

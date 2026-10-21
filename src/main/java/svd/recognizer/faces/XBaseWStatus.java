@@ -626,7 +626,8 @@ final class XBaseWStatus {
         double[] s = FeiBootstrap.sorted(Arrays.copyOf(d, k));
         double lo = FeiBootstrap.quantile(s, 0.025);
         double hi = FeiBootstrap.quantile(s, 0.975);
-        return String.format(Locale.ROOT, "%+.1f [%+.1f; %+.1f]%s", p, lo, hi, lo > 0 || hi < 0 ? " *" : "");
+        String f = "%+.1f";
+        return String.format(Locale.ROOT, "%+.1f [%+.1f; %+.1f]%s", FeiBootstrap.nz(p, f), FeiBootstrap.nz(lo, f), FeiBootstrap.nz(hi, f), FeiBootstrap.sig(lo, hi) ? " *" : "");
     }
 
     static String hubRow(List<SD> sds) {
@@ -905,12 +906,14 @@ final class XBaseWStatus {
         double[] ci = FeiNorm.ci(reps);
         double[] cd = FeiNorm.ci(dreps);
         // Критерий – избыток (одностороннее: значим, если нижняя граница > 0; значимый недостаток – не избыток).
-        boolean sig = cd[0] > 0 || cd[1] < 0;
-        boolean excess = cd[0] > 0;
+        boolean sig = FeiBootstrap.sig(cd[0], cd[1]);
+        boolean excess = cd[0] > FeiBootstrap.SIG_EPS;
         String verdict = sch.equals("Wa") ? "– (опора: сессии вне W есть)" : excess ? "избыток значим – причина в свежести или общей сессии"
-                : cd[1] < 0 ? "избытка нет (значимый недостаток) – причина «сессии вне W»" : "избыток незначим – причина «сессии вне W»";
+                : cd[1] < -FeiBootstrap.SIG_EPS ? "избытка нет (значимый недостаток) – причина «сессии вне W»" : "избыток незначим – причина «сессии вне W»";
+        String f = "%+.1f";
         return String.format(Locale.ROOT, "%s | %s | %s | %d из %d (%.1f %%) | %.1f %% (%d/%d) [%.1f; %.1f] | %+.1f [%+.1f; %+.1f]%s | %s%n", pj.label(), schName(sch), v.label,
-                upd, gal, 100.0 * upd / gal, 100 * p[0] / p[1], (int) p[0], (int) p[1], ci[0], ci[1], 100 * (p[0] - p[2]) / p[1], cd[0], cd[1], sig ? " *" : "", verdict);
+                upd, gal, 100.0 * upd / gal, 100 * p[0] / p[1], (int) p[0], (int) p[1], ci[0], ci[1], FeiBootstrap.nz(100 * (p[0] - p[2]) / p[1], f), FeiBootstrap.nz(cd[0], f),
+                FeiBootstrap.nz(cd[1], f), sig ? " *" : "", verdict);
     }
 
     /** Общие таблицы части 1 схемы: шаг 2 и шаги ≥ 2; пары (д) − (а), (б) − (а). */

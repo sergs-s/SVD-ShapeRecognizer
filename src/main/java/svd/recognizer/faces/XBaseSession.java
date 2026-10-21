@@ -224,8 +224,8 @@ final class XBaseSession {
         double lo = ok.length == 0 ? Double.NaN : ok[(int) Math.floor(0.025 * (ok.length - 1))];
         double hi = ok.length == 0 ? Double.NaN : ok[(int) Math.ceil(0.975 * (ok.length - 1))];
         double diff = 100.0 * (p[0] - p[1]) / p[2];
-        boolean sig = lo > 0 || hi < 0;
-        return String.format(Locale.ROOT, "%.1f %% (%d/%d) | %.1f %% | %+.1f [%+.1f; %+.1f]%s", 100.0 * p[0] / p[2], (int) p[0], (int) p[2], 100.0 * p[1] / p[2], diff,
-                lo, hi, sig ? " *" : "");
+        boolean sig = FeiBootstrap.sig(lo, hi);
+        return String.format(Locale.ROOT, "%.1f %% (%d/%d) | %.1f %% | %+.1f [%+.1f; %+.1f]%s", 100.0 * p[0] / p[2], (int) p[0], (int) p[2], 100.0 * p[1] / p[2], FeiBootstrap.nz(diff, "%+.1f"),
+                FeiBootstrap.nz(lo, "%+.1f"), FeiBootstrap.nz(hi, "%+.1f"), sig ? " *" : "");
     }
 }

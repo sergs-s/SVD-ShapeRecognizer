@@ -369,7 +369,7 @@ public final class TrainingSizeCurve {
         text.append("  N  k_ср   FRR, % [95 % ДИ]      ΔFRR N→N+1, п.п. [95 % ДИ]   argmin, % [95 % ДИ]   путан.,%  FAR ср/мин/макс, %   FAR↑95 худш.  люди (хоть раз / худш.)  люди↑95 худш.\n");
         for (Point p : points) {
             String diff = Double.isNaN(p.diffNext()) ? "—" : String.format(Locale.ROOT, "%+5.1f [%+5.1f; %+5.1f]%s",
-                    100 * p.diffNext(), 100 * p.diffLo(), 100 * p.diffHi(), p.diffLo() > 0 ? " *" : "  ");
+                    100 * p.diffNext(), 100 * p.diffLo(), 100 * p.diffHi(), p.diffLo() > FeiBootstrap.SIG_EPS ? " *" : "  ");
             text.append(String.format(Locale.ROOT,
                     "  %d  %4.2f   %5s [%5s; %5s]   %-29s  %5s [%5s; %5s]   %5s     %4s/%4s/%4s      %5s         %d/%d / %d/%d              %5s%n",
                     p.n(), p.kMean(), pct(p.frr()), pct(p.frrLo()), pct(p.frrHi()), diff,
