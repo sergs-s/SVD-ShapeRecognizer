@@ -557,14 +557,16 @@ final class XBaseAbl {
         }
     }
 
-    /** Точка и границы 2,5–97,5 % парной разности (те же реплики). */
+    /**
+     * Точка и границы 2,5–97,5 % парной разности (те же реплики) – полной точностью: abl-summary округляет один раз (прежде – %.2f здесь и
+     * %+.1f там, двойное округление; найдено Ахмедом, №11 Жорика).
+     */
     static List<String> diffCells(double point, double[] a, double[] z) {
-        if (a.length == 0) return List.of(String.format(Locale.ROOT, "%.2f", point), "", "");
+        if (a.length == 0) return List.of(Double.toString(point), "", "");
         double[] d = new double[a.length];
         for (int q = 0; q < a.length; q++) d[q] = a[q] - z[q];
         d = FeiBootstrap.sorted(d);
-        return List.of(String.format(Locale.ROOT, "%.2f", point), String.format(Locale.ROOT, "%.2f", FeiBootstrap.quantile(d, 0.025)),
-                String.format(Locale.ROOT, "%.2f", FeiBootstrap.quantile(d, 0.975)));
+        return List.of(Double.toString(point), Double.toString(FeiBootstrap.quantile(d, 0.025)), Double.toString(FeiBootstrap.quantile(d, 0.975)));
     }
 
     static String sumHead() {

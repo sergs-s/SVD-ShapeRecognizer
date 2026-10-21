@@ -265,6 +265,31 @@ final class XBaseOther {
             FeiCheckpoint.deleteDir(dir);
         }
 
+        /** Сохранённый объект части (Java-сериализация, gzip) или null – части нет. */
+        Object readObj(String name) throws IOException {
+            Path f = dir.resolve(name + ".ser.gz");
+            if (!Files.exists(f)) return null;
+            try (java.io.ObjectInputStream in = new java.io.ObjectInputStream(new GZIPInputStream(Files.newInputStream(f), 1 << 16))) {
+                return in.readObject();
+            } catch (ClassNotFoundException e) {
+                throw new IOException("Контрольная точка " + f + ": " + e, e);
+            }
+        }
+
+        /** Объект части – через временный файл и переименование (обрыв посреди записи не портит сохранённое). */
+        void saveObj(String name, java.io.Serializable o) throws IOException {
+            Path tmp = dir.resolve(name + ".ser.tmp");
+            Path f = dir.resolve(name + ".ser.gz");
+            try (java.io.ObjectOutputStream out = new java.io.ObjectOutputStream(new GZIPOutputStream(Files.newOutputStream(tmp), 1 << 16))) {
+                out.writeObject(o);
+            }
+            try {
+                Files.move(tmp, f, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+            } catch (java.nio.file.AtomicMoveNotSupportedException e) {
+                Files.move(tmp, f, StandardCopyOption.REPLACE_EXISTING);
+            }
+        }
+
         private static void write(Path f, String text) throws IOException {
             Path tmp = f.resolveSibling(f.getFileName() + ".tmp");
             Files.writeString(tmp, text, StandardCharsets.UTF_8);

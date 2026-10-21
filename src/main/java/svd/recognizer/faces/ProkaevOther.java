@@ -172,8 +172,8 @@ final class ProkaevOther {
         for (Map.Entry<String, Mat> e : XBaseEval.frames(export, list, null).entrySet()) ProkaevEval.addSmall(v, e.getKey(), e.getValue());
         ProkaevEval.feiFrames(export, dir, new HashSet<>(fei10), settings, v);
         String fp = FeiCheckpoint.fingerprint(dir, String.format(Locale.ROOT, "%s; seed %d; r0 %s; R %s; конфигураций %d; H %s", mode, t.seed, t.r0, t.rLimit, jobs.size(),
-                ProkaevFrames.BOX_SHARE));
-        XBaseOther.Checkpoint cp = new XBaseOther.Checkpoint(out.resolve("checkpoint_" + mode), fp);
+                ProkaevFrames.sheetTag()));
+        XBaseOther.Checkpoint cp = new XBaseOther.Checkpoint(out.resolve("checkpoint_" + mode + ProkaevFrames.tag()), fp);
         ProkaevEval.Run run = new ProkaevEval.Run();
         for (ProkaevEval.Job j : jobs) {
             ProkaevEval.checkRoles(run, j, false);
@@ -197,11 +197,11 @@ final class ProkaevOther {
         StringBuilder sum = new StringBuilder(ProkaevEval.sumHead());
         ProkaevEval.tables(r, sum, run, rest.size(), t, List.of(title), title, "L1 (xbase_72c3195)");
         ProkaevEval.summaryText(r, sum.toString());
-        XBaseOther.writeScores(out.resolve("xbase_" + code + "_prokaev_scores.tsv.gz"), "# " + title + ", Д-№1 метод Прокаева (ProkaevOther " + mode + "); блоки – база, "
+        XBaseOther.writeScores(out.resolve("xbase_" + code + "_prokaev" + ProkaevFrames.tag() + "_scores.tsv.gz"), "# " + title + ", Д-№1 метод Прокаева (ProkaevOther " + mode + "); блоки – база, "
                 + "конфигурация, строка\n# Код: коммит " + FarMethods.commit() + "\n", run.lines.toString());
         r.append(String.format(Locale.ROOT, "%nВремя: %.0f с; наибольшая занятая куча (выборки после каждой конфигурации) – %d МБ из %d МБ.%n", (System.nanoTime() - t0) / 1e9,
                 run.peak >> 20, Runtime.getRuntime().maxMemory() >> 20));
-        FarMethods.write(out.resolve("xbase_" + code + "_prokaev.txt"), r);
+        FarMethods.write(out.resolve("xbase_" + code + "_prokaev" + ProkaevFrames.tag() + ".txt"), r);
         System.out.print(r);
         cp.delete();
     }
@@ -333,8 +333,8 @@ final class ProkaevOther {
             c.ctrlR = ctrl.stream().mapToDouble(a -> a[1]).toArray();
             fc.computeIfAbsent(label, x -> new ArrayList<>()).add(c);
         };
-        String fp = FeiCheckpoint.fingerprint(dir, String.format(Locale.ROOT, "fei-prokaev; seed %d; конфигураций %d; H %s", seed, jobs.size(), ProkaevFrames.BOX_SHARE));
-        XBaseOther.Checkpoint cp = new XBaseOther.Checkpoint(out.resolve("checkpoint_fei_prokaev"), fp);
+        String fp = FeiCheckpoint.fingerprint(dir, String.format(Locale.ROOT, "fei-prokaev; seed %d; конфигураций %d; H %s", seed, jobs.size(), ProkaevFrames.sheetTag()));
+        XBaseOther.Checkpoint cp = new XBaseOther.Checkpoint(out.resolve("checkpoint_fei_prokaev" + ProkaevFrames.tag()), fp);
         for (ProkaevEval.Job j : jobs) {
             String name = String.format(Locale.ROOT, "conf_%02d", j.pass);
             String text = cp.read(name);
@@ -379,11 +379,11 @@ final class ProkaevOther {
             r.append(String.format(Locale.ROOT, "%s | %d | %.1f %% | %.1f %% | %d | %.2f %% | %d/%d%n", e.getKey(), t[0], 100.0 * t[1] / t[0], 100.0 * t[2] / t[0], t[3],
                     100.0 * t[4] / t[3], pa, pn));
         }
-        XBaseOther.writeScores(out.resolve("xbase_fei_prokaev_scores.tsv.gz"), "# FEI, Д-№1 метод Прокаева (ProkaevOther fei-prokaev); s – разбиение, j – конфигурация; "
+        XBaseOther.writeScores(out.resolve("xbase_fei_prokaev" + ProkaevFrames.tag() + "_scores.tsv.gz"), "# FEI, Д-№1 метод Прокаева (ProkaevOther fei-prokaev); s – разбиение, j – конфигурация; "
                 + "роли own / thr / ctrl\n# Код: коммит " + FarMethods.commit() + "\n", run.lines.toString());
         r.append(String.format(Locale.ROOT, "%nВремя: %.0f с; наибольшая занятая куча – %d МБ из %d МБ.%n", (System.nanoTime() - t0) / 1e9, run.peak >> 20,
                 Runtime.getRuntime().maxMemory() >> 20));
-        FarMethods.write(out.resolve("xbase_fei_prokaev.txt"), r);
+        FarMethods.write(out.resolve("xbase_fei_prokaev" + ProkaevFrames.tag() + ".txt"), r);
         System.out.print(r);
         cp.delete();
     }
@@ -396,7 +396,14 @@ final class ProkaevOther {
         double fn = 0;
         for (FCfg c : cs) {
             double th = FeiBootstrap.threshold(c.thrR, c.thrP, w, far);
-            if (Double.isNaN(th)) return new double[] {Double.NaN, Double.NaN}; // порог не определён (№9 Жорика)
+            if (Double.isNaN(th)) {
+                // Порог не определён (№9 Жорика): NaN, если он нужен пробе с весом > 0; конфигурация без вытянутых проб не влияет (№3 Жорика от 21.10).
+                boolean used = false;
+                for (int p : c.ownP) used |= w[p] > 0;
+                for (int p : c.ctrlP) used |= w[p] > 0;
+                if (used) return new double[] {Double.NaN, Double.NaN};
+                continue;
+            }
             for (int i = 0; i < c.ownR.length; i++) {
                 n += w[c.ownP[i]];
                 if (!(c.ownOk[i] && c.ownR[i] <= th)) e += w[c.ownP[i]];

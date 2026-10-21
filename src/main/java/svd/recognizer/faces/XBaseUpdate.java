@@ -172,7 +172,7 @@ final class XBaseUpdate {
     // ---------------------------------------------------------------- шаг
 
     /** Итог шага одного прохода: конфигурация (свои – только люди с ≥ 4 датами), чужие П2/П3, сведения для таблиц. */
-    static final class Step {
+    static final class Step implements java.io.Serializable {
         FeiDecompose.Cfg cfg;
         FeiThreshold.Imp imp;
         /** Только шаг 1: чужие П2/П3 по общей W (полная модель, центры части исключены). */
@@ -528,6 +528,10 @@ final class XBaseUpdate {
         StringBuilder body = new StringBuilder();
         double simS = 0;
         Map<String, Map<Gate, Map<Var, List<List<Step>>>>> keep = new LinkedHashMap<>();
+        // Контрольная точка – после каждого прохода проекции и каждого прохода К4 (решение Хозяина 20.10.2026: прогон без неё терял до 40 мин).
+        XBaseOther.Checkpoint cp = new XBaseOther.Checkpoint(dir.resolve(FeretData.DERIVED).resolve("checkpoint_feret_update_eq"), FeiCheckpoint.fingerprint(exportDir,
+                String.format(Locale.ROOT, "feret-update; seed %d; B %d; r0 %s; проекций %d", tpl.seed, tpl.b, tpl.r0, PROJS.size())));
+        int pi = 0;
         for (Proj pj : PROJS) {
             // [gate][var][pass] → шаги.
             Map<Gate, Map<Var, List<List<Step>>>> all = new LinkedHashMap<>();
@@ -538,17 +542,29 @@ final class XBaseUpdate {
             }
             for (int pp = 0; pp < 2; pp++) {
                 long ts = System.nanoTime();
-                Ctx c = ctx(xs[pj.f()], tpl, su.rOf, halves.get(pp), halves.get(1 - pp), pool, pj.pool(), cohort, dateOf);
-                check.append(String.format(Locale.ROOT, "%s проход %d: совпало %d оценок (оба зеркала)%n", pj.label(), pp + 1, checkStart(c, ctrl)));
-                List<java.util.concurrent.Callable<List<Step>>> tasks = new ArrayList<>();
-                for (Gate g : Gate.values()) {
-                    for (Var v : Var.values()) {
-                        String tag = pj.label() + "\t" + (pp + 1) + "\t" + g.label + "\t" + v.label;
-                        int ms = maxStep;
-                        tasks.add(() -> simulate(c, v, g, ctrl, pIdx, measured, ms, tag));
+                String part = "p" + pi + "_" + pp;
+                Object[] saved = (Object[]) cp.readObj(part);
+                List<List<Step>> done;
+                if (saved != null) {
+                    check.append((String) saved[0]);
+                    @SuppressWarnings("unchecked")
+                    List<List<Step>> d = (List<List<Step>>) saved[1];
+                    done = d;
+                } else {
+                    Ctx c = ctx(xs[pj.f()], tpl, su.rOf, halves.get(pp), halves.get(1 - pp), pool, pj.pool(), cohort, dateOf);
+                    String chk = String.format(Locale.ROOT, "%s проход %d: совпало %d оценок (оба зеркала)%n", pj.label(), pp + 1, checkStart(c, ctrl));
+                    check.append(chk);
+                    List<java.util.concurrent.Callable<List<Step>>> tasks = new ArrayList<>();
+                    for (Gate g : Gate.values()) {
+                        for (Var v : Var.values()) {
+                            String tag = pj.label() + "\t" + (pp + 1) + "\t" + g.label + "\t" + v.label;
+                            int ms = maxStep;
+                            tasks.add(() -> simulate(c, v, g, ctrl, pIdx, measured, ms, tag));
+                        }
                     }
+                    done = runAll(tasks, tpl.threads);
+                    cp.saveObj(part, new Object[] {chk, new ArrayList<>(done)});
                 }
-                List<List<Step>> done = runAll(tasks, tpl.threads);
                 int ti = 0;
                 for (Gate g : Gate.values()) {
                     for (Var v : Var.values()) {
@@ -563,6 +579,7 @@ final class XBaseUpdate {
             }
             for (Gate g : Gate.values()) body.append(group(pj, g, all.get(g), persons.size(), tpl, maxStep));
             keep.put(pj.label(), all);
+            pi++;
         }
 
         // К4 (каскад 0б для глаз): (а) и (в) на кадрах derived/a_k4_0b – если они есть для всех нужных снимков FERET.
@@ -592,10 +609,23 @@ final class XBaseUpdate {
                 }
                 Proj pk = new Proj("К4 " + pj.label(), pj.f(), pj.pool());
                 for (int pp = 0; pp < 2; pp++) {
-                    Ctx c = ctx(xk[pj.f()], tpl, su.rOf, halves.get(pp), halves.get(1 - pp), pool, pj.pool(), cohort, dateOf);
+                    String part = "k4_" + pk.label().replace(' ', '_') + "_" + pp;
+                    @SuppressWarnings("unchecked")
+                    ArrayList<List<Step>> done = (ArrayList<List<Step>>) cp.readObj(part);
+                    if (done == null) {
+                        done = new ArrayList<>();
+                        Ctx c = ctx(xk[pj.f()], tpl, su.rOf, halves.get(pp), halves.get(1 - pp), pool, pj.pool(), cohort, dateOf);
+                        for (Gate g : Gate.values()) {
+                            for (Var v : List.of(Var.A, Var.C)) {
+                                done.add(simulate(c, v, g, ctrl, pIdx, measured, maxStep, pk.label() + "\t" + (pp + 1) + "\t" + g.label + "\t" + v.label));
+                            }
+                        }
+                        cp.saveObj(part, done);
+                    }
+                    int ti = 0;
                     for (Gate g : Gate.values()) {
                         for (Var v : List.of(Var.A, Var.C)) {
-                            List<Step> steps = simulate(c, v, g, ctrl, pIdx, measured, maxStep, pk.label() + "\t" + (pp + 1) + "\t" + g.label + "\t" + v.label);
+                            List<Step> steps = done.get(ti++);
                             allK.get(g).get(v).add(steps);
                             for (Step s : steps) scores.append(s.lines);
                         }
@@ -619,6 +649,7 @@ final class XBaseUpdate {
             w.write(scores.toString());
         }
         FarMethods.write(out.resolve("xbase_feret_update.txt"), t);
+        cp.delete();
         System.out.print(t);
     }
 

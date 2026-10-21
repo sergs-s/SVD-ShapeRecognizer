@@ -112,6 +112,8 @@ final class ProkaevEval {
         List<Object[]> extraBases = new ArrayList<>();
         /** Только строка «контроль – половины» (GT справочно). */
         boolean halfOnly;
+        /** Считать только строки cfgs() с этими номерами (п. 5 дуэли); null – все. */
+        Set<Integer> only;
 
         List<String> guests(Gs gs) {
             return switch (gs) {
@@ -292,7 +294,8 @@ final class ProkaevEval {
         StringBuilder out = new StringBuilder();
         Mats big = mats(j, vecs.big);
         Mats small = null;
-        for (Cfg c : cfgs()) if (c.frameA() && !j.halfOnly) small = mats(j, vecs.small);
+        List<Cfg> cl = cfgs();
+        for (int ci = 0; ci < cl.size(); ci++) if (cl.get(ci).frameA() && !j.halfOnly && (j.only == null || j.only.contains(ci))) small = mats(j, vecs.small);
         // Отбор гостей по правилу автора: модель без гостей, оценка – доля снимков пула с долей своего ≥ 0,95.
         if (!j.authPool.isEmpty() && j.auth.isEmpty()) {
             Model m0 = model(j, big, Gs.NONE, false, -1);
@@ -329,6 +332,7 @@ final class ProkaevEval {
             Cfg c = all.get(ci);
             if (j.halfOnly != (c.gs() == Gs.HALF)) continue;
             if (c.gs() == Gs.AUTH && j.auth.isEmpty()) continue;
+            if (j.only != null && !j.only.contains(ci)) continue;
             Mats mt = c.frameA() ? small : big;
             String method = "prokaev-" + ci;
             out.append("## ").append(ci).append('\n');
@@ -557,6 +561,10 @@ final class ProkaevEval {
         }
     }
 
+    static double num(String s) {
+        return Double.parseDouble(s);
+    }
+
     static String sumHead() {
         return "# база\tпостановка\tстрока\tразд. 1 %\tП3 FAR 1 %\tFAR контроля П3 %\tEER\tразд. 1 %: метод − база (4а)\tниз\tверх\tEER: метод − база\tниз\tверх\t"
                 + "правило 0,95: отвергнуто своих %\tFAR контроля по снимкам %\n";
@@ -569,8 +577,9 @@ final class ProkaevEval {
         for (String l : sum.split("\n")) {
             if (l.startsWith("#") || l.isEmpty()) continue;
             String[] c = l.split("\t", -1);
-            String d1 = c[7].startsWith("база") ? c[7] : String.format(Locale.ROOT, "%s [%s; %s]", c[7], c[8], c[9]);
-            String d2 = c[7].startsWith("база") ? "–" : String.format(Locale.ROOT, "%s [%s; %s]", c[10], c[11], c[12]);
+            // В файле сводки – полная точность (одно округление – при выводе, №11 Жорика); в тексте – два знака.
+            String d1 = c[7].startsWith("база") ? c[7] : String.format(Locale.ROOT, "%.2f [%.2f; %.2f]", num(c[7]), num(c[8]), num(c[9]));
+            String d2 = c[7].startsWith("база") ? "–" : String.format(Locale.ROOT, "%.2f [%.2f; %.2f]", num(c[10]), num(c[11]), num(c[12]));
             r.append(String.join(" | ", c[1], c[3] + " %", c[4], c[5] + " %", c[6] + " %", d1, d2, c[13] + " %", c[14] + " %")).append('\n');
         }
     }
@@ -670,21 +679,20 @@ final class ProkaevEval {
         StringBuilder sum = new StringBuilder(sumHead());
         tables(r, sum, run, persons.size(), tpl, List.of("межс.", "G2", "внутри"), "FERET", BASE_ROW);
         summaryText(r, sum.toString());
-        XBaseOther.writeScores(out.resolve("xbase_feret_prokaev_scores.tsv.gz"), "# FERET, Д-№1 метод Прокаева (ProkaevEval feret-prokaev), только локально; блоки – "
+        XBaseOther.writeScores(out.resolve("xbase_feret_prokaev" + ProkaevFrames.tag() + "_scores.tsv.gz"), "# FERET, Д-№1 метод Прокаева (ProkaevEval feret-prokaev), только локально; блоки – "
                 + "постановка, проход, строка; оценка – 1 + (1 − доля лучшего своего) + 1e-6·d/(1 + d) (меньше – ближе), у строки d₁/d₂ – расстояния до ближайших точек\n"
                 + "# Код: коммит " + FarMethods.commit() + "\n", run.lines.toString());
-        FarMethods.write(out.resolve("xbase_feret_prokaev_summary.tsv"), sum);
+        FarMethods.write(out.resolve("xbase_feret_prokaev" + ProkaevFrames.tag() + "_summary.tsv"), sum);
         r.append(String.format(Locale.ROOT, "%nВремя: %.0f с; наибольшая занятая куча (выборки после каждой строки) – %d МБ из %d МБ.%n", (System.nanoTime() - t0) / 1e9,
                 run.peak >> 20, Runtime.getRuntime().maxMemory() >> 20));
-        FarMethods.write(out.resolve("xbase_feret_prokaev.txt"), r);
+        FarMethods.write(out.resolve("xbase_feret_prokaev" + ProkaevFrames.tag() + ".txt"), r);
         System.out.print(r);
     }
 
     static void header(StringBuilder r, XBaseEval.Gt tpl, Vecs v, Run run, List<Job> jobs, String guests) {
         r.append(String.format(Locale.ROOT, "Метод (ProkaevMethod): SVD без центрирования по общей матрице «галерея + гости», k = %d, l = %d, точка – строка L_k, проба – "
                 + "w_j = z·R_j / s_j, доли по формуле 7, правило автора – гость (отказ), если доля гостей > 0 и доля каждого своего < 0,95.%n", K, L));
-        r.append(String.format(Locale.ROOT, "Кадр: вырезка 2:3 по рамке YuNet, H = h_рамки / %.3f, 400 × 600, серый; не влезло в снимок – %d. Справочно – кадр «а» 92×112.%n",
-                ProkaevFrames.BOX_SHARE, v.clipped));
+        r.append(String.format(Locale.ROOT, "Кадр: %s. Справочно – кадр «а» 92×112.%n", ProkaevFrames.describe(v.clipped)));
         r.append("Оценка для наших мер (разделимость, П3, EER): 1 − доля лучшего своего, ничьи – по d₁ (расстояние до ближайшей точки этого человека); выбор "
                 + "модели по позе не применяется (зеркал у метода нет). Роли, пробы, контроль и части «чужих» – как у базы (4а).\n");
         r.append(guests).append("; 10 / 20 / 30 – вложенные, по одному снимку, seed faces.seed + ").append(GUEST_SEED).append(" + номер протокола; гости FEI – seed + ")
@@ -864,12 +872,12 @@ final class ProkaevEval {
         StringBuilder sum = new StringBuilder(sumHead());
         tables(r, sum, run, g0.persons.size(), g0, List.of("межс.", "внутри"), "GT", BASE_ROW);
         summaryText(r, sum.toString());
-        XBaseOther.writeScores(out.resolve("xbase_gt_prokaev_scores.tsv.gz"), "# GT, Д-№1 метод Прокаева (ProkaevEval gt-prokaev); блоки – постановка, проход, строка\n"
+        XBaseOther.writeScores(out.resolve("xbase_gt_prokaev" + ProkaevFrames.tag() + "_scores.tsv.gz"), "# GT, Д-№1 метод Прокаева (ProkaevEval gt-prokaev); блоки – постановка, проход, строка\n"
                 + "# Код: коммит " + FarMethods.commit() + "\n# Данные: экспорт " + dir + ", коммит данных " + FarMethods.dataCommit(dir) + "\n", run.lines.toString());
-        FarMethods.write(out.resolve("xbase_gt_prokaev_summary.tsv"), sum);
+        FarMethods.write(out.resolve("xbase_gt_prokaev" + ProkaevFrames.tag() + "_summary.tsv"), sum);
         r.append(String.format(Locale.ROOT, "%nВремя: %.0f с; наибольшая занятая куча (выборки после каждой строки) – %d МБ из %d МБ.%n", (System.nanoTime() - t0) / 1e9,
                 run.peak >> 20, Runtime.getRuntime().maxMemory() >> 20));
-        FarMethods.write(out.resolve("xbase_gt_prokaev.txt"), r);
+        FarMethods.write(out.resolve("xbase_gt_prokaev" + ProkaevFrames.tag() + ".txt"), r);
         System.out.print(r);
     }
 }

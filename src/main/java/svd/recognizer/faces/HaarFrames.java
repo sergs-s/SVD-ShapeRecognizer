@@ -114,12 +114,28 @@ final class HaarFrames {
         MatOfRect rects = new MatOfRect();
         face.detectMultiScale(in, rects, HaarDebug.SCALE_FACTOR, HaarDebug.MIN_NEIGHBORS, 0, new Size(minFace, minFace), new Size());
         Rect[] all = rects.toArray();
+        // Наибольшая рамка; при равной площади – ближайшая к центру входа, затем меньшие y и x (порядок рамок OpenCV зависит от числа
+        // потоков – решение Хозяина 20.10.2026, №11 Жорика).
         Rect best = null;
-        for (Rect r : all) if (best == null || r.area() > best.area()) best = r;
+        for (Rect r : all) if (best == null || r.area() > best.area() || r.area() == best.area() && before(r, best, in)) best = r;
         if (best == null) return new Det(0, null, null, null);
         HaarDebug.Found f = HaarDebug.eyes(in, best, eye);
         return new Det(all.length, new double[] {best.x / scale, best.y / scale, best.width / scale, best.height / scale}, back(f.left(), scale),
                 back(f.right(), scale));
+    }
+
+    /** Выбор из рамок равной площади: ближе центр рамки к центру входа (в целых, удвоенные координаты), затем меньше y, затем x. */
+    static boolean before(Rect a, Rect b, Mat in) {
+        long da = dist2(a, in);
+        long db = dist2(b, in);
+        if (da != db) return da < db;
+        return a.y != b.y ? a.y < b.y : a.x < b.x;
+    }
+
+    private static long dist2(Rect r, Mat in) {
+        long dx = 2L * r.x + r.width - in.cols();
+        long dy = 2L * r.y + r.height - in.rows();
+        return dx * dx + dy * dy;
     }
 
     private static double[] back(double[] p, double scale) {
@@ -136,10 +152,23 @@ final class HaarFrames {
 
     // ---------------------------------------------------------------- кэш
 
+    /**
+     * Перезапись кэша без повторов ключей (до 5a38420 кэш не читался и дописывался заново – копии всех ключей): подпись и по одной
+     * строке на ключ – последняя (она и действовала при чтении), порядок – первое появление ключа; через временный файл.
+     */
+    static void dedupe(Path file, String head, Map<String, String> last) throws IOException {
+        StringBuilder t = new StringBuilder(head).append('\n');
+        for (String l : last.values()) t.append(l).append('\n');
+        Path tmp = file.resolveSibling(file.getFileName() + ".tmp");
+        Files.writeString(tmp, t, StandardCharsets.UTF_8);
+        Files.move(tmp, file, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+    }
+
     /** Кэш: готовые строки читаются, недостающие ключи считаются и дописываются; итог – в порядке keys. */
     static Map<String, Det> cached(Path file, List<String> keys, Loader loader, double scale, CascadeClassifier face, CascadeClassifier eye,
                                    String label) throws IOException {
         Map<String, Det> done = new HashMap<>();
+        Map<String, String> last = new LinkedHashMap<>();
         boolean fresh = !Files.exists(file);
         if (!fresh) {
             List<String> lines = Files.readAllLines(file, StandardCharsets.UTF_8);
@@ -154,7 +183,9 @@ final class HaarFrames {
                 double[] le = c[8].isEmpty() ? null : new double[] {Double.parseDouble(c[8]), Double.parseDouble(c[9])};
                 double[] re = c[10].isEmpty() ? null : new double[] {Double.parseDouble(c[10]), Double.parseDouble(c[11])};
                 done.put(c[0], new Det(Integer.parseInt(c[1]), f, le, re));
+                last.put(c[0], l);
             }
+            if (lines.size() - 1 > last.size()) dedupe(file, lines.get(0), last);
         }
         int n = 0;
         try (Writer w = Files.newBufferedWriter(file, StandardCharsets.UTF_8, StandardOpenOption.CREATE, StandardOpenOption.APPEND)) {

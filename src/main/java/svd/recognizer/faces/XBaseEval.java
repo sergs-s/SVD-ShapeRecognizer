@@ -392,6 +392,12 @@ public final class XBaseEval {
             ProkaevOther.other(a[0], export, dir, feiKeys, selLines, settings, out);
         } else if (a[0].equals("fei-prokaev")) {
             ProkaevOther.fei(export, dir, feiKeys, selLines, settings, out);
+        } else if (a[0].equals("feret-prokaev-n")) {
+            ProkaevN.feret(export, dir, feiKeys, selLines, settings);
+        } else if (a[0].equals("gt-prokaev-n")) {
+            ProkaevN.gt(export, dir, feiKeys, selLines, settings, out);
+        } else if (a[0].equals("fei-prokaev-n")) {
+            ProkaevN.fei(export, dir, feiKeys, settings, out);
         } else if (a[0].equals("prokaev-sheet")) {
             ProkaevFrames.sheet(dir, settings, out);
         } else if (a[0].equals("abl-lbf")) {

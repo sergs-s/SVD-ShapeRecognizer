@@ -181,7 +181,7 @@ public final class FeiThreshold {
     // ---------------------------------------------------------------- данные
 
     /** Чужие для порога одной конфигурации: r по возрастанию и человек каждого снимка. */
-    record Imp(double[] r, int[] p, int frontal) {
+    record Imp(double[] r, int[] p, int frontal) implements java.io.Serializable {
         static Imp of(List<double[]> v, int frontal) {
             v.sort((a, b) -> Double.compare(a[1], b[1]));
             return new Imp(v.stream().mapToDouble(a -> a[1]).toArray(), v.stream().mapToInt(a -> (int) a[0]).toArray(), frontal);

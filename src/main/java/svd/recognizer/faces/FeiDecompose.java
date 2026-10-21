@@ -46,7 +46,7 @@ final class FeiDecompose {
     static final int KS = 2;
 
     /** Свои и пороговые одной части в одной конфигурации. */
-    static final class Cfg {
+    static final class Cfg implements java.io.Serializable {
         int[] ownP;
         double[] ownR;
         boolean[] ownOk;

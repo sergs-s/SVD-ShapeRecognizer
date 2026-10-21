@@ -187,9 +187,13 @@ final class FeiBootstrap {
         for (Cfg c : cs) {
             double t1 = threshold(c.thrS, c.thrP, w, FeiScores.FARS[0]);
             double t5 = threshold(c.thrS, c.thrP, w, FeiScores.FARS[1]);
-            // Порог не определён (пустая реплика) – меры при нём NaN (решение Хозяина 20.10.2026, №9 Жорика).
-            nan1 |= Double.isNaN(t1);
-            nan5 |= Double.isNaN(t5);
+            // Порог не определён (пустая реплика) – меры при нём NaN (решение Хозяина 20.10.2026, №9 Жорика), если порог нужен хотя бы одной
+            // пробе с весом > 0; конфигурация без вытянутых проб на реплику не влияет (№3 Жорика от 21.10, как XBaseNewcomer.metrics).
+            boolean used = false;
+            for (int p : c.ownP) used |= w[p] > 0;
+            for (int p : c.ctrlP) used |= w[p] > 0;
+            nan1 |= used && Double.isNaN(t1);
+            nan5 |= used && Double.isNaN(t5);
             int fr = c.frontal ? 1 : 0;
             for (int i = 0; i < c.ownP.length; i++) {
                 int q = w[c.ownP[i]];

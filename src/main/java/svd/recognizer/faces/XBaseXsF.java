@@ -473,6 +473,9 @@ final class XBaseXsF {
         List<String[]> pairs = new ArrayList<>();
         StringBuilder lines = new StringBuilder();
         long t0 = System.nanoTime();
+        // Контрольная точка – после каждого режима и варианта (решение Хозяина 20.10.2026: прогон без неё терял до 80 мин).
+        XBaseOther.Checkpoint cp = new XBaseOther.Checkpoint(out.resolve("checkpoint_gt_xs_f"), FeiCheckpoint.fingerprint(dir, String.format(Locale.ROOT,
+                "gt-xs-f; seed %d; B %d; r0 %s; пул %d", g.seed, g.b, g.r0, pool.size())));
         try {
             for (Object[] md : modes) {
                 @SuppressWarnings("unchecked")
@@ -485,7 +488,12 @@ final class XBaseXsF {
                         List<List<String>> aug = new ArrayList<>(cohort0);
                         aug.addAll(extra.get(kind));
                         g.cohort = aug;
-                        String ls = XBaseEval.fitLines(g, xs[f], EnumSet.of(V.L1), gal, probes, parts, 0);
+                        String part = (md[0].equals("межс.") ? "x" : "i") + "_" + f + "_" + kind.ordinal();
+                        String ls = cp.read(part);
+                        if (ls == null) {
+                            ls = XBaseEval.fitLines(g, xs[f], EnumSet.of(V.L1), gal, probes, parts, 0);
+                            cp.save(part, ls);
+                        }
                         lines.append("# режим ").append(md[0]).append(", вариант ").append(label(f, kind)).append('\n').append(ls);
                         XBaseEval.Parsed p = XBaseEval.parse(g, EnumSet.of(V.L1), gal, probes, parts, ls);
                         String label = md[0] + " " + label(f, kind);
@@ -528,6 +536,7 @@ final class XBaseXsF {
         XBaseOther.writeScores(out.resolve("xbase_gt_xs_f_scores.tsv.gz"), "# GT (П-д) (2), XBaseXsF gt-xs-f; блоки — режим и вариант; роли own, ctrl, cv<q>\n"
                 + "# Код: коммит " + FarMethods.commit() + "\n# Данные: экспорт " + dir + ", коммит данных " + FarMethods.dataCommit(dir) + "\n", lines.toString());
         FarMethods.write(out.resolve("xbase_gt_xs_f.txt"), t);
+        cp.delete();
         System.out.print(t);
     }
 

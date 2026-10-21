@@ -36,12 +36,35 @@ import svd.recognizer.storage.SettingsStore;
  */
 final class ProkaevFrames {
 
-    /** Доля рамки в высоте кадра: по умолчанию 0,875; для листа сравнения – FACES_PROKAEV_BOX. */
-    static final double BOX_SHARE = System.getenv("FACES_PROKAEV_BOX") == null ? 0.875 : Double.parseDouble(System.getenv("FACES_PROKAEV_BOX"));
+    /**
+     * Доля рамки в высоте кадра К-лицо: по умолчанию 0,70 (решение Хозяина 20.10.2026, Д9; до того – 0,875, теперь справочно);
+     * FACES_PROKAEV_BOX – другое значение.
+     */
+    static final double BOX_SHARE = System.getenv("FACES_PROKAEV_BOX") == null ? 0.70 : Double.parseDouble(System.getenv("FACES_PROKAEV_BOX"));
+    /** Комплект кадров (Д10): face – К-лицо (по умолчанию), plain – К-обычный; ключ FACES_PROKAEV_FRAME. */
+    static final boolean PLAIN = "plain".equals(System.getenv("FACES_PROKAEV_FRAME"));
     static final int W = 400;
     static final int H = 600;
 
     private ProkaevFrames() {
+    }
+
+    /** Добавка к именам отчётов, оценок и контрольных точек: К-лицо 0,875 – без добавки (прежние имена), иначе «_face0.700», «_plain». */
+    static String tag() {
+        if (PLAIN) return "_plain";
+        return BOX_SHARE == 0.875 ? "" : String.format(Locale.ROOT, "_face%.3f", BOX_SHARE);
+    }
+
+    /** Добавка к имени листа: «plain» или доля рамки («0.700», «0.875» – прежние имена). */
+    static String sheetTag() {
+        return PLAIN ? "plain" : String.format(Locale.ROOT, "%.3f", BOX_SHARE);
+    }
+
+    /** Описание кадра для шапок отчётов и отпечатка контрольной точки. */
+    static String describe(int clipped) {
+        if (PLAIN) return String.format(Locale.ROOT, "К-обычный – наибольшее окно 2:3 в снимке (на всю высоту, а у снимка уже 2:3 – на всю ширину), по "
+                + "центру рамки YuNet со сдвигом внутрь у края, 400 × 600, серый; рамка не влезла по ширине окна – %d", clipped);
+        return String.format(Locale.ROOT, "вырезка 2:3 по рамке YuNet, H = h_рамки / %.3f, 400 × 600, серый; не влезло в снимок – %d", BOX_SHARE, clipped);
     }
 
     /** Кадр 400 × 600 (серый) по цветному снимку и строке YuNet; clipped[0] увеличивается, если вырезка не влезла в снимок. */
@@ -49,6 +72,7 @@ final class ProkaevFrames {
         Mat gray = new Mat();
         if (color.channels() == 1) color.copyTo(gray);
         else Imgproc.cvtColor(color, gray, Imgproc.COLOR_BGR2GRAY);
+        if (PLAIN) return plain(gray, row, clipped);
         double hh = row[3] / BOX_SHARE;
         double ww = hh * W / H;
         if (ww > gray.cols() || hh > gray.rows()) {
@@ -59,6 +83,31 @@ final class ProkaevFrames {
         }
         int w = (int) Math.min(gray.cols(), Math.round(ww));
         int h = (int) Math.min(gray.rows(), Math.round(hh));
+        int x0 = (int) Math.round(row[0] + row[2] / 2 - w / 2.0);
+        int y0 = (int) Math.round(row[1] + row[3] / 2 - h / 2.0);
+        x0 = Math.max(0, Math.min(x0, gray.cols() - w));
+        y0 = Math.max(0, Math.min(y0, gray.rows() - h));
+        Mat out = new Mat();
+        Imgproc.resize(gray.submat(new Rect(x0, y0, w, h)), out, new Size(W, H), 0, 0, w > W ? Imgproc.INTER_AREA : Imgproc.INTER_LINEAR);
+        gray.release();
+        return out;
+    }
+
+    /**
+     * К-обычный (Д10): наибольшее окно 2:3 – на всю высоту снимка (ширина 2·h/3), если снимок шире 2:3; иначе на всю ширину (высота
+     * 3·w/2). Центр окна – центр рамки YuNet, у края – сдвиг внутрь; clipped[0] – рамка шире окна. Затем 400 × 600, как К-лицо.
+     */
+    static Mat plain(Mat gray, double[] row, int[] clipped) {
+        int w;
+        int h;
+        if (gray.cols() * 3L >= gray.rows() * 2L) {
+            h = gray.rows();
+            w = (int) Math.min(gray.cols(), Math.round(h * 2.0 / 3));
+        } else {
+            w = gray.cols();
+            h = (int) Math.min(gray.rows(), Math.round(w * 1.5));
+        }
+        if (clipped != null && row[2] > w) clipped[0]++;
         int x0 = (int) Math.round(row[0] + row[2] / 2 - w / 2.0);
         int y0 = (int) Math.round(row[1] + row[3] / 2 - h / 2.0);
         x0 = Math.max(0, Math.min(x0, gray.cols() - w));
@@ -94,7 +143,7 @@ final class ProkaevFrames {
             tiles.add(tile(crop(c, gt.get(k), clipped), k));
             c.release();
         }
-        Path g = out.resolve("prokaev").resolve(String.format(Locale.ROOT, "gt_frames_%.3f.png", BOX_SHARE));
+        Path g = out.resolve("prokaev").resolve("gt_frames_" + sheetTag() + ".png");
         write(g, tiles);
         String rawDir = settings.loadFacesFeretDir();
         if (rawDir == null) throw new IllegalStateException("prokaev-sheet: задайте faces.feret.dir / FACES_FERET_DIR");
@@ -110,9 +159,9 @@ final class ProkaevFrames {
             tiles.add(tile(crop(c, det.get(im.key()), clipped), im.key()));
             c.release();
         }
-        Path f = dir.resolve("reports").resolve(XBaseEval.eqDir(0, true)).resolve("prokaev").resolve(String.format(Locale.ROOT, "feret_frames_%.3f.png", BOX_SHARE));
+        Path f = dir.resolve("reports").resolve(XBaseEval.eqDir(0, true)).resolve("prokaev").resolve("feret_frames_" + sheetTag() + ".png");
         write(f, tiles);
-        System.out.printf(Locale.ROOT, "prokaev-sheet: %s, %s; H = h_рамки / %.3f; не влезло в снимок – %d из 48%n", g, f, BOX_SHARE, clipped[0]);
+        System.out.printf(Locale.ROOT, "prokaev-sheet: %s, %s; %s (из 48)%n", g, f, describe(clipped[0]));
     }
 
     static Mat tile(Mat frame, String caption) {
