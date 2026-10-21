@@ -21,6 +21,9 @@ EER_EMPTY_50 = False
 # Вариант для разбора (Жорик №5, 20.10): выбор точки EER при равных |ошибка − FAR| как в коде – по процентам в плавающей
 # точке, первое строгое «<»; по умолчанию – доли и точное равенство (первый θ среди равных с допуском 1e-12).
 EER_JAVA_FLOAT = False
+# Правило 1bc4311 (решение Хозяина 20.10, №8 Жорика; XBaseSep.java:162–184): сравнение |(ownN − okN)·ctrlN − acc·ownN| в целых,
+# от bestGap = ownN·ctrlN, строгое «<» (при равенстве – первый θ); ни одна точка не меньше – заготовка {−∞, 100 %, 0 %, 50 %}.
+EER_INT = False
 
 
 def ratio(d1, d2):
@@ -269,6 +272,18 @@ def eer(own_r, own_wrong, own_w, ctrl_r, ctrl_w):
         if not g[i] < 100:
             return -math.inf, 1.0, 0.0, 0.5
         return float(cand[i]), float(frr[i] / 100), float(farp[i] / 100), float((frr[i] + farp[i]) / 2 / 100)
+    if EER_INT:
+        wo, wc = int(round(Wo)), int(round(Wc))
+        best, bi = wo * wc, -1
+        for i in range(len(cand)):
+            ok_n = int(round(acc_o[i] - acc_wrong[i]))
+            g = abs((wo - ok_n) * wc - int(round(cum_cw[ic[i]])) * wo)
+            if g < best:
+                best, bi = g, i
+        if bi < 0:
+            return -math.inf, 1.0, 0.0, 0.5
+        e_, f_ = (Wo - acc_o[bi] + acc_wrong[bi]) / Wo, cum_cw[ic[bi]] / Wc
+        return float(cand[bi]), float(e_), float(f_), float((e_ + f_) / 2)
     err = (Wo - acc_o + acc_wrong) / Wo
     far = cum_cw[ic] / Wc
     d = np.abs(err - far)
