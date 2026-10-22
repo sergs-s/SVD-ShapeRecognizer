@@ -1018,6 +1018,16 @@ mvn compile exec:java@faces-fei-scores  # разбор файла оценок F
     зависимость от числа людей N, k = 6 и 20, 5 выборок (seed faces.seed +
     9979 + 10·N + s), L1-xs-F при N = 10 (FERET и GT межс., только К-лицо);
     контрольные точки `checkpoint_<база>_prokaev_n<кадр>`;
+  - `fei-xs`, `own-xs` (`XBaseC1`, `8c98830`; сводка С1 (5), вариант Б) –
+    FEI: 5 разбиений, проба №11, L1, L1-xs-F, L1-tt-xs-F, (9б), SFace,
+    метод Прокаева по готовым оценкам fei-prokaev (нужны оба файла
+    оценок в `reports/faces/xbase/`), сверка с `fei_630f21a`; около 8 ч –
+    только отдельным процессом. Своя база внутри сессии, контроль –
+    односессионные GT, отказы YuNet и Хаара; ротации –
+    `FACES_OWN_ROTATIONS` (по умолчанию 12; 3 – около 1 ч 40 мин). Нужны
+    `FACES_FERET_DIR`, `faces.models.dir`, кэш `reports/faces/far/
+    fei_detections.cache`; контрольные точки `checkpoint_fei_xs`,
+    `checkpoint_own_xs`; копии – `SVD-faces-data/reports/xbase_8c98830/`;
   - контрольные точки feret-update (`derived\checkpoint_feret_update_eq`,
     после каждого прохода проекции и части К4) и gt-xs-f
     (`reports/faces/xbase/checkpoint_gt_xs_f`, после каждого варианта);
