@@ -83,49 +83,76 @@ final class ProkaevFrames {
         if (color.channels() == 1) color.copyTo(gray);
         else Imgproc.cvtColor(color, gray, Imgproc.COLOR_BGR2GRAY);
         if (PLAIN) return plain(gray, row, clipped, MASK);
-        double hh = row[3] / BOX_SHARE;
-        double ww = hh * W / H;
-        if (ww > gray.cols() || hh > gray.rows()) {
-            double f = Math.min(gray.cols() / ww, gray.rows() / hh);
-            ww *= f;
-            hh *= f;
-            if (clipped != null) clipped[0]++;
-        }
-        int w = (int) Math.min(gray.cols(), Math.round(ww));
-        int h = (int) Math.min(gray.rows(), Math.round(hh));
-        int x0 = (int) Math.round(row[0] + row[2] / 2 - w / 2.0);
-        int y0 = (int) Math.round(row[1] + row[3] / 2 - h / 2.0);
-        x0 = Math.max(0, Math.min(x0, gray.cols() - w));
-        y0 = Math.max(0, Math.min(y0, gray.rows() - h));
-        Mat out = new Mat();
-        Imgproc.resize(gray.submat(new Rect(x0, y0, w, h)), out, new Size(W, H), 0, 0, w > W ? Imgproc.INTER_AREA : Imgproc.INTER_LINEAR);
+        Mat out = resize(gray, faceWindow(gray.cols(), gray.rows(), row, clipped));
         gray.release();
         return out;
     }
 
     /**
-     * К-обычный (Д10): наибольшее окно 2:3 – на всю высоту снимка (ширина 2·h/3), если снимок шире 2:3; иначе на всю ширину (высота
-     * 3·w/2). Центр окна – центр рамки YuNet, у края – сдвиг внутрь; clipped[0] – рамка шире окна. Затем 400 × 600, как К-лицо.
+     * Окно К-лицо в снимке cols × rows: 2:3, высота h_рамки / BOX_SHARE, центр – центр рамки, выход за снимок – сдвиг внутрь, не влезает –
+     * наибольшее окно 2:3 в пределах снимка (clipped[0] увеличивается). Общее для серого кадра метода и цветного кадра набора Д-№2.
      */
-    static Mat plain(Mat gray, double[] row, int[] clipped, int mask) {
+    static Rect faceWindow(int cols, int rows, double[] row, int[] clipped) {
+        double hh = row[3] / BOX_SHARE;
+        double ww = hh * W / H;
+        if (ww > cols || hh > rows) {
+            double f = Math.min(cols / ww, rows / hh);
+            ww *= f;
+            hh *= f;
+            if (clipped != null) clipped[0]++;
+        }
+        int w = (int) Math.min(cols, Math.round(ww));
+        int h = (int) Math.min(rows, Math.round(hh));
+        int x0 = (int) Math.round(row[0] + row[2] / 2 - w / 2.0);
+        int y0 = (int) Math.round(row[1] + row[3] / 2 - h / 2.0);
+        x0 = Math.max(0, Math.min(x0, cols - w));
+        y0 = Math.max(0, Math.min(y0, rows - h));
+        return new Rect(x0, y0, w, h);
+    }
+
+    /**
+     * Окно К-обычный (Д10) в снимке cols × rows: наибольшее окно 2:3 – на всю высоту (ширина 2·h/3), если снимок шире 2:3; иначе на всю
+     * ширину (высота 3·w/2). Центр окна – центр рамки YuNet, у края – сдвиг внутрь; clipped[0] – рамка шире окна.
+     */
+    static Rect plainWindow(int cols, int rows, double[] row, int[] clipped) {
         int w;
         int h;
-        if (gray.cols() * 3L >= gray.rows() * 2L) {
-            h = gray.rows();
-            w = (int) Math.min(gray.cols(), Math.round(h * 2.0 / 3));
+        if (cols * 3L >= rows * 2L) {
+            h = rows;
+            w = (int) Math.min(cols, Math.round(h * 2.0 / 3));
         } else {
-            w = gray.cols();
-            h = (int) Math.min(gray.rows(), Math.round(w * 1.5));
+            w = cols;
+            h = (int) Math.min(rows, Math.round(w * 1.5));
         }
         if (clipped != null && row[2] > w) clipped[0]++;
         int x0 = (int) Math.round(row[0] + row[2] / 2 - w / 2.0);
         int y0 = (int) Math.round(row[1] + row[3] / 2 - h / 2.0);
-        x0 = Math.max(0, Math.min(x0, gray.cols() - w));
-        y0 = Math.max(0, Math.min(y0, gray.rows() - h));
+        x0 = Math.max(0, Math.min(x0, cols - w));
+        y0 = Math.max(0, Math.min(y0, rows - h));
+        return new Rect(x0, y0, w, h);
+    }
+
+    /** Окно r снимка img (серого или цветного) – в 400 × 600: INTER_AREA при уменьшении, INTER_LINEAR при увеличении. */
+    static Mat resize(Mat img, Rect r) {
         Mat out = new Mat();
-        Imgproc.resize(gray.submat(new Rect(x0, y0, w, h)), out, new Size(W, H), 0, 0, w > W ? Imgproc.INTER_AREA : Imgproc.INTER_LINEAR);
+        Imgproc.resize(img.submat(r), out, new Size(W, H), 0, 0, r.width > W ? Imgproc.INTER_AREA : Imgproc.INTER_LINEAR);
+        return out;
+    }
+
+    /** Цветной кадр 400 × 600 набора Д-№2 (дуэль): то же окно, что у серого кадра метода (plain – К-обычный, иначе К-лицо), цвет исходный. */
+    static Mat colorFrame(Mat color, double[] row, boolean plain, int[] clipped) {
+        Rect r = plain ? plainWindow(color.cols(), color.rows(), row, clipped) : faceWindow(color.cols(), color.rows(), row, clipped);
+        return resize(color, r);
+    }
+
+    /**
+     * К-обычный (Д10): окно {@link #plainWindow}, затем 400 × 600, как К-лицо.
+     */
+    static Mat plain(Mat gray, double[] row, int[] clipped, int mask) {
+        Rect r = plainWindow(gray.cols(), gray.rows(), row, clipped);
+        Mat out = resize(gray, r);
         gray.release();
-        if (mask != 0) mask(out, row, x0, y0, (double) W / w, (double) H / h, mask);
+        if (mask != 0) mask(out, row, r.x, r.y, (double) W / r.width, (double) H / r.height, mask);
         return out;
     }
 
