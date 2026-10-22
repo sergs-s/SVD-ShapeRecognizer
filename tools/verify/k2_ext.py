@@ -69,6 +69,8 @@ def main(path, out):
     blocks = load(path)
     lines = {}
     for title, rows in blocks:
+        if "конфигурация" not in title:
+            continue
         t = dict(x.strip().split(" ", 1) for x in title.split(","))
         if "набор" in t:
             lab = "%s SFace" % t["конфигурация"]
