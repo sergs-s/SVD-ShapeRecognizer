@@ -1042,6 +1042,17 @@ mvn compile exec:java@faces-fei-scores  # разбор файла оценок F
     `FACES_FERET_DIR`, `faces.models.dir`, кэш `reports/faces/far/
     fei_detections.cache`; контрольные точки `checkpoint_fei_xs`,
     `checkpoint_own_xs`; копии – `SVD-faces-data/reports/xbase_8c98830/`;
+  - `duel-set`, `duel-eval` (`DuelSet`, `DuelEval`, `c50b63f`; Д-№2) –
+    набор GT для коллеги (10 своих × 5 галереи, 70 проб, гости G01–G10,
+    seed faces.seed + 10100…10103; кадры К-лицо и К-обычный 400 × 600 в
+    цвете – `ProkaevFrames.colorFrame`) в каталог `FACES_DUEL_DIR` (пуст
+    до запуска; сейчас `D:\data\duel\GT_22.10\`, вне git), ключ, опись
+    SHA-256 и листы – `reports/faces/duel/`; duel-eval – по файлам набора
+    (опись сверяется): L1-tt-xs-F, L1-xs-F (П3, разделимость), SFace
+    (0,53), метод Прокаева (правило 0,95), нужны `FACES_FERET_DIR` и
+    `faces.models.dir`, около 33 мин; копия –
+    `SVD-faces-data/reports/duel_c50b63f/`. PNG по пути с кириллицей –
+    только через imencode / imdecode (imwrite OpenCV такой путь не пишет);
   - контрольные точки feret-update (`derived\checkpoint_feret_update_eq`,
     после каждого прохода проекции и части К4) и gt-xs-f
     (`reports/faces/xbase/checkpoint_gt_xs_f`, после каждого варианта);
@@ -1067,7 +1078,8 @@ mvn compile exec:java@faces-fei-scores  # разбор файла оценок F
   удаления строк «Код:», «Данные:», «# Код:», «# Данные:», строк времени;
   у gt-sep и gt-quality в шапке ещё SHA-256 входных файлов оценок (меняются
   с коммитом в их шапке) – сравнивать без строк «Файл оценок». Последние
-  коммиты на 22.10.2026: код `8c98830` (сводка С1 (5), fei-xs, own-xs),
+  коммиты на 22.10.2026: код `c50b63f` (Д-№2, duel-set, duel-eval),
+  `8c98830` (сводка С1 (5), fei-xs, own-xs),
   `2176efe` (Д-№3), `9f8c54f` (допуск значимости 1e-9); документы
   `81c5209`, `bffc773`; правки Жорика в PLAN.md `8c6142c`, `027e9a0`;
   данные `84ef6e45` (`reports/xbase_8c98830/`), `d33eb10f`; запушено
