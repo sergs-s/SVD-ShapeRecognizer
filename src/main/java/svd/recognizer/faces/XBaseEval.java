@@ -404,6 +404,10 @@ public final class XBaseEval {
             ProkaevFrames.sheet(dir, settings, out);
         } else if (a[0].equals("prokaev-sheet-mask")) {
             ProkaevFrames.sheetMask(dir, settings, out);
+        } else if (a[0].equals("fei-xs")) {
+            XBaseC1.fei(export, dir, feiKeys, selLines, settings, out);
+        } else if (a[0].equals("own-xs")) {
+            XBaseC1.own(export, dir, feiKeys, selLines, settings, out);
         } else if (a[0].equals("prokaev-mask")) {
             ProkaevMask.run(settings, out);
         } else if (a[0].equals("abl-lbf")) {
