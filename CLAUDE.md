@@ -474,6 +474,21 @@ mvn compile exec:java@faces-fei-scores  # разбор файла оценок F
     записывать (ни в файлы, ни в отчёты, ни в git). Протокол – PLAN.md
     п. 5.5, «Протокол FERET»; режимы `feret`, `feret-eyes` – ниже, «Режимы
     `XBaseEval` на GT».
+  - `D:\data\ChokePoint` – ChokePoint (NICTA; Zenodo, record 815657,
+    DOI 10.5281/zenodo.815657; страница arma.sourceforge.net/chokepoint/;
+    скачано 23.10.2026, все 25 файлов, MD5 сверены; SOURCE.txt и опись
+    `chokepoint_inventory.txt` – там же): 3 камеры над дверью, 800×600,
+    30 кадр/с; портал 1 – 16.04.2010, портал 2 – 14.05 и 31.05.2010 (P2E –
+    улица); разметка глаз `groundtruth\` (72 289 записей), кадры `frames\`,
+    вырезки 96×96 `faces96\`, портреты `still\`. Лицензия – только
+    некоммерческие научные цели (CC BY-NC 4.0 по Zenodo; текст NICTA – в
+    SOURCE.txt): ссылка на NICTA и Y. Wong, S. Chen, S. Mau, C. Sanderson,
+    B.C. Lovell, CVPR Workshops 2011, pp. 81–88, DOI
+    10.1109/CVPRW.2011.5981881; производные – с пометкой «изменено», текст
+    лицензии – в копиях. Вне git, не в `SVD-faces-data`, не в облако. Для
+    однократной итоговой проверки, не для подбора. Замер (23.10): межглазье
+    медиана 27 px (5–95 % 16–58), ≥ 35 px – 29 % кадров (камера анфаса –
+    36 %); в обоих порталах 25 человек, интервал 4–6,5 недели.
 - Модели opencv_zoo: `D:\data\models\opencv_zoo`, ключ `faces.models.dir`.
   Скачаны один раз, в git не кладутся; проверка — по SHA-256:
   - `face_detection_yunet_2023mar.onnx` (YuNet, 232 589 байт), лицензия MIT;
