@@ -487,6 +487,8 @@ public final class VerifyRev {
         b.cohort = aug;
         for (Object[] md : modes) {
             String mname = (String) md[0];
+            // без когорты – только проверка «Б − база» на GT межс., L1-xs-F (Жорик №7)
+            if (noCohort && !mname.equals("межс.")) continue;
             @SuppressWarnings("unchecked")
             Map<String, List<String>> gal = (Map<String, List<String>>) md[1];
             @SuppressWarnings("unchecked")
@@ -494,6 +496,7 @@ public final class VerifyRev {
             List<Probe> probes = XBaseEval.probes(b, pro);
             for (String[] pj : projs) {
                 int f = Integer.parseInt(pj[1]);
+                if (noCohort && f != 0) continue;
                 Path bf = out.resolve("blocks").resolve(String.format(Locale.ROOT, "gt_%s%s_%s_%d.tsv", v.name(), noCohort ? "_nc" : "", mname.equals("межс.") ? "x" : "i", f));
                 String ls;
                 if (Files.exists(bf)) {

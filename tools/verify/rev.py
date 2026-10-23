@@ -19,7 +19,7 @@ import abl_check  # noqa: E402
 from measures import R0, Row, evaluate, ratio, read_scores  # noqa: E402
 
 FARS = (0.01, 0.02, 0.05, 0.10)
-B = 2000
+B = int(os.environ.get("VERIFY_B", "2000"))
 SEED = 7042
 VARS = ("base", "A", "B", "C", "ABC")
 ROWS = ("L1-xs-F", "L1-tt-xs-F")
