@@ -116,6 +116,12 @@ final class DuelSet {
     }
 
     static Composition compose(Path exportDir, List<String> selLines, long seed) throws IOException {
+        return compose(exportDir, selLines, seed, GALLERY, OWN_SEED, STRANGER_SEED, PERM_SEED, GUEST_SEED);
+    }
+
+    /** Состав при gallery снимках галереи и своих смещениях seed (свои, чужие, перемешивание, гости). */
+    static Composition compose(Path exportDir, List<String> selLines, long seed, int gallery, long ownSeed, long strangerSeed, long permSeed,
+            long guestSeed) throws IOException {
         double rLimit = XBaseEval.poseLimit(selLines);
         Map<String, double[]> det = XBaseMpPts.exportRows(exportDir, "gt");
         Map<String, Integer> sess = XBaseEval.sessions(exportDir.resolve(XBaseEval.SESSIONS));
@@ -140,12 +146,12 @@ final class DuelSet {
             c.multiDate++;
             int gd = XBaseEval.galleryDate(bd);
             int od = otherDate(bd, gd);
-            if (bd.get(gd).size() >= GALLERY + SAME && od > 0 && bd.get(od).size() >= OTHER) eligible.add(e.getKey());
+            if (bd.get(gd).size() >= gallery + SAME && od > 0 && bd.get(od).size() >= OTHER) eligible.add(e.getKey());
         }
         c.eligible = eligible.size();
         if (eligible.size() < OWN) throw new IllegalStateException("duel-set: подходящих своих " + eligible.size() + " < " + OWN);
         // Свои: перестановка подходящих и снимки – одним генератором seed + 10100, по порядку P01…P10.
-        Random rnd = new Random(seed + OWN_SEED);
+        Random rnd = new Random(seed + ownSeed);
         Collections.shuffle(eligible, rnd);
         List<String> own = eligible.subList(0, OWN);
         List<Item> probes = new ArrayList<>();
@@ -159,14 +165,14 @@ final class DuelSet {
             List<String> o = new ArrayList<>(bd.get(od));
             Collections.shuffle(o, rnd);
             String code = String.format(Locale.ROOT, "P%02d", i + 1);
-            for (int j = 0; j < GALLERY; j++) c.items.add(new Item(code + "_" + (j + 1), GALLERY_ROLE, p, gd, ex.get(g.get(j)), g.get(j)));
-            for (int j = 0; j < SAME; j++) probes.add(new Item(null, SAME_ROLE, p, gd, ex.get(g.get(GALLERY + j)), g.get(GALLERY + j)));
+            for (int j = 0; j < gallery; j++) c.items.add(new Item(code + "_" + (j + 1), GALLERY_ROLE, p, gd, ex.get(g.get(j)), g.get(j)));
+            for (int j = 0; j < SAME; j++) probes.add(new Item(null, SAME_ROLE, p, gd, ex.get(g.get(gallery + j)), g.get(gallery + j)));
             for (int j = 0; j < OTHER; j++) probes.add(new Item(null, OTHER_ROLE, p, od, ex.get(o.get(j)), o.get(j)));
         }
         // Чужие: люди вне своих (по возрастанию, перестановка seed + 10101), у кого ≥ 2 отобранных снимков; по 2 снимка.
         List<String> rest = new ArrayList<>(by.keySet());
         rest.removeAll(own);
-        Random rs = new Random(seed + STRANGER_SEED);
+        Random rs = new Random(seed + strangerSeed);
         Collections.shuffle(rest, rs);
         List<String> strangers = new ArrayList<>();
         for (String p : rest) {
@@ -187,7 +193,7 @@ final class DuelSet {
         List<String> gp = new ArrayList<>(by.keySet());
         gp.removeAll(own);
         gp.removeAll(strangers);
-        Random rg = new Random(seed + GUEST_SEED);
+        Random rg = new Random(seed + guestSeed);
         Collections.shuffle(gp, rg);
         if (gp.size() < GUESTS) throw new IllegalStateException("duel-set: гостей " + gp.size());
         for (int i = 0; i < GUESTS; i++) {
@@ -199,7 +205,7 @@ final class DuelSet {
             c.items.add(new Item(String.format(Locale.ROOT, "G%02d", i + 1), GUEST_ROLE, p, sess.get(k), ex.get(k), k));
         }
         // Пробы: перемешивание seed + 10102, имена Q001…Q070.
-        Collections.shuffle(probes, new Random(seed + PERM_SEED));
+        Collections.shuffle(probes, new Random(seed + permSeed));
         for (int i = 0; i < probes.size(); i++) {
             Item it = probes.get(i);
             c.items.add(new Item(String.format(Locale.ROOT, "Q%03d", i + 1), it.role(), it.person(), it.date(), it.exif(), it.pk()));
@@ -385,6 +391,148 @@ final class DuelSet {
                 + "не влезло: К-лицо %d, К-обычный %d; пропущено %s; файлов набора %d; %s; %.0f с%n", c.persons, c.multiDate, c.eligible, roles, clipped[0][0],
                 clipped[1][0], c.skipped, files.size(), duel, (System.nanoTime() - t0) / 1e9));
         FarMethods.write(rep.resolve("duel_set.txt"), t);
+        System.out.print(t);
+    }
+
+    // ---------------------------------------------------------------- набор 24.10 (Д17, Д18): формат коллеги
+
+    static final String TAG24 = "24.10";
+    static final int GALLERY24 = 8;
+    static final long OWN_SEED24 = 10110;
+    static final long STRANGER_SEED24 = 10111;
+    static final long PERM_SEED24 = 10112;
+    static final long GUEST_SEED24 = 10113;
+    static final int W24 = 800;
+    static final int H24 = 1200;
+    static final int JPEG_QUALITY = 95;
+    static final String TRAIN_DIR = "обучение";
+    static final String PROBE_DIR24 = "пробы";
+
+    /** Файл набора 24.10 по коду: P01_1 → обучение/001.jpg (по gallery на человека), G01 → обучение/(10·gallery + 1).jpg, Q001 → пробы/001.jpg. */
+    static String file24(String code, int gallery) {
+        int n;
+        String d;
+        if (code.startsWith("P")) {
+            n = (Integer.parseInt(code.substring(1, 3)) - 1) * gallery + Integer.parseInt(code.substring(4));
+            d = TRAIN_DIR;
+        } else if (code.startsWith("G")) {
+            n = OWN * gallery + Integer.parseInt(code.substring(1));
+            d = TRAIN_DIR;
+        } else {
+            n = Integer.parseInt(code.substring(1));
+            d = PROBE_DIR24;
+        }
+        return String.format(Locale.ROOT, "%s/%03d.jpg", d, n);
+    }
+
+    /** Описание папки обучения: «1 – 001–008, …, 10 – 073–080, гости – 081–090». */
+    static String trainText(int gallery) {
+        StringBuilder t = new StringBuilder(BOM);
+        for (int i = 0; i < OWN; i++) t.append(String.format(Locale.ROOT, "%d – %03d–%03d%n", i + 1, i * gallery + 1, (i + 1) * gallery));
+        t.append(String.format(Locale.ROOT, "гости – %03d–%03d%n", OWN * gallery + 1, OWN * gallery + GUESTS));
+        return t.toString();
+    }
+
+    static String probeText(int probes) {
+        return BOM + String.format(Locale.ROOT, "001–%03d – пробы, по одной; состав – после прогона%n", probes);
+    }
+
+    /** Кадр 400 × 600 → 800 × 1200 (INTER_CUBIC) → JPEG, качество 95. */
+    static byte[] jpeg24(Mat frame) throws IOException {
+        Mat big = new Mat();
+        Imgproc.resize(frame, big, new Size(W24, H24), 0, 0, Imgproc.INTER_CUBIC);
+        MatOfByte b = new MatOfByte();
+        if (!Imgcodecs.imencode(".jpg", big, b, new org.opencv.core.MatOfInt(Imgcodecs.IMWRITE_JPEG_QUALITY, JPEG_QUALITY)))
+            throw new IOException("Не закодирован JPEG");
+        big.release();
+        byte[] out = b.toArray();
+        b.release();
+        return out;
+    }
+
+    /** Режим duel-set-24: набор GT_24.10 в формате коллеги (Д-№1 от 24.10, замена; PLAN.md, Д17, Д18). */
+    static void run24(Path exportDir, List<String> selLines, SettingsStore settings, Path out) throws IOException {
+        long t0 = System.nanoTime();
+        String rawDuel = System.getenv("FACES_DUEL_DIR");
+        if (rawDuel == null) throw new IllegalStateException("duel-set-24: задайте FACES_DUEL_DIR (каталог набора для передачи)");
+        Path duel = Paths.get(rawDuel);
+        if (Files.exists(duel)) {
+            try (Stream<Path> s = Files.list(duel)) {
+                if (s.findAny().isPresent()) throw new IllegalStateException("duel-set-24: каталог " + duel + " не пуст – удалите его или задайте другой");
+            }
+        }
+        long seed = settings.loadFacesSeed();
+        Path gtDir = Paths.get(settings.loadFacesGtDir());
+        Composition c = compose(exportDir, selLines, seed, GALLERY24, OWN_SEED24, STRANGER_SEED24, PERM_SEED24, GUEST_SEED24);
+        Map<String, double[]> det = XBaseMpPts.exportRows(exportDir, "gt");
+        Path rep = out.getParent().resolve("duel");
+        Files.createDirectories(rep);
+        int[][] clipped = new int[SETS.length][1];
+        List<List<Mat>> tiles = new ArrayList<>();
+        for (int s = 0; s < SETS.length; s++) tiles.add(new ArrayList<>());
+        Map<String, String[]> sha = new HashMap<>();
+        int probes = 0;
+        for (Item it : c.items) {
+            if (it.code().startsWith("Q")) probes++;
+            Mat color = Imgcodecs.imread(gtDir.resolve(it.pk() + ".jpg").toString(), Imgcodecs.IMREAD_COLOR);
+            if (color.empty()) throw new IOException("duel-set-24: не читается " + it.pk());
+            String[] h = new String[SETS.length];
+            for (int s = 0; s < SETS.length; s++) {
+                Mat f = ProkaevFrames.colorFrame(color, det.get(it.pk()), s == 1, clipped[s]);
+                Path p = duel.resolve(SETS[s]).resolve(file24(it.code(), GALLERY24));
+                Files.createDirectories(p.getParent());
+                byte[] jpg = jpeg24(f);
+                Path tmp = p.resolveSibling(p.getFileName() + ".tmp");
+                Files.write(tmp, jpg);
+                Files.move(tmp, p, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                h[s] = sha256(p);
+                Mat back = readColor(p);
+                tiles.get(s).add(tile(back, file24(it.code(), GALLERY24).replace(TRAIN_DIR, "T").replace(PROBE_DIR24, "Q").replace(".jpg", "")));
+                back.release();
+                f.release();
+            }
+            sha.put(it.code(), h);
+            color.release();
+        }
+        for (int s = 0; s < SETS.length; s++) {
+            Files.writeString(duel.resolve(SETS[s]).resolve(TRAIN_DIR + ".txt"), trainText(GALLERY24), StandardCharsets.UTF_8);
+            Files.writeString(duel.resolve(SETS[s]).resolve(PROBE_DIR24 + ".txt"), probeText(probes), StandardCharsets.UTF_8);
+            sheet(rep.resolve("sheet_" + TAG24 + "_" + SET_TAGS[s] + ".png"), tiles.get(s));
+            tiles.get(s).forEach(Mat::release);
+        }
+        // Ключ: шапка, строки по файлам (в порядке номеров) с SHA-256 обоих комплектов.
+        StringBuilder k = new StringBuilder("# Д-№1 от 24.10 (дуэль, Д17, Д18): ключ набора GT_" + TAG24 + " для коллеги – только у нас, в набор не кладётся\n");
+        k.append("# Код: коммит ").append(FarMethods.commit()).append('\n');
+        k.append("# Данные: экспорт ").append(exportDir).append(", коммит данных ").append(FarMethods.dataCommit(exportDir)).append('\n');
+        k.append(String.format(Locale.ROOT, "# галерея %d снимков дня галереи; seed: свои %d, чужие %d, перемешивание %d, гости %d (faces.seed + 10110…10113)%n",
+                GALLERY24, seed + OWN_SEED24, seed + STRANGER_SEED24, seed + PERM_SEED24, seed + GUEST_SEED24));
+        k.append("# кадры: ProkaevFrames.colorFrame 400 × 600 (К-лицо H = h_рамки / 0,70; К-обычный 320 × 480 × 1,25) → ").append(W24).append(" × ")
+                .append(H24).append(" INTER_CUBIC → JPEG, качество ").append(JPEG_QUALITY).append('\n');
+        k.append("file\tcode\trole\tperson\tsession\texif_datetime\tsource\tsha256_").append(SETS[0]).append("\tsha256_").append(SETS[1]).append('\n');
+        List<Item> sorted = new ArrayList<>(c.items);
+        sorted.sort((a, b) -> file24(a.code(), GALLERY24).compareTo(file24(b.code(), GALLERY24)));
+        for (Item it : sorted) {
+            String[] h = sha.get(it.code());
+            k.append(file24(it.code(), GALLERY24)).append('\t').append(it.code()).append('\t').append(it.role()).append('\t').append(it.person()).append('\t')
+                    .append(it.date()).append('\t').append(it.exif()).append('\t').append(it.pk()).append(".jpg\t").append(h[0]).append('\t').append(h[1])
+                    .append('\n');
+        }
+        FarMethods.write(rep.resolve("key_" + TAG24 + ".tsv"), k);
+        // Опись всего каталога набора.
+        StringBuilder inv = new StringBuilder();
+        List<Path> files;
+        try (Stream<Path> st = Files.walk(duel)) {
+            files = st.filter(Files::isRegularFile).sorted().toList();
+        }
+        for (Path f : files) inv.append(sha256(f)).append("  ").append(duel.relativize(f).toString().replace('\\', '/')).append('\n');
+        FarMethods.write(rep.resolve("set_sha256_" + TAG24 + ".txt"), inv);
+        Map<String, Integer> roles = new LinkedHashMap<>();
+        c.items.forEach(it -> roles.merge(it.role(), 1, Integer::sum));
+        StringBuilder t = new StringBuilder(String.format(Locale.ROOT, "duel-set-24: людей GT после отбора %d, с ≥ 2 датами %d, подходящих своих %d "
+                + "(галерея %d + %d того же дня, другая дата ≥ %d); роли %s; не влезло: К-лицо %d, К-обычный %d; пропущено %s; файлов набора %d; %s; %.0f с%n",
+                c.persons, c.multiDate, c.eligible, GALLERY24, SAME, OTHER, roles, clipped[0][0], clipped[1][0], c.skipped, files.size(), duel,
+                (System.nanoTime() - t0) / 1e9));
+        FarMethods.write(rep.resolve("duel_set_" + TAG24 + ".txt"), t);
         System.out.print(t);
     }
 }
