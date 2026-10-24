@@ -1075,6 +1075,16 @@ mvn compile exec:java@faces-fei-scores  # разбор файла оценок F
     `FACES_DUEL_DIR` (сейчас `D:\data\duel\GT_24.10\`), ключ
     `key_24.10.tsv` с SHA-256, опись и листы – `reports/faces/duel/`,
     копия – `SVD-faces-data/reports/duel_3b67d5e/`; около 8 с;
+    `duel-eval-24` (`DuelEval.run24`, `699f3b9`) – наш расчёт на файлах
+    GT_24.10 (опись сверяется; нужны ещё `FACES_DUEL_OLD_DIR` – набор
+    22.10 для сравнения, `FACES_FERET_DIR`, `faces.models.dir`):
+    L1-tt-xs-F (косинус, 9×9), L1-xs-F (косинус, 7×7), SFace, метод
+    Прокаева с настройками коллеги (80 × 120 INTER_AREA, k = 7, l = 5),
+    без гостей, прежние k = 6, l = 3 на 400 × 600; около 32 мин →
+    `duel_24.10.txt`, `duel_24.10_probes.tsv`, `prokaev_24.10_*.csv`;
+    `duel-shares-24` (`c5f5dcf`) – доли метода Прокаева по пробам →
+    `duel_24.10_shares_<face|plain>.csv`, около 3 с; копии –
+    `SVD-faces-data/reports/duel_699f3b9/`;
   - `pool-rule`, `gt-rule`, `feret-rule` (`XBaseRule`, `aa35b05`;
     ревизия 1.2, 2.1, №1–№2 Жорика 24.10) – правило оценки на L1 от
     одной модели MLDA: (0) база, (а) k = 20, 50, 100, (б) 1 − cos, (в)
