@@ -1083,6 +1083,17 @@ mvn compile exec:java@faces-fei-scores  # разбор файла оценок F
     выбора; копии GT – `SVD-faces-data/reports/xbase_aa35b05/`;
     контрольные точки `derived\checkpoint_pool_rule_eq`,
     `checkpoint_feret_rule_eq`, `reports/faces/xbase/checkpoint_gt_rule`;
+  - `feret-thr`, `gt-thr` (`XBaseThr`, `3db0cb8`; ревизия 1.14, №4–№5
+    Жорика 24.10) – порог П2/П3 при косинусе: «чужие» (Т0) галереи,
+    (Т1) межсессионные пробы людей части против модели без части (роль
+    od q), (Т2) объединение; FERET – ещё (Т1н) без пересечения ролей
+    (seed faces.seed + 10300 + проход) и сокращённый набор; строки (0)
+    евклид и (б) косинус; сверка с файлами оценок и отчётами
+    feret-rule / gt-rule (нужны их файлы); feret-thr около 8 мин
+    (отчёт – только `reports\eq\xbase_feret_thr*`), gt-thr около
+    32 мин (`xbase_gt_thr*`, копия – `SVD-faces-data/reports/
+    xbase_3db0cb8/`); контрольные точки `checkpoint_feret_thr_eq`,
+    `checkpoint_gt_thr`;
   - контрольные точки feret-update (`derived\checkpoint_feret_update_eq`,
     после каждого прохода проекции и части К4) и gt-xs-f
     (`reports/faces/xbase/checkpoint_gt_xs_f`, после каждого варианта);
