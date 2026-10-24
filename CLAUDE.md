@@ -1107,6 +1107,20 @@ mvn compile exec:java@faces-fei-scores  # разбор файла оценок F
     feret-thr / gt-thr (сверка c = 1 побайтно); порог – (Т2), рядом
     (Т0); контрольные точки `checkpoint_pool_reg_eq`,
     `checkpoint_feret_reg_eq`, `reports/faces/xbase/checkpoint_gt_reg`;
+  - `pool-lbp`, `feret-lbp`, `gt-lbp` (`XBaseLbp`, `LbpFeature.Params`,
+    `db26f81`, `5f17a71`; ревизия 1.4, ступень 1, №8–№9 Жорика 24.10) –
+    параметры LBP на кадре 92×112: база 7×7 (8, 2), (1) 5×5, (2) 9×9,
+    (3) (8, 1), (4) (8, 1)+(8, 2); c = 1, косинус, L1-xs-F и
+    L1-tt-xs-F; pool-lbp – выбор по пулу (схема pool-rule; база, если в
+    пределах 1 п. п.; иначе меньшая размерность), около 65 мин, отчёт и
+    `xbase_pool_lbp_select.tsv` – только `D:\data\Feret\reports\eq\`,
+    для GT – `reports/faces/xbase/xbase_pool_lbp_gt.txt`; feret-lbp
+    (около 32 мин, только `reports\eq\xbase_feret_lbp*`) и gt-lbp
+    (около 2 ч 15 мин, `xbase_gt_lbp*`, копия – `SVD-faces-data/
+    reports/xbase_5f17a71/`) читают файл выбора и сверяют базу
+    побайтно с feret-reg / gt-reg (нужны их файлы оценок и отчёты);
+    контрольные точки `checkpoint_pool_lbp_eq`, `checkpoint_feret_lbp_eq`,
+    `reports/faces/xbase/checkpoint_gt_lbp`;
   - контрольные точки feret-update (`derived\checkpoint_feret_update_eq`,
     после каждого прохода проекции и части К4) и gt-xs-f
     (`reports/faces/xbase/checkpoint_gt_xs_f`, после каждого варианта);
