@@ -1068,6 +1068,21 @@ mvn compile exec:java@faces-fei-scores  # разбор файла оценок F
     `faces.models.dir`, около 33 мин; копия –
     `SVD-faces-data/reports/duel_c50b63f/`. PNG по пути с кириллицей –
     только через imencode / imdecode (imwrite OpenCV такой путь не пишет);
+  - `pool-rule`, `gt-rule`, `feret-rule` (`XBaseRule`, `aa35b05`;
+    ревизия 1.2, 2.1, №1–№2 Жорика 24.10) – правило оценки на L1 от
+    одной модели MLDA: (0) база, (а) k = 20, 50, 100, (б) 1 − cos, (в)
+    вес √λ S_b, (г) WPCA m = 100–900 на пуле FERET. pool-rule – выбор
+    по пулу перекрёстно по людям (наборы GT – весь пул, FERET-1 / -2 –
+    половины B / A; 5 частей seed faces.seed + 10200, половины + 10201
+    + q; критерий – среднее ошибок своих при FAR 1, 2, 5 %; база в
+    пределах 1 п. п. – база), около 42 мин; отчёт, оценки и
+    `xbase_pool_rule_select.tsv` – только `D:\data\Feret\reports\eq\`,
+    для GT – `reports/faces/xbase/xbase_pool_rule_gt.txt`; gt-rule
+    (около 33 мин; нужен `xbase_gt_subsp_scores.tsv.gz` – сверка (0))
+    и feret-rule (около 8 мин; сверка (0) с feret-xs2) читают файл
+    выбора; копии GT – `SVD-faces-data/reports/xbase_aa35b05/`;
+    контрольные точки `derived\checkpoint_pool_rule_eq`,
+    `checkpoint_feret_rule_eq`, `reports/faces/xbase/checkpoint_gt_rule`;
   - контрольные точки feret-update (`derived\checkpoint_feret_update_eq`,
     после каждого прохода проекции и части К4) и gt-xs-f
     (`reports/faces/xbase/checkpoint_gt_xs_f`, после каждого варианта);
