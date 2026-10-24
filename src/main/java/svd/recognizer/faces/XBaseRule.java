@@ -178,6 +178,11 @@ final class XBaseRule {
 
     /** Обучение MLDA (как XBaseEval.fit для V.L1) и центры WPCA галереи по PCA пула pca. */
     static Fit fit(XBaseEval x, boolean mirror, List<List<String>> gallery, List<List<String>> cohort, Pca pca) {
+        return fit(x, mirror, gallery, cohort, pca, 1.0);
+    }
+
+    /** То же с полом MLDA λ̄·c (ревизия 1.3, XBaseReg); pca == null – без центров WPCA (строки (г) не считаются). */
+    static Fit fit(XBaseEval x, boolean mirror, List<List<String>> gallery, List<List<String>> cohort, Pca pca, double floorC) {
         List<List<double[]>> cls = new ArrayList<>();
         for (List<List<String>> group : List.of(gallery, cohort)) {
             for (List<String> keys : group) {
@@ -187,9 +192,9 @@ final class XBaseRule {
                 cls.add(list);
             }
         }
-        LdaModel lm = (LdaModel) new MldaScorer().fit(cls, gallery.size());
+        LdaModel lm = (LdaModel) new MldaScorer(floorC).fit(cls, gallery.size());
         double[][] wc = new double[gallery.size()][];
-        for (int c = 0; c < gallery.size(); c++) {
+        for (int c = 0; c < gallery.size() && pca != null; c++) {
             List<double[]> list = cls.get(c);
             if (list.isEmpty()) continue;
             double[] m = new double[pca.basis().length];
