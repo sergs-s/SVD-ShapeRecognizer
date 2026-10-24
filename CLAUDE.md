@@ -1094,6 +1094,19 @@ mvn compile exec:java@faces-fei-scores  # разбор файла оценок F
     32 мин (`xbase_gt_thr*`, копия – `SVD-faces-data/reports/
     xbase_3db0cb8/`); контрольные точки `checkpoint_feret_thr_eq`,
     `checkpoint_gt_thr`;
+  - `pool-reg`, `feret-reg`, `gt-reg` (`XBaseReg`, `6a0e21d`; ревизия
+    1.3, №6–№7 Жорика 24.10) – пол MLDA λ̄·c, c ∈ {0,3; 1; 3; 10}
+    (`MldaScorer(c)`), косинус по всем осям, L1-xs-F и L1-tt-xs-F;
+    pool-reg – выбор c по пулу (схема pool-rule; c = 1, если в пределах
+    1 п. п. от лучшего), около 47 мин, отчёт и
+    `xbase_pool_reg_select.tsv` – только `D:\data\Feret\reports\eq\`,
+    для GT – `reports/faces/xbase/xbase_pool_reg_gt.txt`; feret-reg
+    (около 21 мин, отчёт – только `reports\eq\xbase_feret_reg*`) и
+    gt-reg (около 1,5 ч, `xbase_gt_reg*`, копия – `SVD-faces-data/
+    reports/xbase_6a0e21d/`) читают файл выбора и файлы оценок
+    feret-thr / gt-thr (сверка c = 1 побайтно); порог – (Т2), рядом
+    (Т0); контрольные точки `checkpoint_pool_reg_eq`,
+    `checkpoint_feret_reg_eq`, `reports/faces/xbase/checkpoint_gt_reg`;
   - контрольные точки feret-update (`derived\checkpoint_feret_update_eq`,
     после каждого прохода проекции и части К4) и gt-xs-f
     (`reports/faces/xbase/checkpoint_gt_xs_f`, после каждого варианта);
