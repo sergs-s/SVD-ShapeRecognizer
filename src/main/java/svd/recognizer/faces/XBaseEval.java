@@ -429,6 +429,8 @@ public final class XBaseEval {
             DuelSet.run24(dir, selLines, settings, out);
         } else if (a[0].equals("duel-eval")) {
             DuelEval.run(export, dir, feiKeys, selLines, settings, out);
+        } else if (a[0].equals("duel-eval-24")) {
+            DuelEval.run24(export, dir, feiKeys, selLines, settings, out);
         } else if (a[0].equals("prokaev-mask")) {
             ProkaevMask.run(settings, out);
         } else if (a[0].equals("abl-lbf")) {
