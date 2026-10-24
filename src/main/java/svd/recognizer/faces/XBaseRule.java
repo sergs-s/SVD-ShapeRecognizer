@@ -236,6 +236,12 @@ final class XBaseRule {
      */
     static Lines fitLines(XBaseEval.Gt gt, XBaseEval x, Map<String, List<String>> galleryKeys, List<Probe> mainProbes, List<List<String>> parts, int s,
                           Pca[] pcas) {
+        return fitLines(gt, x, galleryKeys, mainProbes, parts, s, pcas, null);
+    }
+
+    /** То же; extra – дополнительные пробы моделей без части q (ревизия 1.14, XBaseThr), null – нет. */
+    static Lines fitLines(XBaseEval.Gt gt, XBaseEval x, Map<String, List<String>> galleryKeys, List<Probe> mainProbes, List<List<String>> parts, int s,
+                          Pca[] pcas, List<List<Probe>> extra) {
         List<String> own = gt.own;
         List<List<String>> cohort = gt.cohort;
         List<List<String>> fullGallery = own.stream().map(galleryKeys::get).toList();
@@ -256,6 +262,7 @@ final class XBaseRule {
                 List<List<String>> gk = g.stream().map(galleryKeys::get).toList();
                 List<Probe> pr = new ArrayList<>();
                 for (String p : own) if (part.contains(p)) for (String k : galleryKeys.get(p)) pr.add(new Probe(FeiMethods.CV_ROLE + q, p, gt.img(k), k, -1));
+                if (extra != null) pr.addAll(extra.get(q));
                 tasks.add(() -> lines(x, method, s, fit(x, m, gk, cohort, pc), g, pr));
             }
         }

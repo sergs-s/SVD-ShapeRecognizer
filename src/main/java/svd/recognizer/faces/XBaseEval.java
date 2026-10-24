@@ -474,6 +474,10 @@ public final class XBaseEval {
             XBaseRule.feret(export, dir, feiKeys, selLines, settings);
         } else if (a[0].equals("gt-rule")) {
             XBaseRule.gt(export, dir, feiKeys, selLines, settings, out);
+        } else if (a[0].equals("feret-thr")) {
+            XBaseThr.feret(export, dir, feiKeys, selLines, settings);
+        } else if (a[0].equals("gt-thr")) {
+            XBaseThr.gt(export, dir, feiKeys, selLines, settings, out);
         } else if (a[0].equals("gt-subsp")) {
             XBaseSubsp.gt(export, dir, feiKeys, selLines, settings, out);
         } else if (a[0].equals("feret-sameday")) {
