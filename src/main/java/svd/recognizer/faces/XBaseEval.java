@@ -468,6 +468,12 @@ public final class XBaseEval {
             XBaseSession.run(selLines, dir, settings);
         } else if (a[0].equals("feret-update")) {
             XBaseUpdate.feret(export, dir, feiKeys, selLines, settings);
+        } else if (a[0].equals("pool-rule")) {
+            XBaseRule.pool(export, dir, feiKeys, selLines, settings, out);
+        } else if (a[0].equals("feret-rule")) {
+            XBaseRule.feret(export, dir, feiKeys, selLines, settings);
+        } else if (a[0].equals("gt-rule")) {
+            XBaseRule.gt(export, dir, feiKeys, selLines, settings, out);
         } else if (a[0].equals("gt-subsp")) {
             XBaseSubsp.gt(export, dir, feiKeys, selLines, settings, out);
         } else if (a[0].equals("feret-sameday")) {
