@@ -140,6 +140,108 @@ final class LbpFeature {
     }
 
     /**
+     * Параметры LBP (ревизия 1.4): число соседей (только 8 – таблица LABEL), радиусы (по каждому – свои коды и свои
+     * гистограммы, подряд в порядке radii) и сетка блоков grid × grid. DEFAULT – прежний признак (8, {2}, 7).
+     */
+    record Params(int neighbors, double[] radii, int grid) {
+        static final Params DEFAULT = new Params(NEIGHBORS, new double[] {RADIUS}, GRID);
+
+        Params {
+            if (neighbors != NEIGHBORS) throw new IllegalArgumentException("LBP: поддерживается только 8 соседей");
+            if (radii.length == 0 || grid < 1) throw new IllegalArgumentException("LBP: пустые радиусы или сетка");
+            for (double r : radii) if (r < 1 || r != Math.floor(r)) throw new IllegalArgumentException("LBP: радиус " + r + " не целый ≥ 1");
+            radii = radii.clone();
+        }
+
+        /** Длина вектора гистограмм. */
+        int length() {
+            return radii.length * grid * grid * BINS;
+        }
+    }
+
+    /** Смещения соседей радиуса r (как offsets() для RADIUS). */
+    private static double[][] offsets(double radius) {
+        double[][] o = new double[NEIGHBORS][2];
+        for (int p = 0; p < NEIGHBORS; p++) {
+            double a = 2 * Math.PI * p / NEIGHBORS;
+            o[p][0] = Math.round(radius * Math.cos(a) * 1e9) / 1e9;
+            o[p][1] = Math.round(-radius * Math.sin(a) * 1e9) / 1e9;
+        }
+        return o;
+    }
+
+    /** Коды LBP радиуса radius для пикселей с полной окрестностью: [(h − 2r)·(w − 2r)] по строкам (как codes). */
+    static int[] codes(double[] img, int w, int h, double radius) {
+        double[][] off = offsets(radius);
+        int r = (int) radius;
+        int cw = w - 2 * r;
+        int ch = h - 2 * r;
+        int[] out = new int[cw * ch];
+        for (int y = 0; y < ch; y++) {
+            for (int x = 0; x < cw; x++) {
+                double c = img[(y + r) * w + x + r];
+                int code = 0;
+                for (int p = 0; p < NEIGHBORS; p++) {
+                    if (sample(img, w, x + r + off[p][0], y + r + off[p][1]) >= c) code |= 1 << p;
+                }
+                out[y * cw + x] = code;
+            }
+        }
+        return out;
+    }
+
+    /** Вектор гистограмм (lp.length()) по яркостям кадра: по каждому радиусу – сетка lp.grid(), как histogram(img, w, h). */
+    static double[] histogram(double[] img, int w, int h, Params lp) {
+        int grid = lp.grid();
+        double[] v = new double[lp.length()];
+        for (int ri = 0; ri < lp.radii().length; ri++) {
+            int r = (int) lp.radii()[ri];
+            int cw = w - 2 * r;
+            int ch = h - 2 * r;
+            int[] codes = codes(img, w, h, lp.radii()[ri]);
+            int base = ri * grid * grid * BINS;
+            for (int by = 0; by < grid; by++) {
+                int y0 = by * ch / grid;
+                int y1 = (by + 1) * ch / grid;
+                for (int bx = 0; bx < grid; bx++) {
+                    int x0 = bx * cw / grid;
+                    int x1 = (bx + 1) * cw / grid;
+                    int off = base + (by * grid + bx) * BINS;
+                    for (int y = y0; y < y1; y++) for (int x = x0; x < x1; x++) v[off + LABEL[codes[y * cw + x]]]++;
+                    double n = (double) (y1 - y0) * (x1 - x0);
+                    for (int k = 0; k < BINS; k++) v[off + k] /= n;
+                }
+            }
+        }
+        return v;
+    }
+
+    /** Как histogram(gray8, norm, p), с параметрами LBP lp. */
+    static double[] histogram(Mat gray8, IlluminationNorm norm, IlluminationNorm.NormParams p, Params lp) {
+        if (gray8.type() != CvType.CV_8UC1) throw new IllegalArgumentException("LBP: кадр не 8 бит одноканальный");
+        return switch (norm) {
+            case NONE -> histogram(gray(gray8), gray8.cols(), gray8.rows(), lp);
+            case CLAHE -> {
+                Mat c = IlluminationNorm.clahe8(gray8, p);
+                double[] v = histogram(gray(c), c.cols(), c.rows(), lp);
+                c.release();
+                yield v;
+            }
+            case TAN_TRIGGS -> histogram(IlluminationNorm.TAN_TRIGGS.vector(gray8, p), gray8.cols(), gray8.rows(), lp);
+        };
+    }
+
+    /** Яркости 8-битного кадра (как в histogram(gray8)). */
+    private static double[] gray(Mat gray8) {
+        if (gray8.type() != CvType.CV_8UC1) throw new IllegalArgumentException("LBP: кадр не 8 бит одноканальный");
+        byte[] b = new byte[gray8.cols() * gray8.rows()];
+        gray8.get(0, 0, b);
+        double[] img = new double[b.length];
+        for (int i = 0; i < b.length; i++) img[i] = b[i] & 0xFF;
+        return img;
+    }
+
+    /**
      * Маска блоков сетки 7×7 (п. 4.2, «LBP: внутренние и краевые блоки»; фиксирована заранее, на FEI не подбирается):
      * INNER — строки и столбцы блоков 1–5 (25 блоков), RING — краевое кольцо (строка или столбец 0 или 6, 24 блока).
      */

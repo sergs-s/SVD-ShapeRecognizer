@@ -109,6 +109,21 @@ public final class XBaseEval {
     }
 
     /**
+     * Только V.L1 (корень гистограмм) с параметрами LBP lp (ревизия 1.4, XBaseLbp); при LbpFeature.Params.DEFAULT – те же
+     * векторы, что vectors(frames, {V.L1}, params, lbpNorm).
+     */
+    void vectors(Map<String, Mat> frames, IlluminationNorm.NormParams params, IlluminationNorm lbpNorm, LbpFeature.Params lp) {
+        vec.put(V.L1, new HashMap<>());
+        mir.put(V.L1, new HashMap<>());
+        for (Map.Entry<String, Mat> e : frames.entrySet()) {
+            Mat m = FaceMirror.mirror(e.getValue());
+            vec.get(V.L1).put(e.getKey(), LbpFeature.sqrt(LbpFeature.histogram(e.getValue(), lbpNorm, params, lp)));
+            mir.get(V.L1).put(e.getKey(), LbpFeature.sqrt(LbpFeature.histogram(m, lbpNorm, params, lp)));
+            m.release();
+        }
+    }
+
+    /**
      * То же с нормировкой освещения перед LBP lbpNorm (faces.lbp.norm; у отражённых кадров — после отражения и повторного
      * выравнивания); A — всегда CLAHE по пикселям, от lbpNorm не зависит.
      */
@@ -480,6 +495,12 @@ public final class XBaseEval {
             XBaseReg.feret(export, dir, feiKeys, selLines, settings);
         } else if (a[0].equals("gt-reg")) {
             XBaseReg.gt(export, dir, feiKeys, selLines, settings, out);
+        } else if (a[0].equals("pool-lbp")) {
+            XBaseLbp.pool(export, dir, feiKeys, selLines, settings, out);
+        } else if (a[0].equals("feret-lbp")) {
+            XBaseLbp.feret(export, dir, feiKeys, selLines, settings);
+        } else if (a[0].equals("gt-lbp")) {
+            XBaseLbp.gt(export, dir, feiKeys, selLines, settings, out);
         } else if (a[0].equals("feret-thr")) {
             XBaseThr.feret(export, dir, feiKeys, selLines, settings);
         } else if (a[0].equals("gt-thr")) {
