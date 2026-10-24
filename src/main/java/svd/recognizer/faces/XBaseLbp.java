@@ -87,11 +87,40 @@ final class XBaseLbp {
     /** Строки одной модели: [евклид, косинус], сведения основной модели X / X+mirror и число осей. */
     record One(String[] rows, String[] info, int[] axes) {}
 
-    /** Как XBaseReg.fitLines при одном c = 1 (MldaScorer() – прежний пол), тот же порядок задач. */
-    static One fitLines(XBaseEval.Gt gt, XBaseEval x, Map<String, List<String>> galleryKeys, List<Probe> mainProbes, List<List<String>> parts, int s,
-                        List<List<Probe>> extra) {
+    /** Задачи одного блока (как XBaseReg.fitLines при одном c = 1) и место для сведений основной модели. */
+    record Job(List<Callable<String[]>> tasks, String[] info, int[] axes) {}
+
+    /** Блоки jobs – все задачи разом в threads потоках (порядок строк внутри блока – как в XBaseReg.fitLines). */
+    static List<One> run(List<Job> jobs, int threads) {
+        List<Callable<String[]>> flat = new ArrayList<>();
+        for (Job j : jobs) flat.addAll(j.tasks());
+        java.util.concurrent.ExecutorService ex = java.util.concurrent.Executors.newFixedThreadPool(threads);
+        try {
+            List<java.util.concurrent.Future<String[]>> fs = ex.invokeAll(flat);
+            List<One> out = new ArrayList<>();
+            int i = 0;
+            for (Job j : jobs) {
+                StringBuilder[] b = {new StringBuilder(), new StringBuilder()};
+                for (int k = 0; k < j.tasks().size(); k++) {
+                    String[] r = fs.get(i++).get();
+                    b[0].append(r[0]);
+                    b[1].append(r[1]);
+                }
+                out.add(new One(new String[] {b[0].toString(), b[1].toString()}, j.info(), j.axes()));
+            }
+            return out;
+        } catch (InterruptedException | java.util.concurrent.ExecutionException e) {
+            throw new IllegalStateException("XBaseLbp: " + e, e);
+        } finally {
+            ex.shutdown();
+        }
+    }
+
+    /** Задачи блока – как XBaseReg.fitLines при одном c = 1 (MldaScorer() – прежний пол), тот же порядок задач. */
+    static Job job(XBaseEval.Gt gt, XBaseEval x, Map<String, List<String>> galleryKeys, List<Probe> mainProbes, List<List<String>> parts, int s,
+                   List<List<Probe>> extra) {
         List<String> own = gt.own;
-        List<List<String>> cohort = gt.cohort;
+        List<List<String>> cohort = new ArrayList<>(gt.cohort);
         List<List<String>> fullGallery = own.stream().map(galleryKeys::get).toList();
         String[] info = new String[2];
         int[] axes = new int[2];
@@ -115,20 +144,7 @@ final class XBaseLbp {
                 tasks.add(() -> XBaseReg.lines(x, method, s, XBaseRule.fit(x, m, gk, cohort, null).lm, g, pr));
             }
         }
-        java.util.concurrent.ExecutorService ex = java.util.concurrent.Executors.newFixedThreadPool(gt.threads);
-        try {
-            StringBuilder[] b = {new StringBuilder(), new StringBuilder()};
-            for (java.util.concurrent.Future<String[]> f : ex.invokeAll(tasks)) {
-                String[] r = f.get();
-                b[0].append(r[0]);
-                b[1].append(r[1]);
-            }
-            return new One(new String[] {b[0].toString(), b[1].toString()}, info, axes);
-        } catch (InterruptedException | java.util.concurrent.ExecutionException e) {
-            throw new IllegalStateException("XBaseLbp: " + e, e);
-        } finally {
-            ex.shutdown();
-        }
+        return new Job(tasks, info, axes);
     }
 
     static One read(XBaseOther.Checkpoint cp, String tag) throws IOException {
@@ -253,6 +269,8 @@ final class XBaseLbp {
                 Set<String> members = sets.get(set);
                 List<List<String>> parts = XBaseRule.parts5(members, tpl.seed + XBaseRule.PART_SEED_OFFSET);
                 for (int f = 0; f < XBaseRule.FEATS.length; f++) {
+                    // Блоки (часть, смена): сначала все описания, недостающие в контрольной точке – одной пачкой задач.
+                    List<Object[]> blk = new ArrayList<>();
                     for (int q = 0; q < FeiMethods.CV_PARTS; q++) {
                         List<String> held = new ArrayList<>(parts.get(q));
                         Set<String> train = new TreeSet<>(members);
@@ -279,24 +297,48 @@ final class XBaseLbp {
                             }
                             for (String p : ctrl) for (List<String> d : s.pool.get(p)) for (String k : d) probes.add(new Probe(FeiScores.CTRL, p, g.img(k), k, -1));
                             String tag = String.format(Locale.ROOT, "v%d_%s_q%d_h%d_f%d", v, set, q, h, f);
-                            One ls = read(cp, tag);
-                            if (ls == null) {
-                                if (xv == null) xv = vectors(fr, tpl.params, VARS[v]);
-                                long t0 = System.nanoTime();
-                                ls = fitLines(g, xv[f], gal, probes, null, 2 * q + h, null);
-                                double sec = (System.nanoTime() - t0) / 1e9;
-                                fitS += sec;
-                                save(cp, tag, ls);
-                                System.out.printf(Locale.ROOT, "pool-lbp: %s ready (%.0f s)%n", tag, sec);
-                            }
-                            String bp = set + ", " + XBaseRule.FEATS[f] + ", часть " + q + ", смена " + h + ", ";
-                            if (v == BASE) check.append(XBaseReg.check(bp + REG_C1, ls.rows()[1], blocks, regScores));
-                            info.append(infoRow(String.format(Locale.ROOT, "%s %s часть %d смена %d", set, XBaseRule.FEATS[f], q, h), v, ls));
-                            List<List<String>> noParts = new ArrayList<>();
-                            for (int p = 0; p < FeiMethods.CV_PARTS; p++) noParts.add(List.of());
-                            scores.append("# ").append(bp).append(VNAME[v]).append(", косинус\n").append(ls.rows()[1]);
-                            cfgs.get(si).get(f).get(v).add(XBaseEval.parse(g, EnumSet.of(V.L1), gal, probes, noParts, ls.rows()[1]).cfg.get(V.L1));
+                            blk.add(new Object[] {q, h, g, gal, probes, tag, read(cp, tag)});
                         }
+                    }
+                    List<Job> jobs = new ArrayList<>();
+                    List<Object[]> todo = new ArrayList<>();
+                    for (Object[] b : blk) {
+                        if (b[6] != null) continue;
+                        if (xv == null) xv = vectors(fr, tpl.params, VARS[v]);
+                        @SuppressWarnings("unchecked")
+                        Map<String, List<String>> gal = (Map<String, List<String>>) b[3];
+                        @SuppressWarnings("unchecked")
+                        List<Probe> probes = (List<Probe>) b[4];
+                        jobs.add(job((XBaseEval.Gt) b[2], xv[f], gal, probes, null, 2 * (int) b[0] + (int) b[1], null));
+                        todo.add(b);
+                    }
+                    if (!jobs.isEmpty()) {
+                        long t0 = System.nanoTime();
+                        List<One> done = run(jobs, tpl.threads);
+                        double sec = (System.nanoTime() - t0) / 1e9;
+                        fitS += sec;
+                        for (int i = 0; i < todo.size(); i++) {
+                            todo.get(i)[6] = done.get(i);
+                            save(cp, (String) todo.get(i)[5], done.get(i));
+                        }
+                        System.out.printf(Locale.ROOT, "pool-lbp: v%d %s f%d ready, %d blocks (%.0f s)%n", v, set, f, jobs.size(), sec);
+                    }
+                    for (Object[] b : blk) {
+                        int q = (int) b[0];
+                        int h = (int) b[1];
+                        XBaseEval.Gt g = (XBaseEval.Gt) b[2];
+                        @SuppressWarnings("unchecked")
+                        Map<String, List<String>> gal = (Map<String, List<String>>) b[3];
+                        @SuppressWarnings("unchecked")
+                        List<Probe> probes = (List<Probe>) b[4];
+                        One ls = (One) b[6];
+                        String bp = set + ", " + XBaseRule.FEATS[f] + ", часть " + q + ", смена " + h + ", ";
+                        if (v == BASE) check.append(XBaseReg.check(bp + REG_C1, ls.rows()[1], blocks, regScores));
+                        info.append(infoRow(String.format(Locale.ROOT, "%s %s часть %d смена %d", set, XBaseRule.FEATS[f], q, h), v, ls));
+                        List<List<String>> noParts = new ArrayList<>();
+                        for (int p = 0; p < FeiMethods.CV_PARTS; p++) noParts.add(List.of());
+                        scores.append("# ").append(bp).append(VNAME[v]).append(", косинус\n").append(ls.rows()[1]);
+                        cfgs.get(si).get(f).get(v).add(XBaseEval.parse(g, EnumSet.of(V.L1), gal, probes, noParts, ls.rows()[1]).cfg.get(V.L1));
                     }
                 }
             }
@@ -450,7 +492,41 @@ final class XBaseLbp {
         }
         double fitS = 0;
         for (int v = 0; v < VARS.length; v++) {
+            // Блоки варианта (признак, проход): недостающие в контрольной точке – одной пачкой задач.
+            One[][] got = new One[XBaseRule.FEATS.length][2];
+            List<Job> jobs = new ArrayList<>();
+            List<int[]> todo = new ArrayList<>();
             XBaseEval[] xv = null;
+            for (int f = 0; f < XBaseRule.FEATS.length; f++) {
+                for (int ps = 0; ps < 2; ps++) {
+                    got[f][ps] = read(cp, String.format(Locale.ROOT, "v%d_p%d_f%d", v, ps, f));
+                    if (got[f][ps] != null) continue;
+                    if (xv == null) xv = vectors(fr, tpl.params, VARS[v]);
+                    Object[] pz = passes[ps];
+                    @SuppressWarnings("unchecked")
+                    Map<String, List<String>> gal = (Map<String, List<String>>) pz[1];
+                    @SuppressWarnings("unchecked")
+                    List<List<String>> parts = (List<List<String>>) pz[3];
+                    @SuppressWarnings("unchecked")
+                    List<Probe> probes = (List<Probe>) pz[4];
+                    @SuppressWarnings("unchecked")
+                    List<List<Probe>> extra = (List<List<Probe>>) pz[5];
+                    jobs.add(job((XBaseEval.Gt) pz[0], xv[f], gal, probes, parts, 0, extra));
+                    todo.add(new int[] {f, ps});
+                }
+            }
+            if (!jobs.isEmpty()) {
+                long t0 = System.nanoTime();
+                List<One> done = run(jobs, tpl.threads);
+                double sec = (System.nanoTime() - t0) / 1e9;
+                fitS += sec;
+                for (int i = 0; i < todo.size(); i++) {
+                    int[] fp2 = todo.get(i);
+                    got[fp2[0]][fp2[1]] = done.get(i);
+                    save(cp, String.format(Locale.ROOT, "v%d_p%d_f%d", v, fp2[1], fp2[0]), done.get(i));
+                }
+                System.out.printf(Locale.ROOT, "feret-lbp: %s ready, %d blocks (%.0f s)%n", VNAME[v], jobs.size(), sec);
+            }
             for (int f = 0; f < XBaseRule.FEATS.length; f++) {
                 for (int ps = 0; ps < 2; ps++) {
                     Object[] pz = passes[ps];
@@ -461,21 +537,7 @@ final class XBaseLbp {
                     Map<String, List<String>> pro = (Map<String, List<String>>) pz[2];
                     @SuppressWarnings("unchecked")
                     List<List<String>> parts = (List<List<String>>) pz[3];
-                    @SuppressWarnings("unchecked")
-                    List<Probe> probes = (List<Probe>) pz[4];
-                    @SuppressWarnings("unchecked")
-                    List<List<Probe>> extra = (List<List<Probe>>) pz[5];
-                    String tag = String.format(Locale.ROOT, "v%d_p%d_f%d", v, ps, f);
-                    One ls = read(cp, tag);
-                    if (ls == null) {
-                        if (xv == null) xv = vectors(fr, tpl.params, VARS[v]);
-                        long t0 = System.nanoTime();
-                        ls = fitLines(g, xv[f], gal, probes, parts, 0, extra);
-                        double sec = (System.nanoTime() - t0) / 1e9;
-                        fitS += sec;
-                        save(cp, tag, ls);
-                        System.out.printf(Locale.ROOT, "feret-lbp: %s, pass %d, %s ready (%.0f s)%n", VNAME[v], ps + 1, XBaseRule.FEATS[f], sec);
-                    }
+                    One ls = got[f][ps];
                     String bp = "проход " + (ps + 1) + ", " + XBaseRule.FEATS[f] + ", ";
                     if (v == BASE) check.append(XBaseReg.check(bp + REG_C1, ls.rows()[1], blocks, regScores));
                     info.append(infoRow("проход " + (ps + 1) + ", " + XBaseRule.FEATS[f], v, ls));
@@ -577,9 +639,12 @@ final class XBaseLbp {
             aug.addAll(poolCls);
             g.cohort = aug;
             for (int v = 0; v < VARS.length; v++) {
+                // Блоки варианта (режим, признак): недостающие в контрольной точке – одной пачкой задач.
+                One[][] got = new One[modes.length][XBaseRule.FEATS.length];
+                List<Job> jobs = new ArrayList<>();
+                List<int[]> todo = new ArrayList<>();
                 XBaseEval[] xv = null;
                 for (int mi = 0; mi < modes.length; mi++) {
-                    String mode = (String) modes[mi][0];
                     boolean x = mi == 0;
                     @SuppressWarnings("unchecked")
                     Map<String, List<String>> gal = (Map<String, List<String>>) modes[mi][1];
@@ -587,17 +652,29 @@ final class XBaseLbp {
                     Map<String, List<String>> pro = (Map<String, List<String>>) modes[mi][2];
                     List<Probe> probes = XBaseEval.probes(g, pro);
                     for (int f = 0; f < XBaseRule.FEATS.length; f++) {
-                        String tag = "v" + v + "_" + (x ? "x" : "i") + "_f" + f;
-                        One ls = read(cp, tag);
-                        if (ls == null) {
-                            if (xv == null) xv = vectors(fr, g.params, VARS[v]);
-                            long t0 = System.nanoTime();
-                            ls = fitLines(g, xv[f], gal, probes, parts, 0, x ? XBaseThr.extra(g, pro, parts) : null);
-                            double sec = (System.nanoTime() - t0) / 1e9;
-                            fitS += sec;
-                            save(cp, tag, ls);
-                            System.out.printf(Locale.ROOT, "gt-lbp: %s ready (%.0f s)%n", tag, sec);
-                        }
+                        got[mi][f] = read(cp, "v" + v + "_" + (x ? "x" : "i") + "_f" + f);
+                        if (got[mi][f] != null) continue;
+                        if (xv == null) xv = vectors(fr, g.params, VARS[v]);
+                        jobs.add(job(g, xv[f], gal, probes, parts, 0, x ? XBaseThr.extra(g, pro, parts) : null));
+                        todo.add(new int[] {mi, f});
+                    }
+                }
+                if (!jobs.isEmpty()) {
+                    long t0 = System.nanoTime();
+                    List<One> done = run(jobs, g.threads);
+                    double sec = (System.nanoTime() - t0) / 1e9;
+                    fitS += sec;
+                    for (int i = 0; i < todo.size(); i++) {
+                        int[] mf = todo.get(i);
+                        got[mf[0]][mf[1]] = done.get(i);
+                        save(cp, "v" + v + "_" + (mf[0] == 0 ? "x" : "i") + "_f" + mf[1], done.get(i));
+                    }
+                    System.out.printf(Locale.ROOT, "gt-lbp: %s ready, %d blocks (%.0f s)%n", VNAME[v], jobs.size(), sec);
+                }
+                for (int mi = 0; mi < modes.length; mi++) {
+                    String mode = (String) modes[mi][0];
+                    for (int f = 0; f < XBaseRule.FEATS.length; f++) {
+                        One ls = got[mi][f];
                         String bp = mode + ", " + XBaseRule.FEATS[f] + ", ";
                         if (v == BASE) check.append(XBaseReg.check(bp + REG_C1, ls.rows()[1], blocks, regScores));
                         info.append(infoRow(mode + ", " + XBaseRule.FEATS[f], v, ls));
