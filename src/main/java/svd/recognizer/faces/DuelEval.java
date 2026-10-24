@@ -701,6 +701,60 @@ final class DuelEval {
         System.out.print(r);
     }
 
+    /**
+     * Режим duel-shares-24: доли метода Прокаева по каждой пробе (основная строка – настройки коллеги 23.10: 80 × 120 INTER_AREA, k = 7, l = 5, Б2-К,
+     * гости 081–090), пробы × классы 1–10 и «гость», как в таблице коллеги; файлы duel_24.10_shares_&lt;комплект&gt;.csv рядом с отчётом.
+     */
+    static void shares24(Path out) throws IOException {
+        String rawDuel = System.getenv("FACES_DUEL_DIR");
+        if (rawDuel == null) throw new IllegalStateException("duel-shares-24: задайте FACES_DUEL_DIR (каталог набора GT_24.10)");
+        Path duel = Paths.get(rawDuel);
+        Path rep = out.getParent().resolve("duel");
+        String tagSet = DuelSet.TAG24;
+        verify(duel, rep.resolve("set_sha256_" + tagSet + ".txt"), "duel-shares-24");
+        Map<String, String> fileOf = new HashMap<>();
+        List<Item> key = readKey24(rep.resolve("key_" + tagSet + ".tsv"), fileOf);
+        List<String> ownP = key.stream().filter(it -> it.code().startsWith("P")).map(it -> it.code().substring(0, 3)).distinct().sorted().toList();
+        P24 pc = P24S.get(0);
+        for (int s = 0; s < DuelSet.SETS.length; s++) {
+            Path base = duel.resolve(DuelSet.SETS[s]);
+            Map<String, float[]> gray = new HashMap<>();
+            for (Item it : key) {
+                Mat color = DuelSet.readColor(base.resolve(fileOf.get(it.code())));
+                gray.put(it.code(), grayAt(color, HIS));
+                color.release();
+            }
+            List<float[]> a = new ArrayList<>();
+            List<String> lab = new ArrayList<>();
+            for (Item it : key) {
+                if (it.code().startsWith("P")) {
+                    a.add(gray.get(it.code()));
+                    lab.add(it.code().substring(0, 3));
+                } else if (it.code().startsWith("G")) {
+                    a.add(gray.get(it.code()));
+                    lab.add(ProkaevMethod.GUEST);
+                }
+            }
+            ProkaevMethod pm = ProkaevMethod.fit(a.toArray(float[][]::new), lab.toArray(String[]::new), null, ProkaevEval.KMAX);
+            StringBuilder t = new StringBuilder(DuelSet.BOM);
+            t.append("# Д-№2 (дуэль), набор GT_").append(tagSet).append(", комплект ").append(DuelSet.SETS[s]).append(": доли метода Прокаева, %; ").append(pc.label())
+                    .append("; правило автора 0,95; код ").append(FarMethods.commit()).append('\n');
+            t.append("проба");
+            for (int i = 1; i <= ownP.size(); i++) t.append(';').append(i);
+            t.append(";гость;решение\n");
+            for (Item it : key) {
+                if (!probe(it)) continue;
+                ProkaevMethod.Result pr = pm.decide(pm.project(gray.get(it.code()), Variant.K), Variant.K, pc.k(), pc.l());
+                t.append(fileOf.get(it.code()).replace(DuelSet.PROBE_DIR24 + "/", "").replace(".jpg", ""));
+                for (String p : ownP) t.append(String.format(Locale.ROOT, ";%.2f", 100 * pr.share().getOrDefault(p, 0.0)));
+                t.append(String.format(Locale.ROOT, ";%.2f", 100 * pr.share().getOrDefault(ProkaevMethod.GUEST, 0.0)));
+                t.append(';').append(pr.guest() ? DuelSet.GUEST_ROLE : "свой " + Integer.parseInt(pr.best().substring(1))).append('\n');
+            }
+            Files.writeString(rep.resolve("duel_" + tagSet + "_shares_" + DuelSet.SET_TAGS[s] + ".csv"), t.toString(), StandardCharsets.UTF_8);
+        }
+        System.out.println("duel-shares-24: готово");
+    }
+
     static String fmt(double share) {
         return String.format(Locale.ROOT, "%.1f", 100 * share);
     }
