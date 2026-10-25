@@ -446,7 +446,21 @@ final class DuelEval {
     /** Режим duel-eval-24: наш расчёт на файлах набора GT_24.10 (JPEG 800 × 1200) и сравнение с набором 22.10. */
     static void run24(FarExport.Loaded export, Path dir, Map<String, Map<Integer, String>> feiKeys, List<String> selLines, SettingsStore settings, Path out)
             throws IOException {
+        run24(export, dir, feiKeys, selLines, settings, out, false);
+    }
+
+    /** Вход первого прохода YuNet в режиме duel-eval-24-yunet400 (файл 800 × 1200 уменьшается INTER_AREA). */
+    static final Size DET_SMALL = new Size(400, 600);
+
+    /**
+     * small = false – режим duel-eval-24; small = true – режим duel-eval-24-yunet400 (Д-№2, 25.10): только К-лицо, первый проход YuNet на файле,
+     * уменьшенном INTER_AREA до 400 × 600, точки – обратно в масштаб файла (÷ 0,5), второй проход, выравнивание и кадры – по файлу 800 × 1200; файлы
+     * отчёта – с суффиксом _yunet400, прежние не меняются.
+     */
+    static void run24(FarExport.Loaded export, Path dir, Map<String, Map<Integer, String>> feiKeys, List<String> selLines, SettingsStore settings, Path out,
+            boolean small) throws IOException {
         long t0 = System.nanoTime();
+        String sfx = small ? "_yunet400" : "";
         String rawDuel = System.getenv("FACES_DUEL_DIR");
         if (rawDuel == null) throw new IllegalStateException("duel-eval-24: задайте FACES_DUEL_DIR (каталог набора GT_24.10)");
         Path duel = Paths.get(rawDuel);
@@ -497,7 +511,10 @@ final class DuelEval {
         long gallery = key.stream().filter(it -> it.code().startsWith("P01_")).count();
 
         StringBuilder r = new StringBuilder("Д-№1 от 24.10 (дуэль; Д17, Д18): наш расчёт на наборе GT_24.10 – тех же файлах JPEG 800 × 1200, что получит коллега "
-                + "(XBaseEval duel-eval-24)\n");
+                + "(XBaseEval duel-eval-24" + (small ? "-yunet400" : "") + ")\n");
+        if (small) r.append("Справочно (Д-№2, 25.10): только К-лицо; первый проход YuNet – на файле, уменьшенном INTER_AREA до 400 × 600, точки – обратно в "
+                + "масштаб файла, второй проход, выравнивание и кадры «а» и SFace – по файлу 800 × 1200. Прочее – как duel-eval-24 (строки метода Прокаева "
+                + "от детектора не зависят).\n");
         r.append("Код: коммит ").append(FarMethods.commit()).append('\n');
         r.append("Данные: экспорт ").append(dir).append(", коммит данных ").append(FarMethods.dataCommit(dir)).append(" (a/fei); пул – Color FERET (только чтение, "
                 + "имён снимков нет)\n");
@@ -520,6 +537,7 @@ final class DuelEval {
         for (int s = 0; s < DuelSet.SETS.length; s++) {
             String set = DuelSet.SETS[s];
             String tag = DuelSet.SET_TAGS[s];
+            if (small && !tag.equals("face")) continue;
             Path base = duel.resolve(set);
             Map<String, Mat> fa = new LinkedHashMap<>();
             Map<String, Mat> fs = new LinkedHashMap<>();
@@ -532,7 +550,17 @@ final class DuelEval {
                 grayHis.put(it.code(), grayAt(color, HIS));
                 grayOld.put(it.code(), grayAt(color, OLD));
                 if (!it.role().equals(DuelSet.GUEST_ROLE)) {
-                    double[] first = YunetTwoPass.firstPass(detector, color, 1.0);
+                    double[] first;
+                    if (small) {
+                        if (color.cols() != 2 * DET_SMALL.width || color.rows() != 2 * DET_SMALL.height) throw new IllegalStateException(
+                                "duel-eval-24-yunet400: файл " + fileOf.get(it.code()) + " не 800 × 1200");
+                        Mat in = new Mat();
+                        Imgproc.resize(color, in, DET_SMALL, 0, 0, Imgproc.INTER_AREA);
+                        first = YunetTwoPass.firstPass(detector, in, 0.5);
+                        in.release();
+                    } else {
+                        first = YunetTwoPass.firstPass(detector, color, 1.0);
+                    }
                     double[] row = null;
                     if (first != null) {
                         double[] second = YunetTwoPass.secondPass(detector, color, new double[] {first[0], first[1], first[2], first[3]});
@@ -637,7 +665,7 @@ final class DuelEval {
             Map<String, List<Out>> pres = new LinkedHashMap<>();
             StringBuilder csv = new StringBuilder(DuelSet.BOM + "проба;кандидат 1;% 1;кандидат 2;% 2;решение (свой / гость);примечание\n");
             for (P24 pc : P24S) pres.put(pc.label(), prokaev(key, pc.small() ? grayHis : grayOld, pc, codeOf, pc == P24S.get(0) ? csv : null, probeName));
-            Files.writeString(rep.resolve("prokaev_" + tagSet + "_" + tag + ".csv"), csv.toString(), StandardCharsets.UTF_8);
+            Files.writeString(rep.resolve("prokaev_" + tagSet + "_" + tag + sfx + ".csv"), csv.toString(), StandardCharsets.UTF_8);
 
             r.append("\n================ Комплект ").append(set).append(" ================\n");
             Map<String, int[]> fc = new LinkedHashMap<>();
@@ -696,8 +724,8 @@ final class DuelEval {
         r.append("\n=== SHA-256 файлов набора GT_24.10 ===\n");
         inv.forEach(l -> r.append(l).append('\n'));
         r.append(String.format(Locale.ROOT, "%nОпись набора 22.10: %d файлов, сверена.%nВремя: %.0f с.%n", invOld.size(), (System.nanoTime() - t0) / 1e9));
-        FarMethods.write(rep.resolve("duel_" + tagSet + "_probes.tsv"), probesTsv);
-        FarMethods.write(rep.resolve("duel_" + tagSet + ".txt"), r);
+        FarMethods.write(rep.resolve("duel_" + tagSet + sfx + "_probes.tsv"), probesTsv);
+        FarMethods.write(rep.resolve("duel_" + tagSet + sfx + ".txt"), r);
         System.out.print(r);
     }
 
