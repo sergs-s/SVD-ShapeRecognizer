@@ -517,6 +517,14 @@ public final class XBaseEval {
             XBaseKiss.feret(export, dir, feiKeys, selLines, settings);
         } else if (a[0].equals("gt-kiss")) {
             XBaseKiss.gt(export, dir, feiKeys, selLines, settings, out);
+        } else if (a[0].equals("feret-kiss-nofloor")) {
+            XBaseKissDiag.feretNofloor(export, dir, feiKeys, selLines, settings);
+        } else if (a[0].equals("gt-kiss-nofloor")) {
+            XBaseKissDiag.gtNofloor(export, dir, feiKeys, selLines, settings, out);
+        } else if (a[0].equals("feret-kiss-ctrl")) {
+            XBaseKissDiag.feretCtrl(export, dir, feiKeys, selLines, settings);
+        } else if (a[0].equals("gt-kiss-ctrl")) {
+            XBaseKissDiag.gtCtrl(export, dir, feiKeys, selLines, settings, out);
         } else if (a[0].equals("gt-lbp")) {
             XBaseLbp.gt(export, dir, feiKeys, selLines, settings, out);
         } else if (a[0].equals("feret-thr")) {
