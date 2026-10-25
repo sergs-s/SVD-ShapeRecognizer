@@ -527,6 +527,12 @@ public final class XBaseEval {
             XBaseKissDiag.gtRaw(export, dir, feiKeys, selLines, settings, out);
         } else if (a[0].equals("gt-kiss-ctrl")) {
             XBaseKissDiag.gtCtrl(export, dir, feiKeys, selLines, settings, out);
+        } else if (a[0].equals("pool-plda")) {
+            XBasePlda.pool(export, dir, feiKeys, selLines, settings, out);
+        } else if (a[0].equals("feret-plda")) {
+            XBasePlda.feret(export, dir, feiKeys, selLines, settings);
+        } else if (a[0].equals("gt-plda")) {
+            XBasePlda.gt(export, dir, feiKeys, selLines, settings, out);
         } else if (a[0].equals("gt-lbp")) {
             XBaseLbp.gt(export, dir, feiKeys, selLines, settings, out);
         } else if (a[0].equals("feret-thr")) {
