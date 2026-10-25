@@ -1180,7 +1180,15 @@ mvn compile exec:java@faces-fei-scores  # разбор файла оценок F
     `checkpoint_feret_kiss_eq`, `reports/faces/xbase/checkpoint_gt_kiss`;
     пробные режимы `FACES_KISS_SMOKE=1` (малые данные, весь путь), `2`
     (первая группа в полном размере – замер), `3` (pool-kiss, одна
-    часть);
+    часть); диагностика (`XBaseKissDiag`, `04fd55f`, `64a9c8f`):
+    `feret-kiss-nofloor`, `gt-kiss-nofloor` – строки без пола у Σ_S по
+    файлам оценок feret-kiss / gt-kiss (секунды, сверка базы побайтно);
+    `feret-kiss-ctrl` (межс., около 12 мин) и `gt-kiss-ctrl` (внутри,
+    около 8 мин) – на PCA (К1): (Е) евклид, (С) Σ_S⁻¹ с полом, (С0) без
+    пола, m = 100, 300, доля энергии; `gt-kiss-raw` – (Е0) евклид без
+    PCA, GT внутри (около 1 мин, нужны файлы оценок gt-kiss и
+    gt-kiss-ctrl); FERET – только `reports\eq\xbase_feret_kiss_*`, GT –
+    `xbase_gt_kiss_*`, копия – `SVD-faces-data/reports/xbase_64a9c8f/`;
   - контрольные точки feret-update (`derived\checkpoint_feret_update_eq`,
     после каждого прохода проекции и части К4) и gt-xs-f
     (`reports/faces/xbase/checkpoint_gt_xs_f`, после каждого варианта);
