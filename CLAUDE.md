@@ -1084,7 +1084,11 @@ mvn compile exec:java@faces-fei-scores  # разбор файла оценок F
     `duel_24.10.txt`, `duel_24.10_probes.tsv`, `prokaev_24.10_*.csv`;
     `duel-shares-24` (`c5f5dcf`) – доли метода Прокаева по пробам →
     `duel_24.10_shares_<face|plain>.csv`, около 3 с; копии –
-    `SVD-faces-data/reports/duel_699f3b9/`;
+    `SVD-faces-data/reports/duel_699f3b9/`; `duel-eval-24-yunet400`
+    (`e0c3554`) – справочно, только К-лицо, первый проход YuNet на
+    файле, уменьшенном INTER_AREA до 400 × 600, остальное по файлу
+    800 × 1200; около 25 мин → `duel_24.10_yunet400*`, копия –
+    `SVD-faces-data/reports/duel_e0c3554/`;
   - `pool-rule`, `gt-rule`, `feret-rule` (`XBaseRule`, `aa35b05`;
     ревизия 1.2, 2.1, №1–№2 Жорика 24.10) – правило оценки на L1 от
     одной модели MLDA: (0) база, (а) k = 20, 50, 100, (б) 1 − cos, (в)
