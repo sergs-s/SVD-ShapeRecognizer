@@ -507,6 +507,10 @@ public final class XBaseEval {
             XBaseLbp.pool(export, dir, feiKeys, selLines, settings, out);
         } else if (a[0].equals("feret-lbp")) {
             XBaseLbp.feret(export, dir, feiKeys, selLines, settings);
+        } else if (a[0].equals("feret-dates")) {
+            XBaseDates.feret(export, dir, feiKeys, selLines, settings);
+        } else if (a[0].equals("gt-dates")) {
+            XBaseDates.gt(export, dir, feiKeys, selLines, settings, out);
         } else if (a[0].equals("gt-lbp")) {
             XBaseLbp.gt(export, dir, feiKeys, selLines, settings, out);
         } else if (a[0].equals("feret-thr")) {
