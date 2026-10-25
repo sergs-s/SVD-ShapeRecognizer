@@ -1161,6 +1161,26 @@ mvn compile exec:java@faces-fei-scores  # разбор файла оценок F
     `reports/faces/xbase/checkpoint_gt_dates`; пробный режим
     `FACES_DATES_SMOKE=1` (12 своих на проход, пул 15, без сверок,
     файлы `*_smoke`; около 2 мин);
+  - `pool-kiss`, `feret-kiss`, `gt-kiss` (`XBaseKiss`, `870f83b`,
+    `5a08898`; п. 3, KISSME, №12 Жорика и поправки 25.10) – пары S
+    (межсессионные) и D (10·|S|, seed faces.seed + 10400 + номер модели
+    в блоке) на выборке W (галерея, когорта FEI, пул FERET, у X+mirror –
+    с отражениями), пол λ̄ у Σ_S, Σ_D без пола (ранг меньше размерности
+    – остановка); (К2) – в пространстве W, (К1) – на PCA выборки, m =
+    50, 100, 200, 300; база – косинус (сверка побайтно с pool-lbp,
+    feret-lbp, feret-dates (ii) s3, gt-lbp); pool-kiss – выбор по схеме
+    pool-rule (база в пределах 1 п. п., иначе первый в порядке (К2) <
+    (К1) 50 < … < 300), около 42 мин, отчёт и
+    `xbase_pool_kiss_select.tsv` – только `D:\data\Feret\reports\eq\`, для GT – `xbase_pool_kiss_gt.txt`;
+    feret-kiss (межс. и (ii) s3, около 35 мин, только `reports\eq\
+    xbase_feret_kiss*`) и gt-kiss (межс. и внутри, условие Δ, около
+    70 мин, `xbase_gt_kiss*`, копия – `SVD-faces-data/reports/
+    xbase_5a08898/`) читают файл выбора; время этапов моделей – в
+    отчётах; контрольные точки `checkpoint_pool_kiss_eq`,
+    `checkpoint_feret_kiss_eq`, `reports/faces/xbase/checkpoint_gt_kiss`;
+    пробные режимы `FACES_KISS_SMOKE=1` (малые данные, весь путь), `2`
+    (первая группа в полном размере – замер), `3` (pool-kiss, одна
+    часть);
   - контрольные точки feret-update (`derived\checkpoint_feret_update_eq`,
     после каждого прохода проекции и части К4) и gt-xs-f
     (`reports/faces/xbase/checkpoint_gt_xs_f`, после каждого варианта);
