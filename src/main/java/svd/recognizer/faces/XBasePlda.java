@@ -40,15 +40,48 @@ import svd.recognizer.storage.SettingsStore;
  */
 final class XBasePlda {
 
-    /** Строки модели: 0 – база; 1–4 – (Р2-а, Р2-р, Р1-а, Р1-р) с нормировкой длины; 5–8 – то же без нормировки; 9, 10 – файл (−LLR) Р2, Р1
-     *  с нормировкой; 11, 12 – без нормировки; ROWS – сведения. */
-    static final String[] VNAME = {"база (косинус)", "(Р2-а) шаблон-среднее, LLR₁", "(Р2-р) шаблон-среднее, LLR₁ − LLR₂", "(Р1-а) n снимков, LLR₁",
-        "(Р1-р) n снимков, LLR₁ − LLR₂"};
-    static final int NV = VNAME.length;
+    /** Варианты в порядке простоты. */
+    static final String[] VAR = {"(Р2-а) шаблон-среднее, LLR₁", "(Р2-р) шаблон-среднее, LLR₁ − LLR₂", "(Р1-а) n снимков, LLR₁", "(Р1-р) n снимков, LLR₁ − LLR₂"};
+    /** Масштаб S_w′ = κ·S_w (ответ Жорика на №4: переуверенность из-за S_w, сжатой обучением W). */
+    static final double[] KS = {3, 10, 30, 100, 300};
+    static final int K = KS.length;
+    static final int NVAR = VAR.length;
+    /** Строки модели: 0 – база; row(v, k) = 1 + v·K + k – вариант v при κ_k с нормировкой длины; + NONORM – без нормировки; FILE + … – файл
+     *  (−LLR): (Р2, Р1) × κ с нормировкой, затем без; ROWS – сведения. */
+    static final int NV = 1 + NVAR * K;
+    static final int NONORM = NVAR * K;
+    static final int FILE = 1 + 2 * NVAR * K;
+    static final int ROWS = FILE + 4 * K;
+    static final String[] VNAME = new String[NV];
     static final int BASE = 0;
-    static final int NONORM = 4;
-    static final int FILE = 9;
-    static final int ROWS = 13;
+
+    static {
+        VNAME[0] = "база (косинус)";
+        for (int v = 0; v < NVAR; v++) for (int k = 0; k < K; k++) VNAME[row(v, k)] = VAR[v] + ", κ = " + kappa(k);
+    }
+
+    static int row(int v, int k) {
+        return 1 + v * K + k;
+    }
+
+    static int varOf(int r) {
+        return (r - 1) / K;
+    }
+
+    static int kOf(int r) {
+        return (r - 1) % K;
+    }
+
+    static String kappa(int k) {
+        return String.format(Locale.ROOT, "%.0f", KS[k]);
+    }
+
+    /** Имя строки файла (−LLR): i = (нормировка ? 0 : 2K) + p·K + k. */
+    static String fileName(int i) {
+        boolean norm = i < 2 * K;
+        int j = i % (2 * K);
+        return (j / K == 0 ? "(Р2)" : "(Р1)") + " −LLR, κ = " + kappa(j % K) + (norm ? "" : ", без нормировки длины");
+    }
     static final double CLAMP = 700;
     static final double SB_FLOOR = 1e-6;
     static final double PD_TOL = 1e-10;
@@ -353,79 +386,93 @@ final class XBasePlda {
                 zc.add(z);
             }
             Model md = fit(zc);
-            Scorer sc = new Scorer(md);
-            // Шаблоны: Р2 – среднее всех векторов (с отражениями), n = 1; Р1 – по снимку (у X+mirror – среднее снимка и отражения), n снимков.
+            // Суммы шаблонов (от κ не зависят): Р2 – среднее всех векторов (с отражениями), n = 1; Р1 – по снимку (у X+mirror – среднее снимка и
+            // отражения), n снимков.
             int g = gallery.size();
-            double[][] t2 = new double[g][];
-            double[][] t1 = new double[g][];
+            double[][] sum2 = new double[g][];
+            double[][] sum1 = new double[g][];
             int[] n1 = new int[g];
             for (int q = 0; q < g; q++) {
                 List<String> keys = gallery.get(q);
                 if (keys.isEmpty()) continue;
-                double[] sum2 = new double[d];
-                double[] sum1 = new double[d];
+                double[] a2 = new double[d];
+                double[] a1 = new double[d];
                 int cnt = 0;
                 for (String k : keys) {
                     double[] zo = pre(f.lm.embed(x.vec.get(V.L1).get(k)), m0, t, norm);
                     double[] snap = zo;
-                    for (int i = 0; i < d; i++) sum2[i] += zo[i];
+                    for (int i = 0; i < d; i++) a2[i] += zo[i];
                     cnt++;
                     if (mirror) {
                         double[] zm = pre(f.lm.embed(x.mir.get(V.L1).get(k)), m0, t, norm);
-                        for (int i = 0; i < d; i++) sum2[i] += zm[i];
+                        for (int i = 0; i < d; i++) a2[i] += zm[i];
                         cnt++;
                         snap = new double[d];
                         for (int i = 0; i < d; i++) snap[i] = (zo[i] + zm[i]) / 2;
                     }
-                    for (int i = 0; i < d; i++) sum1[i] += snap[i];
+                    for (int i = 0; i < d; i++) a1[i] += snap[i];
                 }
-                for (int i = 0; i < d; i++) sum2[i] /= cnt;
+                for (int i = 0; i < d; i++) a2[i] /= cnt;
                 n1[q] = keys.size();
-                t2[q] = sc.template(sum2, 1);
-                t1[q] = sc.template(sum1, n1[q]);
+                sum2[q] = a2;
+                sum1[q] = a1;
             }
-            StringBuilder[] ev = new StringBuilder[4];
-            for (int i = 0; i < 4; i++) ev[i] = new StringBuilder();
-            StringBuilder[] fl = {new StringBuilder(), new StringBuilder()};
-            int[][] cl = new int[4][1];
-            for (Probe p : probes) {
-                double[] z = pre(py.get(p.key()), m0, t, norm);
-                double prior = sc.prior(z);
-                double[][] llr = new double[2][g];
-                Map<Integer, double[]> pz = new HashMap<>();
-                pz.put(1, mul(sc.forN(1)[1], z));
+            Map<String, double[]> zp = new HashMap<>();
+            for (Probe p : probes) zp.computeIfAbsent(p.key(), k -> pre(py.get(k), m0, t, norm));
+            StringBuilder clamps = new StringBuilder();
+            for (int kk = 0; kk < K; kk++) {
+                double kap = KS[kk];
+                double[][] swK = new double[d][d];
+                for (int i = 0; i < d; i++) for (int j = 0; j < d; j++) swK[i][j] = kap * md.sw()[i][j];
+                Scorer sc = new Scorer(new Model(md.m(), md.sb(), swK, md.raised(), md.swRange(), md.sbRange()));
+                double[][] t2 = new double[g][];
+                double[][] t1 = new double[g][];
                 for (int q = 0; q < g; q++) {
-                    if (t2[q] == null) {
-                        llr[0][q] = Double.NEGATIVE_INFINITY;
-                        llr[1][q] = Double.NEGATIVE_INFINITY;
-                        continue;
+                    if (sum2[q] == null) continue;
+                    t2[q] = sc.template(sum2[q], 1);
+                    t1[q] = sc.template(sum1[q], n1[q]);
+                }
+                StringBuilder[] ev = new StringBuilder[NVAR];
+                for (int i = 0; i < NVAR; i++) ev[i] = new StringBuilder();
+                StringBuilder[] fl = {new StringBuilder(), new StringBuilder()};
+                int[][] cl = new int[NVAR][1];
+                for (Probe p : probes) {
+                    double[] z = zp.get(p.key());
+                    double prior = sc.prior(z);
+                    double[][] llr = new double[2][g];
+                    Map<Integer, double[]> pz = new HashMap<>();
+                    pz.put(1, mul(sc.forN(1)[1], z));
+                    for (int q = 0; q < g; q++) {
+                        if (t2[q] == null) {
+                            llr[0][q] = Double.NEGATIVE_INFINITY;
+                            llr[1][q] = Double.NEGATIVE_INFINITY;
+                            continue;
+                        }
+                        int nq = n1[q];
+                        double[] zq = pz.computeIfAbsent(nq, n -> mul(sc.forN(n)[1], z));
+                        llr[0][q] = sc.llr(pz.get(1), t2[q], 1, prior);
+                        llr[1][q] = sc.llr(zq, t1[q], nq, prior);
                     }
-                    int nq = n1[q];
-                    double[] zq = pz.computeIfAbsent(nq, n -> mul(sc.forN(n)[1], z));
-                    llr[0][q] = sc.llr(pz.get(1), t2[q], 1, prior);
-                    llr[1][q] = sc.llr(zq, t1[q], nq, prior);
+                    for (int v = 0; v < 2; v++) {
+                        double[] neg = new double[g];
+                        for (int q = 0; q < g; q++) neg[q] = -llr[v][q];
+                        fl[v].append(FeiScores.line(method, s, 0, p.role(), p.person(), p.image(), p.trueIdx(), own, neg, false));
+                        ev[2 * v].append(FeiScores.line(method, s, 0, p.role(), p.person(), p.image(), p.trueIdx(), own, evalA(llr[v], cl[2 * v]), false));
+                        ev[2 * v + 1].append(FeiScores.line(method, s, 0, p.role(), p.person(), p.image(), p.trueIdx(), own, evalR(llr[v], cl[2 * v + 1]), false));
+                    }
                 }
-                for (int v = 0; v < 2; v++) {
-                    double[] neg = new double[g];
-                    for (int q = 0; q < g; q++) neg[q] = -llr[v][q];
-                    fl[v].append(FeiScores.line(method, s, 0, p.role(), p.person(), p.image(), p.trueIdx(), own, neg, false));
-                    ev[2 * v].append(FeiScores.line(method, s, 0, p.role(), p.person(), p.image(), p.trueIdx(), own, evalA(llr[v], cl[2 * v]), false));
-                    ev[2 * v + 1].append(FeiScores.line(method, s, 0, p.role(), p.person(), p.image(), p.trueIdx(), own, evalR(llr[v], cl[2 * v + 1]), false));
-                }
+                for (int v = 0; v < NVAR; v++) out[row(v, kk) + (norm ? 0 : NONORM)] = v % 2 == 0 ? XBaseAbl.abs(ev[v].toString()) : ev[v].toString();
+                for (int p = 0; p < 2; p++) out[FILE + (norm ? 0 : 2 * K) + p * K + kk] = fl[p].toString();
+                clamps.append(String.format(Locale.ROOT, "%sκ=%s: %d/%d/%d/%d", kk == 0 ? "" : "; ", kappa(kk), cl[0][0], cl[1][0], cl[2][0], cl[3][0]));
             }
-            int base = norm ? 1 : 1 + NONORM;
-            for (int v = 0; v < 4; v++) out[base + v] = v % 2 == 0 ? XBaseAbl.abs(ev[v].toString()) : ev[v].toString();
-            int fb = norm ? FILE : FILE + 2;
-            out[fb] = fl[0].toString();
-            out[fb + 1] = fl[1].toString();
             double trB = 0;
             double trW = 0;
             for (int i = 0; i < d; i++) {
                 trB += md.sb()[i][i];
                 trW += md.sw()[i][i];
             }
-            diag.append(String.format(Locale.ROOT, "%s\t%s\t%d\t%d\t%.3e\t%.3e\t%.3e\t%.3e\t%d\t%.4f\t%d/%d/%d/%d%n", tag, norm ? "с нормировкой" : "без нормировки", d,
-                    cFloor, md.swRange()[0], md.swRange()[1], md.sbRange()[0], md.sbRange()[1], md.raised(), trB / trW, cl[0][0], cl[1][0], cl[2][0], cl[3][0]));
+            diag.append(String.format(Locale.ROOT, "%s\t%s\t%d\t%d\t%.3e\t%.3e\t%.3e\t%.3e\t%d\t%.4f\t%s%n", tag, norm ? "с нормировкой" : "без нормировки", d, cFloor,
+                    md.swRange()[0], md.swRange()[1], md.sbRange()[0], md.sbRange()[1], md.raised(), trB / trW, clamps));
         }
         out[ROWS] = diag.toString();
         return out;
@@ -498,7 +545,7 @@ final class XBasePlda {
     }
 
     static final String DIAG_HEAD = "\n=== Сведения PLDA по моделям (блок | модель | нормировка | размерность W | поднято в C до пола | S_w λ_min | λ_max | S_b после "
-            + "поправки λ_min | λ_max | поднято у S_b до 1e-6·λ_max | tr S_b / tr S_w | ограничено ±700: Р2-а / Р2-р / Р1-а / Р1-р) ===\n";
+            + "поправки λ_min | λ_max | поднято у S_b до 1e-6·λ_max | tr S_b / tr S_w | ограничено ±700 по κ: Р2-а / Р2-р / Р1-а / Р1-р) ===\n";
 
     static String diag(String block, String d) {
         StringBuilder t = new StringBuilder();
@@ -515,16 +562,24 @@ final class XBasePlda {
             + "ближе). Для разбора по d₁/d₂ (FeiScores.ratio) – монотонные положительные формы без насыщения: (-а) d_g = 1 + 700 − LLR_g (LLR ограничен "
             + "±700), второе расстояние – постоянная 1e6 (как строка (4) в (4а)); (-р) d_g = 1 + min(LLR₁ − LLR_g, 700), d₁/d₂ = 1 / (1 + Δ). Формы "
             + "1 / (1 + e^LLR) и e^(−Δ) не взяты: при |LLR| или Δ больше ≈ 27 отношение уходит ниже 1e-12 и по правилу вырожденных случаев (п. 1) "
-            + "склеивается, порядок проб теряется.\n";
+            + "склеивается, порядок проб теряется. Масштаб S_w′ = κ·S_w, κ ∈ {3, 10, 30, 100, 300} (S_w, оценённая на обучающей выборке W, сжата "
+            + "обучением – PLDA переуверенна; ответ Жорика на №4), S_b – прежняя; одно κ на строку для X и X+mirror.\n";
 
     // ---------------------------------------------------------------- pool-plda
 
-    /** База в пределах NEAR от лучшего – база; иначе первый по простоте (Р2-а < Р2-р < Р1-а < Р1-р) в пределах NEAR. */
+    /**
+     * База в пределах NEAR от лучшего – база; иначе вариант – первый по простоте (Р2-а < Р2-р < Р1-а < Р1-р), у которого хоть одно κ в
+     * пределах NEAR от лучшего, κ при нём – с лучшим критерием (κ – параметр калибровки, не сложности; ответ Жорика на №4).
+     */
     static int choose(double[] crit) {
         double best = Double.POSITIVE_INFINITY;
         for (double v : crit) best = Math.min(best, v);
         if (crit[BASE] <= best + XBaseRule.NEAR) return BASE;
-        for (int v = 1; v < crit.length; v++) if (crit[v] <= best + XBaseRule.NEAR) return v;
+        for (int v = 0; v < NVAR; v++) {
+            int bk = -1;
+            for (int k = 0; k < K; k++) if (bk < 0 || crit[row(v, k)] < crit[row(v, bk)]) bk = k;
+            if (crit[row(v, bk)] <= best + XBaseRule.NEAR) return row(v, bk);
+        }
         throw new IllegalStateException("XBasePlda: выбор не определён");
     }
 
@@ -561,7 +616,8 @@ final class XBasePlda {
                 + "половина A (%d; проход 2);%n5 частей по людям (Random(faces.seed + %d)), половины части – Random(faces.seed + %d + q); галерея своих – первая дата пула.%n",
                 s.halves.get(1).size(), s.halves.get(0).size(), XBaseRule.PART_SEED_OFFSET, XBaseRule.HALF_SEED_OFFSET));
         head.append(String.format(Locale.ROOT, "Критерий – среднее ошибок своих при фактическом FAR контроля 1, 2, 5 %%; база, если в пределах %.0f п. п. от лучшего, иначе "
-                + "первый по простоте (Р2-а < Р2-р < Р1-а < Р1-р) в пределах %.0f п. п.%n", XBaseRule.NEAR, XBaseRule.NEAR));
+                + "первый по простоте (Р2-а < Р2-р < Р1-а < Р1-р), у которого хоть одно κ в пределах %.0f п. п., κ – с лучшим критерием.%n", XBaseRule.NEAR,
+                XBaseRule.NEAR));
         head.append(NOTE);
         StringBuilder check = new StringBuilder("\n=== Проверка: база – строки косинуса = pool-lbp (L1-xs-F – база 7×7, L1-tt-xs-F – вариант (2) 9×9), побайтно ===\n");
         StringBuilder dg = new StringBuilder(DIAG_HEAD);
@@ -650,8 +706,7 @@ final class XBasePlda {
                     if (sm != 1) check.append(XBaseReg.check(bp + XBaseLbp.VNAME[XBaseDates.VNO[f]] + ", косинус", ls[0], blocks, lbpScores));
                     dg.append(diag(String.format(Locale.ROOT, "%s %s часть %d смена %d", set, XBaseRule.FEATS[f], q, h), ls[ROWS]));
                     scores.append("# ").append(bp).append(VNAME[0]).append('\n').append(ls[0]);
-                    scores.append("# ").append(bp).append("(Р2) −LLR\n").append(ls[FILE]);
-                    scores.append("# ").append(bp).append("(Р1) −LLR\n").append(ls[FILE + 1]);
+                    for (int i = 0; i < 2 * K; i++) scores.append("# ").append(bp).append(fileName(i)).append('\n').append(ls[FILE + i]);
                     for (int v = 0; v < NV; v++) cfgs.get(si).get(f).get(v).add(XBaseEval.parse(g, EnumSet.of(V.L1), gal, probes, noParts, ls[v]).cfg.get(V.L1));
                 }
                 if (sm >= 2) break outer;
@@ -708,7 +763,7 @@ final class XBasePlda {
     static Map<String, Map<String, Integer>> readSelect(Path f) throws IOException {
         if (smoke() == 1) {
             Map<String, Map<String, Integer>> o = new LinkedHashMap<>();
-            for (String set : List.of("GT", "FERET-1", "FERET-2")) for (String ft : XBaseRule.FEATS) o.computeIfAbsent(set, k -> new LinkedHashMap<>()).put(ft, 4);
+            for (String set : List.of("GT", "FERET-1", "FERET-2")) for (String ft : XBaseRule.FEATS) o.computeIfAbsent(set, k -> new LinkedHashMap<>()).put(ft, row(3, 2));
             return o;
         }
         if (!Files.exists(f)) throw new IllegalStateException("XBasePlda: нет файла выбора " + f + " (сначала pool-plda)");
@@ -730,8 +785,27 @@ final class XBasePlda {
                      double[] delta, StringBuilder p3) {
         Map<String, XBaseThr.Out> outs = new LinkedHashMap<>();
         String bl = feat + " " + VNAME[BASE];
-        for (int v = 0; v < NV; v++) outs.put(feat + " " + VNAME[v], XBaseThr.evaluate(feat + " " + VNAME[v], XBaseKiss.units(passes, rows, new int[] {v, v}, t2), persons,
-                tpl));
+        // 4 варианта при κ выбора (свой на проход; при выборе базы в проходе – κ другого прохода, иначе κ = 30); сетка κ для варианта выбора.
+        int[] kk = new int[chosen.length];
+        int vch = -1;
+        int other = -1;
+        for (int c : chosen) if (c != BASE) {
+            other = c;
+            if (vch < 0) vch = varOf(c);
+        }
+        for (int i = 0; i < chosen.length; i++) kk[i] = chosen[i] != BASE ? kOf(chosen[i]) : other >= 0 ? kOf(other) : 2;
+        outs.put(bl, XBaseThr.evaluate(bl, XBaseKiss.units(passes, rows, new int[] {0, 0}, t2), persons, tpl));
+        for (int v = 0; v < NVAR; v++) {
+            int[] rr = new int[chosen.length];
+            for (int i = 0; i < chosen.length; i++) rr[i] = row(v, kk[i]);
+            String l = feat + " " + VAR[v] + ", κ выбора";
+            outs.put(l, XBaseThr.evaluate(l, XBaseKiss.units(passes, rows, rr, t2), persons, tpl));
+        }
+        if (vch >= 0) for (int k = 0; k < K; k++) {
+            int r = row(vch, k);
+            String l = feat + " " + VNAME[r] + " (сетка κ)";
+            outs.put(l, XBaseThr.evaluate(l, XBaseKiss.units(passes, rows, new int[] {r, r}, t2), persons, tpl));
+        }
         String ch = feat + " выбор по пулу";
         outs.put(ch, XBaseThr.evaluate(ch, XBaseKiss.units(passes, rows, chosen, t2), persons, tpl));
         boolean nn = Arrays.stream(chosen).noneMatch(c -> c == BASE);
@@ -897,9 +971,8 @@ final class XBasePlda {
                     }
                     dg.append(diag(pname + " " + feat + " проход " + (ps + 1), r[ROWS]));
                     lines.append("# ").append(pname).append(", ").append(feat).append(", проход ").append(ps + 1).append(", ").append(VNAME[0]).append('\n').append(r[0]);
-                    String[] fn = {"(Р2) −LLR", "(Р1) −LLR", "(Р2) −LLR, без нормировки длины", "(Р1) −LLR, без нормировки длины"};
-                    for (int i = 0; i < 4; i++) lines.append("# ").append(pname).append(", ").append(feat).append(", проход ").append(ps + 1).append(", ").append(fn[i])
-                            .append('\n').append(r[FILE + i]);
+                    for (int i = 0; i < 4 * K; i++) lines.append("# ").append(pname).append(", ").append(feat).append(", проход ").append(ps + 1).append(", ")
+                            .append(fileName(i)).append('\n').append(r[FILE + i]);
                 }
                 if (sm == 2) {
                     t.append(check).append(dg).append(String.format(Locale.ROOT, "Замер: «межс.» L1-tt-xs-F, 2 прохода – %.0f с; блоков всего 12 (3 постановки × 2 признака "
@@ -1013,8 +1086,7 @@ final class XBasePlda {
                 if (sm != 1) check.append(XBaseReg.check(mode + ", " + feat + ", " + XBaseLbp.VNAME[XBaseDates.VNO[f]] + ", косинус", r[0], lbpBlocks, lbpScores));
                 dg.append(diag(mode + " " + feat, r[ROWS]));
                 lines.append("# ").append(mode).append(", ").append(feat).append(", ").append(VNAME[0]).append('\n').append(r[0]);
-                String[] fn = {"(Р2) −LLR", "(Р1) −LLR", "(Р2) −LLR, без нормировки длины", "(Р1) −LLR, без нормировки длины"};
-                for (int i = 0; i < 4; i++) lines.append("# ").append(mode).append(", ").append(feat).append(", ").append(fn[i]).append('\n').append(r[FILE + i]);
+                for (int i = 0; i < 4 * K; i++) lines.append("# ").append(mode).append(", ").append(feat).append(", ").append(fileName(i)).append('\n').append(r[FILE + i]);
                 if (sm == 2) {
                     t.append(check).append(dg).append(String.format(Locale.ROOT, "Замер: межс. L1-tt-xs-F – %.0f с; блоков всего 4 (2 режима × 2 признака).%n", fitS));
                     FarMethods.write(out.resolve("xbase_gt_plda" + sfx + ".txt"), t);
