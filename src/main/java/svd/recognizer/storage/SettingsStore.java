@@ -72,6 +72,7 @@ public class SettingsStore {
     private static final String KEY_FACES_LBP_NORM = "faces.lbp.norm";
     private static final String KEY_FACES_LTP_T = "faces.ltp.t";
     private static final String KEY_FACES_FERET_DIR = "faces.feret.dir";
+    private static final String KEY_FACES_VIDTIMIT_DIR = "faces.vidtimit.dir";
     private static final String KEY_FACES_GALLERY_EQUAL = "faces.gallery.equal";
     private static final String KEY_FACES_FERET_GALLERY = "faces.feret.gallery";
     private static final String KEY_FACES_CALTECH_DIR = "faces.caltech.dir";
@@ -476,6 +477,16 @@ public class SettingsStore {
      */
     public String loadFacesFeretDir() {
         return path(KEY_FACES_FERET_DIR);
+    }
+
+    /**
+     * Каталог VidTIMIT (опыт «пул FERET + VidTIMIT», 26.10.2026; база и производные — только локально): ключ faces.vidtimit.dir
+     * или переменная окружения FACES_VIDTIMIT_DIR; пути по умолчанию нет.
+     *
+     * @return значение как есть или null, если не задано
+     */
+    public String loadFacesVidTimitDir() {
+        return path(KEY_FACES_VIDTIMIT_DIR);
     }
 
     /**

@@ -527,6 +527,10 @@ public final class XBaseEval {
             XBaseKissDiag.gtRaw(export, dir, feiKeys, selLines, settings, out);
         } else if (a[0].equals("gt-kiss-ctrl")) {
             XBaseKissDiag.gtCtrl(export, dir, feiKeys, selLines, settings, out);
+        } else if (a[0].equals("vt-frames")) {
+            VidTimitData.frames(selLines, settings);
+        } else if (a[0].equals("pool-vt")) {
+            XBaseVt.pool(export, dir, feiKeys, selLines, settings, out);
         } else if (a[0].equals("pool-plda")) {
             XBasePlda.pool(export, dir, feiKeys, selLines, settings, out);
         } else if (a[0].equals("feret-plda")) {
