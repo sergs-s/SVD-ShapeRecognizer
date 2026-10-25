@@ -1142,6 +1142,25 @@ mvn compile exec:java@faces-fei-scores  # разбор файла оценок F
     побайтно с feret-reg / gt-reg (нужны их файлы оценок и отчёты);
     контрольные точки `checkpoint_pool_lbp_eq`, `checkpoint_feret_lbp_eq`,
     `reports/faces/xbase/checkpoint_gt_lbp`;
+  - `feret-dates`, `gt-dates` (`XBaseDates`, `b1a60e5`; п. 2, №10–№11
+    Жорика 25.10) – кривая «1 → 2 → 3 даты регистрации» на симметричных
+    галереях (первые s дат, fa и fb по правилу eq, пробы – даты после
+    s-й): FERET – половины №2, (i) s = 1, 2, 3 (люди с ≥ s + 1
+    датами), (ii) s = 1, 2, 3 на людях с ≥ 4 датами (пробы с 4-й даты;
+    (i) s3 = (ii) s3), шаблоны (м) и (с) (центр каждой сессии,
+    наименьшее 1 − cos); части П2/П3 – seed faces.seed + 8000 + 100 +
+    0, 70–73; GT – (а) s = 1 (= gt-lbp «межс.»), (б) люди с ≥ 3
+    датами (3), по 3 снимка на дату (seed faces.seed + 9800 + 10 +
+    дата), части 74, 75; L1-xs-F 7×7, L1-tt-xs-F 9×9, SFace
+    справочно; порог (Т2), рядом (Т0); интервалы ревизии 1.8 (только
+    FERET); сверки – (i) s1 с feret-lbp и (а) с gt-lbp побайтно,
+    состав проб – с feret-hubs часть 1 (нужны их файлы); FERET около
+    54 мин (отчёт – только `reports\eqºse_feret_dates*`), GT около
+    53 мин (`xbase_gt_dates*`, копия – `SVD-faces-data/reports/
+    xbase_b1a60e5/`); контрольные точки `checkpoint_feret_dates_eq`,
+    `reports/faces/xbase/checkpoint_gt_dates`; пробный режим
+    `FACES_DATES_SMOKE=1` (12 своих на проход, пул 15, без сверок,
+    файлы `*_smoke`; около 2 мин);
   - контрольные точки feret-update (`derived\checkpoint_feret_update_eq`,
     после каждого прохода проекции и части К4) и gt-xs-f
     (`reports/faces/xbase/checkpoint_gt_xs_f`, после каждого варианта);
