@@ -525,6 +525,92 @@ final class XBaseKissDiag {
         cp.delete();
     }
 
+    /** (Е0): евклид до центра класса в исходном пространстве признака (без PCA); центр – среднее снимков галереи (у X+mirror – с отражениями). */
+    static String rawLines(XBaseEval x, boolean mirror, String method, int s, List<String> own, List<List<String>> gallery, List<Probe> probes) {
+        double[][] c = new double[gallery.size()][];
+        for (int g = 0; g < gallery.size(); g++) {
+            List<double[]> vs = new ArrayList<>();
+            for (String k : gallery.get(g)) {
+                vs.add(x.vec.get(V.L1).get(k));
+                if (mirror) vs.add(x.mir.get(V.L1).get(k));
+            }
+            if (vs.isEmpty()) continue;
+            double[] m = new double[vs.get(0).length];
+            for (double[] v : vs) for (int i = 0; i < m.length; i++) m[i] += v[i];
+            for (int i = 0; i < m.length; i++) m[i] /= vs.size();
+            c[g] = m;
+        }
+        StringBuilder out = new StringBuilder();
+        for (Probe p : probes) {
+            double[] y = x.vec.get(V.L1).get(p.key());
+            double[] sc = new double[c.length];
+            for (int g = 0; g < c.length; g++) {
+                if (c[g] == null) {
+                    sc[g] = Double.POSITIVE_INFINITY;
+                    continue;
+                }
+                double d = 0;
+                for (int i = 0; i < y.length; i++) d += (y[i] - c[g][i]) * (y[i] - c[g][i]);
+                sc[g] = d;
+            }
+            out.append(FeiScores.line(method, s, 0, p.role(), p.person(), p.image(), p.trueIdx(), own, sc, false));
+        }
+        return out.toString();
+    }
+
+    /** gt-kiss-raw: (Е0) на GT внутри сессии рядом с базой и (Е) m = 100, 300 из файлов оценок gt-kiss и gt-kiss-ctrl. */
+    static void gtRaw(FarExport.Loaded export, Path dir, Map<String, Map<Integer, String>> feiKeys, List<String> selLines, SettingsStore settings, Path out)
+            throws IOException {
+        GtSetup gs = gtSetup(export, dir, feiKeys, selLines, settings);
+        XBaseEval.Gt g = gs.g;
+        Set<String> cohortKeys = new HashSet<>();
+        g.cohort.forEach(cohortKeys::addAll);
+        Map<String, Mat> fr = XBaseEval.frames(export, g.samples.values().stream().sorted((u, w) -> u.file().toString().compareTo(w.file().toString()))
+                .toList(), null);
+        XBaseEval[] xv = XBaseKiss.vectors(fr, g.params);
+        for (Mat m : fr.values()) m.release();
+        Path kissScores = out.resolve("xbase_gt_kiss_scores.tsv.gz");
+        Path ctrlScores = out.resolve("xbase_gt_kiss_ctrl_scores.tsv.gz");
+        for (Path f : List.of(kissScores, ctrlScores)) if (!Files.exists(f)) throw new IllegalStateException("gt-kiss-raw: нужен " + f);
+        Map<String, String> kb = XBaseSubsp.blocks(kissScores);
+        Map<String, String> cb = XBaseSubsp.blocks(ctrlScores);
+        Pass pass = gtPass(gs, 1);
+        StringBuilder t = new StringBuilder();
+        t.append("П. 3, диагностика KISSME: евклид до центра класса без PCA, GT внутри сессии (XBaseEval gt-kiss-raw)\n");
+        t.append("Код: коммит ").append(FarMethods.commit()).append('\n');
+        t.append("Данные: экспорт ").append(dir).append(", коммит данных ").append(FarMethods.dataCommit(dir)).append("; база – ").append(kissScores.getFileName())
+                .append(" (").append(FeiThreshold.sha(kissScores)).append("), (Е) – ").append(ctrlScores.getFileName()).append(" (").append(FeiThreshold.sha(ctrlScores))
+                .append(")\n");
+        t.append("(Е0) – евклид в исходном пространстве признака (корень гистограмм LBP, у L1-tt-xs-F – после Tan – Triggs), центр – среднее снимков галереи (у "
+                + "X+mirror – с отражениями),\nбез обучения; d₁/d₂, модель X / X+mirror по |r|; основная модель и 5 моделей частей (только центры). Постановка – как "
+                + "gt-kiss «внутри» (N = 3, порог (Т0)).\n");
+        StringBuilder body = new StringBuilder();
+        for (int f = 1; f >= 0; f--) {
+            String feat = XBaseRule.FEATS[f];
+            StringBuilder raw = new StringBuilder();
+            List<String> own = gs.ga.own;
+            for (boolean m : new boolean[] {false, true}) {
+                String method = V.L1.id + (m ? FeiMethods.MIRROR : "");
+                raw.append(rawLines(xv[f], m, method, 0, own, own.stream().map(pass.gal()::get).toList(), pass.probes()));
+                for (int q = 0; q < FeiMethods.CV_PARTS; q++) {
+                    Set<String> part = new HashSet<>(pass.parts().get(q));
+                    List<String> gq = own.stream().filter(p -> !part.contains(p)).toList();
+                    List<Probe> pr = new ArrayList<>();
+                    for (String p : own) if (part.contains(p)) for (String k : pass.gal().get(p)) pr.add(new Probe(FeiMethods.CV_ROLE + q, p, gs.ga.img(k), k, -1));
+                    raw.append(rawLines(xv[f], m, method, 0, gq, gq.stream().map(pass.gal()::get).toList(), pr));
+                }
+            }
+            Map<String, List<String>> tr = new LinkedHashMap<>();
+            tr.put(XBaseKiss.rowName(0), List.of(block(kb, "внутри, " + feat + ", " + XBaseKiss.rowName(0), kissScores)));
+            tr.put("(Е0) евклид без PCA", List.of(raw.toString()));
+            for (int v = 0; v < 2; v++) tr.put(CNAME[v], List.of(block(cb, "внутри, " + feat + ", " + CNAME[v], ctrlScores)));
+            table(body, "GT внутри, " + feat, List.of(pass), tr, g.persons.size(), g, false);
+        }
+        t.append(body);
+        FarMethods.write(out.resolve("xbase_gt_kiss_raw.txt"), t);
+        System.out.print(t);
+    }
+
     static void gtCtrl(FarExport.Loaded export, Path dir, Map<String, Map<Integer, String>> feiKeys, List<String> selLines, SettingsStore settings, Path out)
             throws IOException {
         int sm = XBaseKiss.smoke();
