@@ -1189,6 +1189,19 @@ mvn compile exec:java@faces-fei-scores  # разбор файла оценок F
     PCA, GT внутри (около 1 мин, нужны файлы оценок gt-kiss и
     gt-kiss-ctrl); FERET – только `reports\eq\xbase_feret_kiss_*`, GT –
     `xbase_gt_kiss_*`, копия – `SVD-faces-data/reports/xbase_64a9c8f/`;
+  - `pool-plda`, `feret-plda`, `gt-plda` (`XBasePlda`, `07c98c7`,
+    `63984f2`; п. 2.2, PLDA / Joint Bayesian) – в пространстве W:
+    отбеливание по выборке W, нормировка длины, S_w и S_b моментами
+    (поправка S_b на S_w / n_c), S_w′ = κ·S_w, κ = 3–300, LLR в
+    замкнутой форме; (Р2) / (Р1) × (-а) / (-р); файл оценок – −LLR;
+    pool-plda – выбор по схеме pool-rule (около 30 мин; отчёт и
+    `xbase_pool_plda_select.tsv` – только `D:\data\Feret\reports\eq\`,
+    для GT – `xbase_pool_plda_gt.txt`, копия – `SVD-faces-data/reports/
+    xbase_63984f2/`); feret-plda (межс., (ii) s2, s3) и gt-plda (межс.,
+    внутри, условие Δ) читают файл выбора – не запускались (выбор –
+    база везде); пробные режимы `FACES_PLDA_SMOKE=1`, `2`; контрольные
+    точки `checkpoint_pool_plda_eq`, `checkpoint_feret_plda_eq`,
+    `reports/faces/xbase/checkpoint_gt_plda`;
   - контрольные точки feret-update (`derived\checkpoint_feret_update_eq`,
     после каждого прохода проекции и части К4) и gt-xs-f
     (`reports/faces/xbase/checkpoint_gt_xs_f`, после каждого варианта);
