@@ -3610,7 +3610,8 @@ NetBeans – Вася на локальной машине.
             Дальше – п. 2 порядка ревизии (кривая «1 → 2 → 3 даты
             регистрации»).
             Выполнено (п. 2, Вася 25.10.2026; код b1a60e5, данные
-            053f8bc8): FERET – только D:\data\Fereteports\eq            xbase_feret_dates.txt, GT – reports/faces/xbase/
+            053f8bc8): FERET – только D:\data\Feret\reports\eq\
+            xbase_feret_dates.txt, GT – reports/faces/xbase/
             xbase_gt_dates.txt. Разделимость при FAR 1 %, (ii) (25
             человек с ≥ 4 датами, 79 общих проб), шаблон (м), s = 1 → 2
             → 3: L1-tt-xs-F 39,2 → 15,2 → 7,6 %, L1-xs-F 54,4 → 34,2 →

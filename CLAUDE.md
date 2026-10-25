@@ -1155,7 +1155,7 @@ mvn compile exec:java@faces-fei-scores  # разбор файла оценок F
     справочно; порог (Т2), рядом (Т0); интервалы ревизии 1.8 (только
     FERET); сверки – (i) s1 с feret-lbp и (а) с gt-lbp побайтно,
     состав проб – с feret-hubs часть 1 (нужны их файлы); FERET около
-    54 мин (отчёт – только `reports\eqºse_feret_dates*`), GT около
+    54 мин (отчёт – только `reports\eq\xbase_feret_dates*`), GT около
     53 мин (`xbase_gt_dates*`, копия – `SVD-faces-data/reports/
     xbase_b1a60e5/`); контрольные точки `checkpoint_feret_dates_eq`,
     `reports/faces/xbase/checkpoint_gt_dates`; пробный режим
