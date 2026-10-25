@@ -54,6 +54,20 @@ final class XBaseKiss {
     static final String SELECT = "xbase_pool_kiss_select.tsv";
     static final double RANK_TOL = 1e-10;
 
+    /** Время этапов модели, нс (сумма по потокам): обучение MLDA, пары и ковариации (К2), (К2) M и строки, PCA, проекции и ковариации (К1), (К1) M и строки. */
+    static final java.util.concurrent.atomic.AtomicLong[] T = new java.util.concurrent.atomic.AtomicLong[6];
+    static final String[] T_NAME = {"обучение MLDA", "пары и Σ (К2)", "M и строки (К2)", "PCA (К1)", "проекции и Σ (К1)", "M и строки (К1)"};
+
+    static {
+        for (int i = 0; i < T.length; i++) T[i] = new java.util.concurrent.atomic.AtomicLong();
+    }
+
+    static String times() {
+        StringBuilder t = new StringBuilder("Время этапов моделей (сумма по потокам): ");
+        for (int i = 0; i < T.length; i++) t.append(String.format(Locale.ROOT, "%s %.0f с; ", T_NAME[i], T[i].get() / 1e9));
+        return t.append('\n').toString();
+    }
+
     private XBaseKiss() {
     }
 
@@ -271,7 +285,10 @@ final class XBaseKiss {
      */
     static String[] model(XBaseEval x, boolean mirror, String method, int s, List<String> own, List<List<String>> gallery, List<List<String>> rest, List<Probe> probes,
                           Map<String, String> dateOf, long seed, String tag) {
+        long c0 = System.nanoTime();
         XBaseRule.Fit f = XBaseRule.fit(x, mirror, gallery, rest, null);
+        long c1 = System.nanoTime();
+        T[0].addAndGet(c1 - c0);
         String[] out = new String[ROWS + 1];
         out[0] = XBaseReg.lines(x, method, s, f.lm, own, probes)[1];
         List<List<String>> classes = new ArrayList<>(gallery);
@@ -284,16 +301,22 @@ final class XBaseKiss {
         double[][] csW = cov(y, pr.s());
         double[][] cdW = cov(y, pr.d());
         double[][] cW = centers(y, gallery, gallery.size(), mirror);
+        long c2 = System.nanoTime();
+        T[1].addAndGet(c2 - c1);
         for (boolean fl : new boolean[] {true, false}) {
             Kiss k = kiss(csW, cdW, pr.s().length, pr.d().length, fl);
             out[fl ? 1 : NO + 1] = lines(method, s, own, probes, k.l(), cW, key -> f.lm.embed(x.vec.get(V.L1).get(key)));
             if (fl) diag.append(tag).append('\t').append(VNAME[1]).append('\t').append(k.diag().row()).append('\n');
         }
+        long c3 = System.nanoTime();
+        T[2].addAndGet(c3 - c2);
         // (К1): PCA выборки (m = 300; меньшие m – первые компоненты и левые верхние блоки ковариаций).
         LdaMath.Data dt = LdaMath.Data.of(List.of(pr.vec()));
         int mMax = MS[MS.length - 1];
         LdaMath.Span sp = LdaMath.span(dt, RANK_TOL, mMax);
         int r = sp.basis().length;
+        long c4 = System.nanoTime();
+        T[3].addAndGet(c4 - c3);
         double[] mean = dt.mean();
         double[][] basis = sp.basis();
         java.util.function.Function<double[], double[]> pca = v -> {
@@ -313,6 +336,8 @@ final class XBaseKiss {
         double[][] cP = centers(z, gallery, gallery.size(), mirror);
         Map<String, double[]> zp = new HashMap<>();
         for (Probe p : probes) zp.computeIfAbsent(p.key(), key -> pca.apply(x.vec.get(V.L1).get(key)));
+        long c5 = System.nanoTime();
+        T[4].addAndGet(c5 - c4);
         for (int mi = 0; mi < MS.length; mi++) {
             int m = Math.min(MS[mi], r);
             double[][] cs = lead(csP, m);
@@ -326,6 +351,7 @@ final class XBaseKiss {
                 if (fl) diag.append(tag).append('\t').append(VNAME[2 + mi]).append('\t').append(k.diag().row()).append('\n');
             }
         }
+        T[5].addAndGet(System.nanoTime() - c5);
         out[ROWS] = diag.toString();
         return out;
     }
@@ -508,7 +534,7 @@ final class XBaseKiss {
             List<List<String>> parts = XBaseRule.parts5(members, tpl.seed + XBaseRule.PART_SEED_OFFSET);
             for (int f = 1; f >= 0; f--) {
                 List<Object[]> blk = new ArrayList<>();
-                for (int q = 0; q < FeiMethods.CV_PARTS; q++) {
+                for (int q = 0; q < (sm == 3 ? 1 : FeiMethods.CV_PARTS); q++) {
                     List<String> held = new ArrayList<>(parts.get(q));
                     Set<String> train = new TreeSet<>(members);
                     held.forEach(train::remove);
@@ -576,12 +602,12 @@ final class XBaseKiss {
                         cfgs.get(si).get(f).get(v).add(XBaseEval.parse(g, EnumSet.of(V.L1), gal, probes, noParts, ls[v]).cfg.get(V.L1));
                     }
                 }
-                if (sm == 2) break outer;
+                if (sm >= 2) break outer;
             }
         }
-        if (sm == 2) {
+        if (sm >= 2) {
             StringBuilder t = new StringBuilder(head).append(check).append(dg).append(String.format(Locale.ROOT, "Замер: первая группа (набор GT, L1-tt-xs-F, 10 блоков) – "
-                    + "%.0f с; групп всего %d (3 набора × 2 признака).%n", fitS, setNames.size() * 2));
+                    + "%.0f с; групп всего %d (3 набора × 2 признака).%n", fitS, setNames.size() * 2)).append(times());
             FarMethods.write(s.out.resolve("xbase_pool_kiss" + sfx + ".txt"), t);
             System.out.print(t);
             cp.delete();
@@ -826,7 +852,7 @@ final class XBaseKiss {
                     for (int v = 0; v < ROWS; v++) lines.append("# ").append(pname).append(", ").append(feat).append(", проход ").append(ps + 1).append(", ")
                             .append(rowName(v)).append('\n').append(r[v]);
                 }
-                if (sm == 2) {
+                if (sm >= 2) {
                     t.append(check).append(dg).append(String.format(Locale.ROOT, "Замер: «межс.» L1-tt-xs-F, 2 прохода – %.0f с; блоков всего 8 (2 постановки × 2 признака "
                             + "× 2 прохода).%n", fitS));
                     FarMethods.write(s.out.resolve("xbase_feret_kiss" + sfx + ".txt"), t);
@@ -939,7 +965,7 @@ final class XBaseKiss {
                 if (sm != 1) check.append(XBaseReg.check(mode + ", " + feat + ", " + XBaseLbp.VNAME[XBaseDates.VNO[f]] + ", косинус", r[0], lbpBlocks, lbpScores));
                 dg.append(diag(mode + " " + feat, r[ROWS]));
                 for (int v = 0; v < ROWS; v++) lines.append("# ").append(mode).append(", ").append(feat).append(", ").append(rowName(v)).append('\n').append(r[v]);
-                if (sm == 2) {
+                if (sm >= 2) {
                     t.append(check).append(dg).append(String.format(Locale.ROOT, "Замер: межс. L1-tt-xs-F – %.0f с; блоков всего 4 (2 режима × 2 признака).%n", fitS));
                     FarMethods.write(out.resolve("xbase_gt_kiss" + sfx + ".txt"), t);
                     System.out.print(t);
