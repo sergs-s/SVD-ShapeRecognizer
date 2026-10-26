@@ -184,9 +184,11 @@ mvn compile exec:java@faces-fei-scores  # разбор файла оценок F
   GT насыщен (0 %). П. 3 KISSME (`870f83b`, `5a08898`, диагностика
   `04fd55f`, `64a9c8f`) и 2.2 PLDA / Joint Bayesian в W (`07c98c7`,
   `63984f2`) закрыты отрицательно – выбор по пулу везде база (косинус).
-  VidTIMIT скачана и описана (25.10, раздел «Тестовые данные»), в
-  оценку не включена. Ждут: опыт «пул FERET + VidTIMIT» (задание
-  Жорика), затем POEM (2.4; PLAN.md п. 5.5, «Постановка 2.4»), затем
+  Опыт «пул FERET + VidTIMIT в обучении W» (26.10, `f79c9ad`,
+  `bc37bb0`, данные `e156475f`): выбор по пулу не база 1 из 6
+  (FERET-1 L1-tt-xs-F → (В2)), на своих (В2) − база незначимо везде,
+  условие Δ у L1-xs-F не выполнено – выигрыша нет, решение за Жориком.
+  Ждут: POEM (2.4; PLAN.md п. 5.5, «Постановка 2.4»), затем
   NAP / WCCN (2.3).
 - Решения Хозяина 22.10.2026: (22) основной классический кандидат –
   L1-tt-xs-F (держит FAR контроля на всех протоколах), L1-xs-F –
@@ -519,7 +521,11 @@ mvn compile exec:java@faces-fei-scores  # разбор файла оценок F
     кадр/с. Условия: уведомление об авторских правах не менять; в
     публикациях – C. Sanderson, B.C. Lovell, LNCS 5558, 2009 (на Zenodo
     – CC BY-NC-ND 4.0). Вне git, не в `SVD-faces-data`, не в облако; в
-    оценку пока не включена (решение Хозяина 25.10.2026).
+    оценку пока не включена (решение Хозяина 25.10.2026); с 26.10 –
+    только в обучении W опыта «пул FERET + VidTIMIT» (ключ
+    `faces.vidtimit.dir` / `FACES_VIDTIMIT_DIR`, кадры «а» – только
+    `D:\data\VidTIMIT\derived\`, опись `vt_selection.tsv`; режимы
+    `vt-frames`, `pool-vt`, `feret-vt`, `gt-vt` – ниже).
 - Модели opencv_zoo: `D:\data\models\opencv_zoo`, ключ `faces.models.dir`.
   Скачаны один раз, в git не кладутся; проверка — по SHA-256:
   - `face_detection_yunet_2023mar.onnx` (YuNet, 232 589 байт), лицензия MIT;
@@ -1234,6 +1240,23 @@ mvn compile exec:java@faces-fei-scores  # разбор файла оценок F
     база везде); пробные режимы `FACES_PLDA_SMOKE=1`, `2`; контрольные
     точки `checkpoint_pool_plda_eq`, `checkpoint_feret_plda_eq`,
     `reports/faces/xbase/checkpoint_gt_plda`;
+  - `vt-frames`, `pool-vt`, `feret-vt`, `gt-vt` (`VidTimitData`,
+    `XBaseVt`, `f79c9ad`, `bc37bb0`; опыт «пул FERET + VidTIMIT», задание
+    Жорика 26.10) – VidTIMIT только в выборке W (человек – один класс по
+    трём сессиям): vt-frames – кадры (В2) / (В4) и опись (около 41 с,
+    повтор по кэшу побайтно); pool-vt – выбор по схеме pool-lbp (база в
+    пределах 1 п. п., иначе первый из (В2) < (В4)), сверка базы с
+    pool-lbp, сведения W (оси, tr S_b / tr S_w); 3 ч 12 мин (11 529 с),
+    отчёт и `xbase_pool_vt_select.tsv` – только `D:\data\Feret\reports\
+    eq\`, для GT – `xbase_pool_vt_gt.txt`; feret-vt (межс. и (ii) s3,
+    сверка с feret-lbp и feret-dates, около 76 мин; только `reports\eq\
+    xbase_feret_vt*`) и gt-vt (межс. и внутри, условие Δ, сверка с gt-lbp,
+    около 2 ч; `xbase_gt_vt*`, копия – `SVD-faces-data/reports/
+    xbase_bc37bb0/`) – база и варианты, выбранные pool-vt; нужен
+    `faces.vidtimit.dir`; контрольные точки `checkpoint_pool_vt_eq`,
+    `checkpoint_feret_vt_eq`, `reports/faces/xbase/checkpoint_gt_vt`;
+    пробные режимы `FACES_VT_SMOKE=1`, `2` (значение – всегда явно, 0 –
+    полный прогон: пустой аргумент через WMI теряется);
   - контрольные точки feret-update (`derived\checkpoint_feret_update_eq`,
     после каждого прохода проекции и части К4) и gt-xs-f
     (`reports/faces/xbase/checkpoint_gt_xs_f`, после каждого варианта);
