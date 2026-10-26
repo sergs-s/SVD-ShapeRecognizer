@@ -531,6 +531,10 @@ public final class XBaseEval {
             VidTimitData.frames(selLines, settings);
         } else if (a[0].equals("pool-vt")) {
             XBaseVt.pool(export, dir, feiKeys, selLines, settings, out);
+        } else if (a[0].equals("feret-vt")) {
+            XBaseVt.feret(export, dir, feiKeys, selLines, settings);
+        } else if (a[0].equals("gt-vt")) {
+            XBaseVt.gt(export, dir, feiKeys, selLines, settings, out);
         } else if (a[0].equals("pool-plda")) {
             XBasePlda.pool(export, dir, feiKeys, selLines, settings, out);
         } else if (a[0].equals("feret-plda")) {

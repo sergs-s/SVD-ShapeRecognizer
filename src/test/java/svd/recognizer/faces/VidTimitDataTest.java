@@ -163,4 +163,15 @@ public class VidTimitDataTest {
         assertEquals(2, XBaseVt.choose(new double[] {20.0, 19.5, 18.0}));
         assertTrue(!XBaseVt.isVt(List.of("00001/x")));
     }
+
+    @Test
+    public void ownVariants() {
+        Map<String, Map<String, Integer>> sel = new LinkedHashMap<>();
+        sel.put("GT", Map.of("L1-xs-F", 0, "L1-tt-xs-F", 0));
+        assertArrayEquals(new int[] {0}, XBaseVt.ownVariants(sel));
+        sel.put("FERET-1", Map.of("L1-xs-F", 0, "L1-tt-xs-F", 1));
+        assertArrayEquals(new int[] {0, 1}, XBaseVt.ownVariants(sel));
+        sel.put("FERET-2", Map.of("L1-xs-F", 2, "L1-tt-xs-F", 1));
+        assertArrayEquals(new int[] {0, 1, 2}, XBaseVt.ownVariants(sel));
+    }
 }
