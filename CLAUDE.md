@@ -200,8 +200,10 @@ mvn compile exec:java@faces-fei-scores  # разбор файла оценок F
   итогового прогона перед ПО. Общее правило ПО: всё принятое в
   исследовании – переключаемое (вкл. / выкл.), принятое по умолчанию
   включено (в спецификацию (7); исследовательский код не меняется).
-  Ждёт: NAP / WCCN (2.3) поверх (П2) – план, код после подтверждения
-  Хозяина.
+  NAP / WCCN (2.3; 27.10, `7cdebe3`, данные `caba1ac2`): по пулу NAP
+  выбран в 5 из 6, WCCN – нигде; на своих выигрыш мал и в основном
+  незначим (FERET межс. −2,9 п. п., (ii) s3 +3,8), EER не меняется;
+  S_n в W почти изотропна; решение за Жориком.
 - Решения Хозяина 22.10.2026: (22) основной классический кандидат –
   L1-tt-xs-F (держит FAR контроля на всех протоколах), L1-xs-F –
   переключаемый; (23), (24) – у SFace порог по умолчанию фиксированный по
@@ -1290,6 +1292,24 @@ mvn compile exec:java@faces-fei-scores  # разбор файла оценок F
     5 потоками подвешивают ноутбук Хозяина – запускать с приоритетом
     BelowNormal; сторож – раз в 5 мин через `tasklist` по PID (без
     PowerShell и WMI в цикле);
+  - `pool-nap`, `feret-nap`, `gt-nap` (`XBaseNap`, `7cdebe3`; п. 2.3,
+    NAP / WCCN, постановка Жорика №7 от 26.10) – поверх (П2): помеха S_n
+    – внутриклассовая ковариация y/‖y‖ людей пула в W каждой модели;
+    строки база, (N) k = 5, 10, 20, 40, (W) α = 0,5; 0 – на одной модели;
+    pool-nap – выбор (база в пределах 1 п. п., иначе первый по простоте),
+    сверка базы с (П2) pool-poem, около 46 мин, отчёт и
+    `xbase_pool_nap_select.tsv` – только `D:\data\Feret\reports\eq\`, для
+    GT – `xbase_pool_nap_gt.txt`; feret-nap (межс. и (ii) s3, сверка с
+    feret-poem, около 42 мин; только `reports\eq\xbase_feret_nap*`) и
+    gt-nap (межс. и внутри, условие Δ, сверка с gt-poem – нужны
+    `xbase_gt_poem*` в `reports/faces/xbase/` каталога прогона, около
+    67 мин; `xbase_gt_nap*`, копия – `SVD-faces-data/reports/
+    xbase_7cdebe3/`); контрольные точки `checkpoint_pool_nap_eq`,
+    `checkpoint_feret_nap_eq`, `reports/faces/xbase/checkpoint_gt_nap`;
+    пробные режимы `FACES_NAP_SMOKE=1`, `2` (для пробных feret-nap /
+    gt-nap нужен файл выбора – временный, затем удалить). Из WMI
+    powershell.exe не запускается («Отказано в доступе») – цепочки
+    только на cmd (`start "" /B /BELOWNORMAL /WAIT java …`);
   - контрольные точки feret-update (`derived\checkpoint_feret_update_eq`,
     после каждого прохода проекции и части К4) и gt-xs-f
     (`reports/faces/xbase/checkpoint_gt_xs_f`, после каждого варианта);
