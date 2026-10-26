@@ -188,7 +188,12 @@ mvn compile exec:java@faces-fei-scores  # разбор файла оценок F
   `bc37bb0`, данные `e156475f`): выбор по пулу не база 1 из 6
   (FERET-1 L1-tt-xs-F → (В2)), на своих (В2) − база незначимо везде,
   условие Δ у L1-xs-F не выполнено – выигрыша нет, решение за Жориком.
-  Ждут: POEM (2.4; PLAN.md п. 5.5, «Постановка 2.4»), затем
+  POEM (2.4; 26.10, `ecd7663`, `e28b18c`, данные `36abaa67`,
+  `02c4aa69`): выбор по пулу не база 5 из 6 (в основном (П2) – LBP +
+  POEM · 1/√3); на своих (П2) значимо снижает EER на всех 4
+  межсессионных строках, разделимость при FAR 1 % значимо – только FERET
+  межс. L1-xs-F (−6,3 п. п.); условие Δ: L1-xs-F (П2) выполнено,
+  L1-tt-xs-F (П2) – нет (граница +3,4); решение за Жориком. Ждёт:
   NAP / WCCN (2.3).
 - Решения Хозяина 22.10.2026: (22) основной классический кандидат –
   L1-tt-xs-F (держит FAR контроля на всех протоколах), L1-xs-F –
@@ -1257,6 +1262,27 @@ mvn compile exec:java@faces-fei-scores  # разбор файла оценок F
     `checkpoint_feret_vt_eq`, `reports/faces/xbase/checkpoint_gt_vt`;
     пробные режимы `FACES_VT_SMOKE=1`, `2` (значение – всегда явно, 0 –
     полный прогон: пустой аргумент через WMI теряется);
+  - `pool-poem`, `feret-poem`, `gt-poem` (`PoemFeature`, `XBasePoem`,
+    `ecd7663`, `e28b18c`; п. 2.4, POEM, постановка Жорика 25.10, поправка
+    №6 от 26.10) – варианты признака: база LBP, (П1) POEM на сетке
+    кандидата, (П2) LBP + POEM · 1/√3, (П3) POEM 10×10; вход POEM – как
+    у кандидата (кадр / Tan – Triggs); pool-poem – выбор по схеме pool-lbp
+    (база в пределах 1 п. п., иначе меньшая размерность), сверка базы с
+    pool-lbp, 8953 с, отчёт и `xbase_pool_poem_select.tsv` – только
+    `D:\data\Feret\reports\eq\`, для GT – `xbase_pool_poem_gt.txt`;
+    feret-poem (межс. и (ii) s3, сверка с feret-lbp и feret-dates, 5804
+    с; только `reports\eq\xbase_feret_poem*`) и gt-poem (межс. и внутри,
+    условие Δ, сверка с gt-lbp – нужны `xbase_gt_lbp*` в
+    `reports/faces/xbase/` каталога прогона, 9604 с; `xbase_gt_poem*`,
+    копия – `SVD-faces-data/reports/xbase_e28b18c/`) – база и варианты,
+    выбранные pool-poem; признак – внешний цикл (векторы только нужных
+    вариантов); контрольные точки `checkpoint_pool_poem_eq`,
+    `checkpoint_feret_poem_eq`, `reports/faces/xbase/checkpoint_gt_poem`;
+    пробные режимы `FACES_POEM_SMOKE=1`, `2` (2 – оценка полного прогона
+    по доле первой группы; значение – всегда явно). Прогоны с -Xmx10g и
+    5 потоками подвешивают ноутбук Хозяина – запускать с приоритетом
+    BelowNormal; сторож – раз в 5 мин через `tasklist` по PID (без
+    PowerShell и WMI в цикле);
   - контрольные точки feret-update (`derived\checkpoint_feret_update_eq`,
     после каждого прохода проекции и части К4) и gt-xs-f
     (`reports/faces/xbase/checkpoint_gt_xs_f`, после каждого варианта);
