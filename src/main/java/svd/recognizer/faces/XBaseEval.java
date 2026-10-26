@@ -537,6 +537,10 @@ public final class XBaseEval {
             XBaseVt.gt(export, dir, feiKeys, selLines, settings, out);
         } else if (a[0].equals("pool-poem")) {
             XBasePoem.pool(export, dir, feiKeys, selLines, settings, out);
+        } else if (a[0].equals("feret-poem")) {
+            XBasePoem.feret(export, dir, feiKeys, selLines, settings);
+        } else if (a[0].equals("gt-poem")) {
+            XBasePoem.gt(export, dir, feiKeys, selLines, settings, out);
         } else if (a[0].equals("pool-plda")) {
             XBasePlda.pool(export, dir, feiKeys, selLines, settings, out);
         } else if (a[0].equals("feret-plda")) {

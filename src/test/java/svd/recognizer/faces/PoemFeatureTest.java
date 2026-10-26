@@ -203,6 +203,29 @@ public class PoemFeatureTest {
     }
 
     @Test
+    public void ownSelect() throws java.io.IOException {
+        java.nio.file.Path f = java.nio.file.Files.createTempFile("poem_select", ".tsv");
+        try {
+            java.nio.file.Files.writeString(f, "# Выбор\nGT\tL1-xs-F\t2\t(П2) LBP + POEM 7×7, POEM · 1/√3\nGT\tL1-tt-xs-F\t2\t(П2) LBP + POEM 9×9, POEM · 1/√3\n"
+                    + "FERET-1\tL1-xs-F\t0\tбаза LBP 7×7 (8, 2)\nFERET-2\tL1-tt-xs-F\t3\t(П3) POEM 10×10\n");
+            java.util.Map<String, java.util.Map<String, Integer>> s = XBasePoem.readSelect(f);
+            assertEquals(Integer.valueOf(3), s.get("FERET-2").get("L1-tt-xs-F"));
+            assertArrayEquals(new int[] {0, 2, 3}, XBaseVt.ownVariants(s));
+            java.nio.file.Files.writeString(f, "GT\tL1-xs-F\t2\t(П2) LBP + POEM 9×9, POEM · 1/√3\n");
+            try {
+                XBasePoem.readSelect(f);
+                org.junit.Assert.fail("сетка признака не сверена");
+            } catch (IllegalStateException e) {
+                assertTrue(e.getMessage().contains("не из сетки"));
+            }
+        } finally {
+            java.nio.file.Files.delete(f);
+        }
+        assertEquals(1575.0 / 4521, XBasePoem.FERET_FIRST, 1e-12);
+        assertEquals(2078.0 / 7286, XBasePoem.GT_FIRST, 1e-12);
+    }
+
+    @Test
     public void deterministic() {
         double[] img = random(11);
         assertArrayEquals(PoemFeature.histogram(img, W, H, 9), PoemFeature.histogram(img.clone(), W, H, 9), 0);
