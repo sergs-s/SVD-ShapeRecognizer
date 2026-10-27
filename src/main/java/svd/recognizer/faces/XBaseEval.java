@@ -553,6 +553,10 @@ public final class XBaseEval {
             XBaseAbl2.feret(export, dir, feiKeys, selLines, settings);
         } else if (a[0].equals("gt-abl2")) {
             XBaseAbl2.gt(export, dir, feiKeys, selLines, settings, out);
+        } else if (a[0].equals("pool-vec") || a[0].equals("feret-vec") || a[0].equals("gt-vec")) {
+            XBaseVec.vec(a[0].substring(0, a[0].indexOf('-')), export, dir, feiKeys, selLines, settings, out);
+        } else if (a[0].equals("pool-norm") || a[0].equals("feret-norm") || a[0].equals("gt-norm")) {
+            XBaseVec.norm(a[0].substring(0, a[0].indexOf('-')), export, dir, feiKeys, selLines, settings, out);
         } else if (a[0].equals("pool-comb")) {
             XBaseAbl3.pool(export, dir, feiKeys, selLines, settings, out);
         } else if (a[0].equals("feret-comb")) {
