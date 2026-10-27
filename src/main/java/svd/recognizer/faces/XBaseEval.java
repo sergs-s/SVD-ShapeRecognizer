@@ -553,6 +553,12 @@ public final class XBaseEval {
             XBaseAbl2.feret(export, dir, feiKeys, selLines, settings);
         } else if (a[0].equals("gt-abl2")) {
             XBaseAbl2.gt(export, dir, feiKeys, selLines, settings, out);
+        } else if (a[0].equals("pool-comb")) {
+            XBaseAbl3.pool(export, dir, feiKeys, selLines, settings, out);
+        } else if (a[0].equals("feret-comb")) {
+            XBaseAbl3.feret(export, dir, feiKeys, selLines, settings);
+        } else if (a[0].equals("gt-comb")) {
+            XBaseAbl3.gt(export, dir, feiKeys, selLines, settings, out);
         } else if (a[0].equals("pool-plda")) {
             XBasePlda.pool(export, dir, feiKeys, selLines, settings, out);
         } else if (a[0].equals("feret-plda")) {
