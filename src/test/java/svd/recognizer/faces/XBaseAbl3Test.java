@@ -65,6 +65,22 @@ public class XBaseAbl3Test {
     }
 
     @Test
+    public void combination3() {
+        assertEquals(4, XBaseAbl3.PART3.length);
+        assertEquals("β = ∞ (d₁/d₂, база)", XBaseAbl3.p3Ref(0));
+        assertEquals("(М) всегда X+mirror", XBaseAbl3.p3Ref(1));
+        assertEquals("β = 1", XBaseAbl3.p3Ref(2));
+        assertTrue(Double.isInfinite(XBaseAbl3.P3_BETA[0]) && Double.isInfinite(XBaseAbl3.P3_BETA[1]));
+        assertEquals(1, XBaseAbl3.P3_BETA[2], 0);
+        assertEquals(1, XBaseAbl3.P3_BETA[3], 0);
+        assertFalse(XBaseAbl3.P3_MIRROR[0] || XBaseAbl3.P3_MIRROR[2]);
+        assertTrue(XBaseAbl3.P3_MIRROR[1] && XBaseAbl3.P3_MIRROR[3]);
+        // (г) хуже (б) на 1,5 в одном наборе, хуже (в) на 1,2 в другом, в третьем – в пределах 1.
+        assertEquals(2, XBaseAbl3.worse(new double[][] {{12, 10, 11, 11.5}, {12, 11, 10, 11.2}, {12, 11, 11, 11.9}}));
+        assertEquals(0, XBaseAbl3.worse(new double[][] {{12, 10, 11, 11}, {12, 11, 10, 10.5}, {12, 11, 11, 12}}));
+    }
+
+    @Test
     public void selectFile() throws Exception {
         Path f = Files.createTempFile("comb_select", ".tsv");
         try {
