@@ -56,6 +56,52 @@ final class XBaseAbl3 {
         return i == 0 ? bname(0) : i == 1 ? PART1[1] : bname(3);
     }
 
+    /** Режим 1:1 (ревизия 2.8; ключ FACES_COMB_1TO1, отчёты *_1to1): принятая конфигурация – L1-tt-xs-F модель по позе, L1-xs-F r0 = −1. */
+    static final String[] ONE = {"1:N (β = 1)", "1:1 (заявлен свой; чужой – ближайший)"};
+
+    static boolean oneToOne() {
+        return "true".equalsIgnoreCase(System.getenv("FACES_COMB_1TO1"));
+    }
+
+    /**
+     * Строки 1:1: у своего (истинный в галерее) лучший := свой, d₁ := расстояние до своего; у чужого (истинного нет: контроль, «чужие»
+     * (Т0), (Т1)) – худший случай, заявлен ближайший человек галереи, d₁ – как есть; второе расстояние – XBaseAbl.ABS_C (как строка
+     * (4)); строки с d₂ = +∞ у чужих не меняются.
+     */
+    static String oneLines(String lines) {
+        StringBuilder out = new StringBuilder();
+        for (String l : lines.split("\n")) {
+            if (l.isEmpty()) continue;
+            String[] c = l.split("\t", -1);
+            if (!c[6].equals(FeiScores.NONE)) {
+                c[7] = c[6];
+                c[8] = c[11];
+                c[10] = Double.toString(XBaseAbl.ABS_C);
+            } else if (!c[10].equals("Infinity")) {
+                c[10] = Double.toString(XBaseAbl.ABS_C);
+            }
+            out.append(String.join("\t", c)).append('\n');
+        }
+        return out.toString();
+    }
+
+    /** Итоги 1:N (β = 1) и 1:1 одной постановки своих. */
+    static void own11(StringBuilder body, StringBuilder hold, String title, String prefix, List<List<XBaseThr.Unit>> u, int persons, XBaseEval.Gt tpl, boolean t2) {
+        Map<String, XBaseThr.Out> outs = new LinkedHashMap<>();
+        for (int i = 0; i < ONE.length; i++) {
+            XBaseThr.Out o = XBaseThr.evaluate(prefix + ONE[i], u.get(i), persons, tpl);
+            outs.put(prefix + ONE[i], o);
+            if (t2) hold.append(holds(prefix + ONE[i], o, XBaseThr.WAYS[2]));
+        }
+        XBaseLbp.tables(body, title + " – 1:1 и 1:N", outs, persons, tpl, List.<String[]>of(new String[] {prefix + ONE[1], prefix + ONE[0]}), t2);
+    }
+
+    static final String ONE_NOTE = "FACES_COMB_1TO1 (ревизия 2.8): режим 1:1 – проба сравнивается только с заявленным шаблоном, решение по d₁ = 1 − cos до центра "
+            + "заявленного человека;\nсвои – расстояние до своего шаблона; чужие (контроль и «чужие» порога (Т0), (Т1)) – ХУДШИЙ СЛУЧАЙ: заявлен ближайший к ним "
+            + "человек галереи (FAR завышен).\nСлучайно заявленный человек (реалистичный FAR) не считается: в файлах оценок нет расстояний до всех людей галереи, "
+            + "векторов abl2 не сохранялось.\nКонфигурация принятая (решения (29), (30)): L1-tt-xs-F – модель X / X+mirror по позе, L1-xs-F – всегда X+mirror; рядом "
+            + "1:N с β = 1 тех же проб.\n";
+
     /** Наборов, где (г) хуже (б) или (в) больше чем на NEAR п. п. (crit[набор][вариант]). */
     static int worse(double[][] crit) {
         int n = 0;
@@ -445,6 +491,8 @@ final class XBaseAbl3 {
         Map<String, String> blocks = XBaseSubsp.blocks(src);
         List<String> report = Files.readAllLines(srcTxt, java.nio.charset.StandardCharsets.UTF_8);
         boolean c3 = comb3();
+        boolean one = oneToOne();
+        if (c3 && one) throw new IllegalStateException("feret-comb: FACES_COMB3 и FACES_COMB_1TO1 – по отдельности");
         Path comb3Path = s.out.resolve("xbase_feret_comb.txt");
         if (c3 && !Files.exists(comb3Path)) throw new IllegalStateException("feret-comb (FACES_COMB3): нужен " + comb3Path);
         List<String> comb3Report = c3 ? Files.readAllLines(comb3Path, java.nio.charset.StandardCharsets.UTF_8) : null;
@@ -452,6 +500,7 @@ final class XBaseAbl3 {
         t.append("Сочетание (Т), (М) у L1-xs-F и совмещение d₁ и d₁/d₂, FERET (XBaseEval feret-comb): Color FERET – только локально\n");
         if (c3) t.append("FACES_COMB3: сочетание пунктов 1 и 2 у L1-xs-F (решение (30)) – (а) r0 по позе, β = ∞; (б) r0 = −1, β = ∞; (в) r0 по позе, β = 1; (г) r0 = "
                 + "−1, β = 1;\nсверка (а), (б), (в) – с таблицами feret-comb.\n");
+        if (one) t.append(ONE_NOTE);
         t.append("Код: коммит ").append(FarMethods.commit()).append('\n');
         t.append("Данные: файл оценок ").append(src.getFileName()).append(" (").append(report.get(1)).append("); ").append(s.su.dir).append("; когорта FEI — экспорт ")
                 .append(exportDir).append(", коммит данных ").append(FarMethods.dataCommit(exportDir)).append('\n');
@@ -500,6 +549,26 @@ final class XBaseAbl3 {
             }
             for (int f = 1; f >= 0; f--) {
                 String feat = XBaseRule.FEATS[f];
+                if (one) {
+                    List<List<XBaseThr.Unit>> u = new ArrayList<>();
+                    for (int i = 0; i < ONE.length; i++) u.add(new ArrayList<>());
+                    for (int ps = 0; ps < 2; ps++) {
+                        Object[] p = passes.get(ps);
+                        XBaseEval.Gt g = mirrorGt((XBaseEval.Gt) p[0], f == 0);
+                        @SuppressWarnings("unchecked")
+                        Map<String, List<String>> gal = (Map<String, List<String>>) p[1];
+                        @SuppressWarnings("unchecked")
+                        Map<String, List<String>> pro = (Map<String, List<String>>) p[2];
+                        @SuppressWarnings("unchecked")
+                        List<List<String>> parts = (List<List<String>>) p[3];
+                        String bl = need(blocks, pname + ", " + feat + ", проход " + (ps + 1) + ", " + XBaseAbl2.rname(f, 0), src);
+                        u.get(0).add(new XBaseThr.Unit(g, gal, pro, parts, beta(bl, 1), null, true));
+                        u.get(1).add(new XBaseThr.Unit(g, gal, pro, parts, oneLines(bl), null, true));
+                    }
+                    own11(body, hold, "FERET " + pname + ", " + feat + (post == 1 ? " (справочно; 25 человек)" : ""), pname + " " + feat + " ", u, persons.size(),
+                            tpl, true);
+                    continue;
+                }
                 if (c3) {
                     if (f != 0) continue;
                     List<List<XBaseThr.Unit>> u3 = new ArrayList<>();
@@ -560,7 +629,7 @@ final class XBaseAbl3 {
             }
         }
         t.append(check).append(hold).append(body);
-        FarMethods.write(s.out.resolve(c3 ? "xbase_feret_comb3.txt" : "xbase_feret_comb.txt"), t);
+        FarMethods.write(s.out.resolve(one ? "xbase_feret_1to1.txt" : c3 ? "xbase_feret_comb3.txt" : "xbase_feret_comb.txt"), t);
         System.out.print(t);
     }
 
@@ -590,6 +659,8 @@ final class XBaseAbl3 {
         Map<String, String> blocks = XBaseSubsp.blocks(src);
         List<String> report = Files.readAllLines(srcTxt, java.nio.charset.StandardCharsets.UTF_8);
         boolean c3 = comb3();
+        boolean one = oneToOne();
+        if (c3 && one) throw new IllegalStateException("gt-comb: FACES_COMB3 и FACES_COMB_1TO1 – по отдельности");
         Path comb3Path = out.resolve("xbase_gt_comb.txt");
         if (c3 && !Files.exists(comb3Path)) throw new IllegalStateException("gt-comb (FACES_COMB3): нужен " + comb3Path);
         List<String> comb3Report = c3 ? Files.readAllLines(comb3Path, java.nio.charset.StandardCharsets.UTF_8) : null;
@@ -597,6 +668,7 @@ final class XBaseAbl3 {
         t.append("Сочетание (Т), (М) у L1-xs-F и совмещение d₁ и d₁/d₂, GT (XBaseEval gt-comb)\n");
         if (c3) t.append("FACES_COMB3: сочетание пунктов 1 и 2 у L1-xs-F (решение (30)) – (а) r0 по позе, β = ∞; (б) r0 = −1, β = ∞; (в) r0 по позе, β = 1; (г) r0 = "
                 + "−1, β = 1;\nсверка (а), (б), (в) – с таблицами gt-comb.\n");
+        if (one) t.append(ONE_NOTE);
         t.append("Код: коммит ").append(FarMethods.commit()).append('\n');
         t.append("Данные: файл оценок ").append(src.getFileName()).append(" (").append(report.get(1)).append("); экспорт ").append(dir).append(", коммит данных ")
                 .append(FarMethods.dataCommit(dir)).append(" (a/gt; когорта – a/fei); пул – Color FERET, ").append(pool.size()).append(" человек\n");
@@ -622,6 +694,13 @@ final class XBaseAbl3 {
                 Map<String, List<String>> pro = (Map<String, List<String>>) modes[mi][2];
                 String bp = mode + ", " + feat + ", ";
                 String bl = need(blocks, bp + XBaseAbl2.rname(f, 0), src);
+                if (one) {
+                    XBaseEval.Gt gm = mirrorGt(ga, f == 0);
+                    List<List<XBaseThr.Unit>> u = List.of(List.of(new XBaseThr.Unit(gm, gal, pro, parts, beta(bl, 1), null, xm)), List.of(new XBaseThr.Unit(gm, gal,
+                            pro, parts, oneLines(bl), null, xm)));
+                    own11(body, hold, "GT " + mode + ", " + feat, mode + " " + feat + " ", u, g.persons.size(), g, xm);
+                    continue;
+                }
                 if (c3) {
                     if (f != 0) continue;
                     List<List<XBaseThr.Unit>> u3 = new ArrayList<>();
@@ -655,7 +734,7 @@ final class XBaseAbl3 {
         }
         t.append(check).append(hold).append(dl).append(body);
         Files.createDirectories(out);
-        FarMethods.write(out.resolve(c3 ? "xbase_gt_comb3.txt" : "xbase_gt_comb.txt"), t);
+        FarMethods.write(out.resolve(one ? "xbase_gt_1to1.txt" : c3 ? "xbase_gt_comb3.txt" : "xbase_gt_comb.txt"), t);
         System.out.print(t);
     }
 }

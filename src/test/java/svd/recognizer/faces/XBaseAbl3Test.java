@@ -81,6 +81,25 @@ public class XBaseAbl3Test {
     }
 
     @Test
+    public void oneToOneLines() {
+        String own = "L1\t0\t0\town\ta\t1\ta\tb\t0.3\ta\t0.4\t0.4\t-\n";
+        String ctrl = "L1\t0\t0\tctrl\tz\t2\t-\tb\t0.2\ta\t0.5\t-\t-\n";
+        String lone = "L1\t0\t0\tctrl\tz\t3\t-\tb\t0.2\t-\tInfinity\t-\t-\n";
+        String[] o = XBaseAbl3.oneLines(own + ctrl + lone).split("\n");
+        String[] a = o[0].split("\t", -1);
+        assertEquals("a", a[7]);
+        assertEquals("0.4", a[8]);
+        assertEquals(Double.toString(XBaseAbl.ABS_C), a[10]);
+        String[] c = o[1].split("\t", -1);
+        assertEquals("b", c[7]);
+        assertEquals("0.2", c[8]);
+        assertEquals(Double.toString(XBaseAbl.ABS_C), c[10]);
+        assertEquals(lone.trim(), o[2]);
+        // у чужого 1:1 = строка (4) (d₁ к ближайшему)
+        assertEquals(XBaseAbl.abs(ctrl), XBaseAbl3.oneLines(ctrl));
+    }
+
+    @Test
     public void selectFile() throws Exception {
         Path f = Files.createTempFile("comb_select", ".tsv");
         try {
