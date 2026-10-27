@@ -463,6 +463,10 @@ final class XBaseAbl2 {
         XBaseEval.Gt tpl = s.tpl;
         int sm = smoke();
         int[] rs = ownRows(s.out.resolve(SELECT));
+        if (rs.length == 1) {
+            System.out.println("feret-abl2: по пулу все строки «нужен» – прогон на своих не нужен");
+            return;
+        }
         int[] fs = fitsFor(rs);
         Map<String, Img> byKey = s.su.byKey;
         XBaseFeret.Roles ro0 = s.su.ro;
@@ -628,6 +632,10 @@ final class XBaseAbl2 {
         XBaseEval.Gt g = XBaseEval.prepare(export, dir, feiKeys, selLines, settings);
         XBaseA0.FeretSetup su = XBaseA0.feretSetup(dir, selLines, settings);
         int[] rs = ownRows(su.dir.resolve("reports").resolve(XBaseEval.eqDir(0, true)).resolve(SELECT));
+        if (rs.length == 1) {
+            System.out.println("gt-abl2: по пулу все строки «нужен» – прогон на своих не нужен");
+            return;
+        }
         int[] fs = fitsFor(rs);
         Map<String, List<List<String>>> pool = XBaseXsF.pool(su.ro, su.byKey);
         Set<String> cohortKeys = new java.util.HashSet<>();
