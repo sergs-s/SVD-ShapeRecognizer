@@ -675,6 +675,8 @@ public final class XBaseEval {
     static final class Gt {
         long seed;
         double r0;
+        /** Граница группы «анфас» в отчётах (|r| ≤ poseR0), если она отличается от r0 выбора модели; NaN – r0. */
+        double poseR0 = Double.NaN;
         int b;
         int threads;
         double rLimit;
@@ -958,7 +960,7 @@ public final class XBaseEval {
                 Row r = choose(rows, v, p.role(), p.person(), p.image(), gt.rOf.get(p.key()) <= gt.r0);
                 if (p.role().equals(OWN)) {
                     ownRows.add(r);
-                    front.add(gt.rOf.get(p.key()) <= gt.r0);
+                    front.add(gt.rOf.get(p.key()) <= (Double.isNaN(gt.poseR0) ? gt.r0 : gt.poseR0));
                 } else {
                     ctrlList.add(new double[] {gt.pIdx.get(p.person()), FeiScores.ratio(r, null)});
                 }

@@ -181,8 +181,12 @@ final class XBaseAbl3 {
         throw new IllegalStateException("XBaseAbl3: выбор не определён");
     }
 
+    /** Всегда X+mirror (r0 = −1); группа «анфас» в отчётах – по r0 исходной задачи. */
     static XBaseEval.Gt mirrorGt(XBaseEval.Gt g, boolean m) {
-        return m ? XBaseAbl.copy(g, g.cohort, g.rOf, -1) : g;
+        if (!m) return g;
+        XBaseEval.Gt c = XBaseAbl.copy(g, g.cohort, g.rOf, -1);
+        c.poseR0 = Double.isNaN(g.poseR0) ? g.r0 : g.poseR0;
+        return c;
     }
 
     static String need(Map<String, String> blocks, String name, Path src) {
