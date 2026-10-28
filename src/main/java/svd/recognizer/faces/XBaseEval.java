@@ -557,6 +557,8 @@ public final class XBaseEval {
             XBaseVec.vec(a[0].substring(0, a[0].indexOf('-')), export, dir, feiKeys, selLines, settings, out);
         } else if (a[0].equals("pool-norm") || a[0].equals("feret-norm") || a[0].equals("gt-norm")) {
             XBaseVec.norm(a[0].substring(0, a[0].indexOf('-')), export, dir, feiKeys, selLines, settings, out);
+        } else if (a[0].equals("pool-feat2") || a[0].equals("feret-feat2") || a[0].equals("gt-feat2")) {
+            XBaseFeat2.run(a[0].substring(0, a[0].indexOf('-')), export, dir, feiKeys, selLines, settings, out);
         } else if (a[0].equals("pool-comb")) {
             XBaseAbl3.pool(export, dir, feiKeys, selLines, settings, out);
         } else if (a[0].equals("feret-comb")) {

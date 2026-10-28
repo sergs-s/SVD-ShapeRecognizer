@@ -563,6 +563,8 @@ final class XBaseVec {
         Path abl2Scores;
         Path out;
         String base;
+        /** Снимки и детекции FERET (кадры k = 2 пачки 2). */
+        XBaseA0.FeretSetup su;
     }
 
     static void cohorts(Setup u, Map<String, Map<Integer, String>> feiKeys, long seed, FarExport.Loaded export) throws IOException {
@@ -586,6 +588,7 @@ final class XBaseVec {
         s.xs = null;
         Setup u = new Setup();
         u.base = "pool";
+        u.su = s.su;
         u.tpl = s.tpl;
         u.out = s.out;
         u.abl2Scores = s.out.resolve("xbase_pool_abl2_scores.tsv.gz");
@@ -651,6 +654,7 @@ final class XBaseVec {
         s.xs = null;
         Setup u = new Setup();
         u.base = "feret";
+        u.su = s.su;
         u.tpl = s.tpl;
         u.out = s.out;
         u.abl2Scores = s.out.resolve("xbase_feret_abl2_scores.tsv.gz");
@@ -724,6 +728,7 @@ final class XBaseVec {
         XBaseA0.FeretSetup su = XBaseA0.feretSetup(dir, selLines, settings);
         Setup u = new Setup();
         u.base = "gt";
+        u.su = su;
         u.tpl = g;
         u.out = out;
         u.persons = g.persons.size();
