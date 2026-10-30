@@ -563,6 +563,8 @@ public final class XBaseEval {
             XBaseFeat2.pool2(export, dir, feiKeys, selLines, settings, out);
         } else if (a[0].equals("feret-feat2b") || a[0].equals("gt-feat2b")) {
             XBaseFeat2.own2(a[0].substring(0, a[0].indexOf('-')), export, dir, feiKeys, selLines, settings, out);
+        } else if (a[0].equals("feret-feat2c") || a[0].equals("gt-feat2c")) {
+            XBaseFeat2.own3(a[0].substring(0, a[0].indexOf('-')), export, dir, feiKeys, selLines, settings, out);
         } else if (a[0].equals("pool-comb")) {
             XBaseAbl3.pool(export, dir, feiKeys, selLines, settings, out);
         } else if (a[0].equals("feret-comb")) {

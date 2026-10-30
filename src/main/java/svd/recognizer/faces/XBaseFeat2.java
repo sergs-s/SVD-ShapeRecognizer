@@ -789,4 +789,67 @@ final class XBaseFeat2 {
         FarMethods.write(u.out.resolve("xbase_" + base + "_feat2b" + sfx + ".txt"), t);
         System.out.print(t);
     }
+
+    /**
+     * feret-feat2c, gt-feat2c (задание Жорика №4 от 30.10): только по готовым векторам feat2b, без обучения – слияние базы (w = 0,75), слияние (б)
+     * (П2) + MS-LBP с w = 0,5 и 0,75; пары «MS-LBP 0,75 − база», «MS-LBP 0,75 − MS-LBP 0,5», «MS-LBP 0,5 − база» (строки базы и 0,5 – как в feat2b).
+     */
+    static void own3(String base, FarExport.Loaded export, Path dir, Map<String, Map<Integer, String>> feiKeys, List<String> selLines, SettingsStore settings,
+                     Path out) throws IOException {
+        Setup u = XBaseVec.setup(base, export, dir, feiKeys, selLines, settings, out, 0);
+        for (Mat m : u.fr.values()) m.release();
+        Path vd = dir(u, 0);
+        String commit = FarMethods.commit();
+        for (Blk b : u.blocks) for (int f = 0; f < 2; f++) for (int v : new int[] {0, MS_JOIN}) {
+            Path p = file(vd, b, f, v);
+            if (!Files.exists(p)) throw new IllegalStateException(base + "-feat2c: нет файла векторов " + p + " (сначала " + base + "-feat2b)");
+            if (!reusable(XBaseVec.readHead(p), commit)) throw new IllegalStateException(base + "-feat2c: " + p + " – другой коммит кода (FACES_FEAT2_REUSE)");
+        }
+        StringBuilder t = new StringBuilder("Пачка 2: слияние (б) (П2) + MS-LBP, w = 0,75 и 0,5 – " + base + " (XBaseEval " + base + "-feat2c; по векторам "
+                + base + "-feat2b, без обучения)\n");
+        t.append("Код: коммит ").append(commit).append("; векторы – ").append(vd).append('\n').append(NOTE);
+        int[] clamped = new int[2];
+        StringBuilder body = new StringBuilder();
+        StringBuilder hold = new StringBuilder("\n=== Держит ли П3 FAR при (Т2) (контроль по снимкам; КП – верхняя 95 % граница Клоппера – Пирсона) ===\n");
+        StringBuilder dl = new StringBuilder("\n=== Условие Δ (GT внутри сессии, разделимость при FAR 1 %, «вариант − база») ===\n");
+        for (String grp : u.groups) {
+            boolean t2 = !grp.equals("внутри");
+            String prefix = (base.equals("feret") ? "FERET " : "GT ") + grp;
+            List<Integer> bi = new ArrayList<>();
+            for (int i = 0; i < u.blocks.size(); i++) if (u.blocks.get(i).group().equals(grp)) bi.add(i);
+            Map<String, XBaseThr.Out> of = new LinkedHashMap<>();
+            String fb = grp + " слияние базы, w = 0,75";
+            String f5 = grp + " слияние (б) (П2) + MS-LBP, w = 0,5";
+            String f7 = grp + " слияние (б) (П2) + MS-LBP, w = 0,75";
+            String[] lbs = {fb, f5, f7};
+            int[] vv = {0, MS_JOIN, MS_JOIN};
+            double[] ww = {W_FUSE, XBaseVec.W[1], XBaseVec.W[2]};
+            for (int r = 0; r < 3; r++) {
+                List<XBaseThr.Unit> us = new ArrayList<>();
+                for (int k : bi) {
+                    Blk b = u.blocks.get(k);
+                    List<Model> tt = read(vd, b, 1, vv[r]);
+                    List<Model> xs = read(vd, b, 0, vv[r]);
+                    us.add(new XBaseThr.Unit(b.g(), b.gal(), b.pro(), b.parts(), XBaseVec.fuseLines(tt, xs, ww[r], XBaseVec.fuseStats(tt, false), XBaseVec.fuseStats(xs,
+                            false), b.g().rOf, b.g().r0, clamped), null, t2));
+                }
+                XBaseThr.Out o = XBaseThr.evaluate(lbs[r], us, u.persons, u.tpl);
+                of.put(lbs[r], o);
+                if (t2) hold.append(XBaseAbl3.holds(lbs[r], o, XBaseThr.WAYS[2]));
+            }
+            List<String[]> pf = new ArrayList<>();
+            pf.add(new String[] {f7, fb});
+            pf.add(new String[] {f7, f5});
+            pf.add(new String[] {f5, fb});
+            XBaseLbp.tables(body, prefix + " – слияние кандидатов", of, u.persons, u.tpl, pf, t2);
+            if (!t2) for (String[] p : pf) {
+                double[] d = XBaseVt.delta(of.get(p[0]), of.get(p[1]), XBaseThr.WAYS[0], u.persons, u.tpl);
+                dl.append(String.format(Locale.ROOT, "%s − %s: разность %+.1f п. п., верхняя граница %+.1f п. п. – условие %s%n", p[0], p[1], d[0], d[1], d[1] <= 3
+                        ? "выполнено" : "НЕ выполнено"));
+            }
+        }
+        t.append(hold).append(base.equals("gt") ? dl : "").append(body);
+        FarMethods.write(u.out.resolve("xbase_" + base + "_feat2c.txt"), t);
+        System.out.print(t);
+    }
 }
