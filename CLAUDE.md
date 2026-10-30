@@ -1461,7 +1461,8 @@ mvn compile exec:java@faces-fei-scores  # разбор файла оценок F
   чём; найдено Петей 30.10). Обход без правки venv: настоящий python.exe
   (физический путь – раздел про MediaPipe) с `-I` и загрузчиком, который
   добавляет в sys.path `D:\data\models\mediapipe\venv\Lib\site-packages` и
-  выполняет скрипт через `runpy.run_path(…, run_name="__main__")`; иначе
+  выполняет скрипт через `runpy.run_path(…, run_name="__main__")` –
+  `src/main/python/wmipy.cmd <скрипт> <аргументы>` (с `wmipy.py`); иначе
   шаги на Python выполнять из своей оболочки; `kill` из Git bash не снимает Java –
   снимать Stop-Process по командной строке; сторож – один, сам
   завершающийся цикл, старый снимать до запуска нового; после правок
