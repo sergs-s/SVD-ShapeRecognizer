@@ -1419,9 +1419,9 @@ mvn compile exec:java@faces-fei-scores  # разбор файла оценок F
   - `pool-feat2`, `feret-feat2`, `gt-feat2` (`XBaseFeat2`, `LpqFeature`,
     `BsifFeature`, `MsLbpFeature`, `FrameK2`, `60dce3e`; пачка 2, задание
     Жорика №2–№3 от 28.10) – признаки (а) вместо (П2) и (б) в сцеплении:
-    LPQ, BSIF 7×7 и 9×9 на 8 бит (фильтры авторов – `D:datamodelssif`,
+    LPQ, BSIF 7×7 и 9×9 на 8 бит (фильтры авторов – `D:\data\models\bsif`,
     ключ `FACES_BSIF_DIR` / faces.bsif.dir), MS-LBP вокруг 5 точек YuNet на
-    кадре k = 2 (FERET – `derived`, `derivedpoints.tsv`; GT и FEI –
+    кадре k = 2 (FERET – `derived\c\`, `derived\c_points.tsv`; GT и FEI –
     кадр «в» экспорта); векторы по вариантам – каталоги
     `xbase_<база>_feat2` (контрольная точка, база сверяется с векторами
     пачки 1 и abl2 побайтно; gt-feat2 – нужны `xbase_gt_abl2_scores.tsv.gz`
