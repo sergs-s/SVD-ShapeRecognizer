@@ -625,7 +625,9 @@ mvn compile exec:java@faces-fei-scores  # разбор файла оценок F
   ONNX Runtime для Java, не OpenCV dnn): каталог `D:\data\models\mediapipe`,
   в git не кладётся.
   - venv `D:\data\models\mediapipe\venv` на CPython 3.14.0 под uv
-    (`C:\Users\ssv\AppData\Roaming\uv\python\cpython-3.14.0-windows-x86_64-none`;
+    (`C:\Users\ssv\AppData\Roaming\uv\python\cpython-3.14.0-windows-x86_64-none`
+    – путь внутри пакета MSIX приложения Claude; физически –
+    `C:\Users\ssv\AppData\Local\Packages\Claude_pzs8sxrjxfjjc\LocalCache\Roaming\uv\python\cpython-3.14.0-windows-x86_64-none`;
     другого Python на машине нет): mediapipe 1.0.1 (PyPI, Apache 2.0),
     numpy 2.5.4, opencv-contrib-python 5.0.0.93, matplotlib 3.11.2,
     absl-py 2.5.1, flatbuffers 25.12.19, sounddevice 0.5.6;
@@ -1452,9 +1454,15 @@ mvn compile exec:java@faces-fei-scores  # разбор файла оценок F
   Уроки 21.10.2026: тяжёлые прогоны – строго по очереди, не параллельно
   (параллельные замедляют оба и мешают Хозяину работать на ноутбуке);
   скрытый процесс – через WMI (`Invoke-CimMethod Win32_Process Create`,
-  ShowWindow = 0; Start-Process из сессии Claude Code гибнет с ней); в нём
-  не находится Python – шаги на Python (разложение оценок, сверки)
-  выполнять из своей оболочки; `kill` из Git bash не снимает Java –
+  ShowWindow = 0; Start-Process из сессии Claude Code гибнет с ней); venv
+  MediaPipe в нём не запускается: Claude установлен пакетом MSIX, Windows
+  виртуализирует для него AppData\Roaming, а в `pyvenv.cfg` записан
+  виртуальный путь `home` – у процесса вне пакета его нет (права ни при
+  чём; найдено Петей 30.10). Обход без правки venv: настоящий python.exe
+  (физический путь – раздел про MediaPipe) с `-I` и загрузчиком, который
+  добавляет в sys.path `D:\data\models\mediapipe\venv\Lib\site-packages` и
+  выполняет скрипт через `runpy.run_path(…, run_name="__main__")`; иначе
+  шаги на Python выполнять из своей оболочки; `kill` из Git bash не снимает Java –
   снимать Stop-Process по командной строке; сторож – один, сам
   завершающийся цикл, старый снимать до запуска нового; после правок
   git в рабочей копии прогона (даже `git add -N`) отпечаток контрольной
