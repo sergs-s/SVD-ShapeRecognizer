@@ -1416,6 +1416,18 @@ mvn compile exec:java@faces-fei-scores  # разбор файла оценок F
     `reports/faces/xbase/`, копия – `SVD-faces-data/reports/
     xbase_e0e3033/`); оценка s → отношение строки – монотонное сжатие
     ρ_min^σ(−s/τ), τ = 25; пробные режимы `FACES_VEC_SMOKE=1`, `2`;
+  - `pool-feat2`, `feret-feat2`, `gt-feat2` (`XBaseFeat2`, `LpqFeature`,
+    `BsifFeature`, `MsLbpFeature`, `FrameK2`, `60dce3e`; пачка 2, задание
+    Жорика №2–№3 от 28.10) – признаки (а) вместо (П2) и (б) в сцеплении:
+    LPQ, BSIF 7×7 и 9×9 на 8 бит (фильтры авторов – `D:datamodelssif`,
+    ключ `FACES_BSIF_DIR` / faces.bsif.dir), MS-LBP вокруг 5 точек YuNet на
+    кадре k = 2 (FERET – `derived`, `derivedpoints.tsv`; GT и FEI –
+    кадр «в» экспорта); векторы по вариантам – каталоги
+    `xbase_<база>_feat2` (контрольная точка, база сверяется с векторами
+    пачки 1 и abl2 побайтно; gt-feat2 – нужны `xbase_gt_abl2_scores.tsv.gz`
+    и `xbase_gt_vec` в `reports/faces/xbase/` каталога прогона);
+    pool-feat2 – 8,3 ч, `xbase_pool_feat2_select.tsv`; feret-feat2 – 2,9 ч,
+    gt-feat2 – 2,1 ч (Idle); пробный режим `FACES_FEAT2_SMOKE=1`, `2`;
   - контрольные точки feret-update (`derived\checkpoint_feret_update_eq`,
     после каждого прохода проекции и части К4) и gt-xs-f
     (`reports/faces/xbase/checkpoint_gt_xs_f`, после каждого варианта);
@@ -1441,7 +1453,7 @@ mvn compile exec:java@faces-fei-scores  # разбор файла оценок F
   удаления строк «Код:», «Данные:», «# Код:», «# Данные:», строк времени;
   у gt-sep и gt-quality в шапке ещё SHA-256 входных файлов оценок (меняются
   с коммитом в их шапке) – сравнивать без строк «Файл оценок». Последние
-  коммиты на 28.10.2026: код `e0e3033` (пачка 1, XBaseVec), `3f75a3c`
+  коммиты на 30.10.2026: код `60dce3e` (пачка 2, XBaseFeat2), `aee2ba8` (NaN пачки 1); документы `4ed11e5`, `4580c5b` и коммит итогов пачки 2; данные `7aa00044`, `b02421f1`, `91ee9198` – не запушено. Коммиты на 28.10.2026: код `e0e3033` (пачка 1, XBaseVec), `3f75a3c`
   (1:1, хвосты), `17d32f8`, `184e0e4` (comb), `0e41217`, `44425bd`
   (abl2), `7cdebe3` (NAP), `e28b18c`, `ecd7663` (POEM); документы
   `aae007d`, `bb8a6b8` и коммит «перед /clear (28.10)»; правки Жорика в
