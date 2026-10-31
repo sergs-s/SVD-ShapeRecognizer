@@ -1201,6 +1201,48 @@ mvn compile exec:java@faces-fei-scores  # разбор файла оценок F
     файле, уменьшенном INTER_AREA до 400 × 600, остальное по файлу
     800 × 1200; около 25 мин → `duel_24.10_yunet400*`, копия –
     `SVD-faces-data/reports/duel_e0c3554/`;
+  - `duel-thr-vec`, `duel-thr-b`, `duel-prokaev-check` (`DuelThr`,
+    `duel_thr.py`; Д-№1 дуэли, Петя 30.10; код `ff98d7d`) – фиксированный
+    порог классики (Д) для дуэли: векторы 1 − cos по строкам FERET межс.
+    и внутри, GT межс. и внутри, FEI, MUCT, ORL (деление FEI/MUCT/ORL –
+    `duel_thr.py split`, `FACES_DUELTHR_SPLIT`; сверка строк d₁/d₂ с
+    feret-poem / gt-poem побайтно, GT – `FACES_DUELTHR_GT_REF`);
+    `duel-thr-b` – проверка (Б): W заново на 10 людях, 10 подвыборок (seed
+    faces.seed + 10700); `duel_thr.py table` – t(N) по d₁/d₂ и d₁, 200
+    подвыборок, ↑95 FAR ≤ 1 % на строках выбора без GT → `duel_thr_D.tsv`;
+    `duel_thr.py duel` – 2.2 по файлам проб duel-eval-24;
+    `duel-prokaev-check` + `duel_thr.py check` – 2.3, сверка с таблицами
+    коллеги; отчёт `reports/faces/duel/duel_24.10_fixthr.txt`; векторы
+    FERET – только `D:\data\Feret\reports\eq\duel_thr\`, прочие –
+    `reports/faces/duel/thr/` (вне git); копия отчётов –
+    `SVD-faces-data/reports/duel_ff98d7d/`;
+  - `duel-thr-n-k2check`, `duel-thr-n`, `duel-thr-n-b` (`DuelThr`,
+    `MldaFast`, `duel_thr.py`; (Н), Петя 30–31.10; код `ff98d7d`) – таблица
+    порога N → t для ПО на (П2) + MS-LBP, слияние w = 0,75, s = 2ℓ₁ − ℓ₂:
+    люди (П) – приведение, (З) – FAR (seed faces.seed + 10710 + строка);
+    векторы v8 – `FACES_DUELTHR_V8_FERET`, `FACES_DUELTHR_V8_GT`; потоки –
+    `FACES_DUELTHR_THREADS` (без неё – min(5, faces.fei.cv.threads);
+    duel-thr-n-b при 12 потоках и -Xmx10g падает по памяти – 4);
+    переобучение W на подвыборках – `FACES_DUELTHR_SUBS` (файл `duel_thr.py
+    nsubs`, те же подвыборки, что у общей W), `FACES_DUELTHR_SUBS_TAG`,
+    `FACES_DUELTHR_RTHREADS`, части по подвыборке с продолжением;
+    `FACES_DUELTHR_FAST=1` – обучение W через `MldaFast` (LAPACK dsyevd /
+    BLAS через OpenBLAS bytedeco; общий замок на вызовы OpenBLAS – из
+    нескольких потоков Java одновременно виснет; сверка с MldaScorer ≤
+    6,3e-14, в 4–8 раз быстрее; разрешение Хозяина 30.10; основной код
+    MLDA не меняется); `duel_thr.py fastcheck`, `ntable` → `duel_thr_N.txt`,
+    `duel_thr_N.tsv`, `duel_thr_N_table.tsv` (`reports/faces/duel/thr_n/`,
+    вне git; FERET – только `D:\data\Feret\reports\eq\duel_thr_n\`; копия
+    отчётов и подвыборок – `SVD-faces-data/reports/duel_thr_ff98d7d/`);
+    запуск – java -Xmx10g, `/AFFINITY 3F3FF`, `-XX:ActiveProcessorCount=12`,
+    `OPENBLAS_NUM_THREADS=5`, `OMP_NUM_THREADS=5`,
+    `OPENCV_FOR_THREADS_NUM=5`; время общей W – FERET 450 с, FEI 2312 с,
+    MUCT 5801 с, ORL 623 с; пробный режим – одна подвыборка N = 10, FERET
+    межс., проход 1 (`subs_rtest.tsv`, `FACES_DUELTHR_SUBS_TAG=rtest`,
+    около 30 с): файлы `rtest_feret_x_p0_f1_n.tsv.gz` / `_f0_` по 454
+    строки данных, SHA-256 строк данных f1 `5646c608…`, f0 `43b29bfa…`
+    (проверено Васей 31.10 после переноса; файлы rtest после сверки
+    удалять);
   - `pool-rule`, `gt-rule`, `feret-rule` (`XBaseRule`, `aa35b05`;
     ревизия 1.2, 2.1, №1–№2 Жорика 24.10) – правило оценки на L1 от
     одной модели MLDA: (0) база, (а) k = 20, 50, 100, (б) 1 − cos, (в)
@@ -1473,7 +1515,13 @@ mvn compile exec:java@faces-fei-scores  # разбор файла оценок F
   E-ядра – 12–19 (Петя 30.10); маска 1F – это 5 потоков на трёх P-ядрах,
   «5 ядер по потоку» – 0x155; решение Хозяина 30.10: расчёту – всё, кроме
   одного P-ядра и двух E-ядер (маска 0x3F3FF, 12 потоков; Хозяину – 10,
-  11, 18, 19); `kill` из Git bash не снимает Java –
+  11, 18, 19); уроки 30–31.10 (Петя): cmd читает пакетный файл по
+  смещениям – идущий .cmd не править; убитый процесс даёт код −1, `if
+  errorlevel 1` его пропускает – проверять через `||`; шлюз «нет чужих
+  java» блокируется о шлюз другой цепочки – считать только java больше
+  300 МБ; строка «DONE rc=…» от cmd после выхода java иногда не
+  дописывается – проверять строку DONE, которую печатает сама Java;
+  OpenBLAS из нескольких потоков Java одновременно виснет; `kill` из Git bash не снимает Java –
   снимать Stop-Process по командной строке; сторож – один, сам
   завершающийся цикл, старый снимать до запуска нового; после правок
   git в рабочей копии прогона (даже `git add -N`) отпечаток контрольной
@@ -1482,7 +1530,7 @@ mvn compile exec:java@faces-fei-scores  # разбор файла оценок F
   удаления строк «Код:», «Данные:», «# Код:», «# Данные:», строк времени;
   у gt-sep и gt-quality в шапке ещё SHA-256 входных файлов оценок (меняются
   с коммитом в их шапке) – сравнивать без строк «Файл оценок». Последние
-  коммиты на 30.10.2026: код `537636e` (feat2c), `ec68b50` (pool-feat2b, feret-feat2b, gt-feat2b), `60dce3e` (пачка 2, XBaseFeat2), `aee2ba8` (NaN пачки 1); документы `4ed11e5`, `4580c5b`, `09e176c`, `a578a60`, `a040101` и коммит итогов feat2c; правки Жорика в PLAN.md `e604727`, `1d099ef` (дуэль), `60b11fb`; данные `7aa00044`, `b02421f1`, `91ee9198`, `9e03fafd`, `64f0ec27` – не запушено. Коммиты на 28.10.2026: код `e0e3033` (пачка 1, XBaseVec), `3f75a3c`
+  коммиты на 31.10.2026: код `ff98d7d` (Д-№1 Пети, (Д) и (Н)), `5c38e2a` (пачка 3); данные `5fb47b0f`, `7a22b9cd`, `f9ee20dc` – не запушено. Коммиты на 30.10.2026: код `537636e` (feat2c), `ec68b50` (pool-feat2b, feret-feat2b, gt-feat2b), `60dce3e` (пачка 2, XBaseFeat2), `aee2ba8` (NaN пачки 1); документы `4ed11e5`, `4580c5b`, `09e176c`, `a578a60`, `a040101` и коммит итогов feat2c; правки Жорика в PLAN.md `e604727`, `1d099ef` (дуэль), `60b11fb`; данные `7aa00044`, `b02421f1`, `91ee9198`, `9e03fafd`, `64f0ec27` – не запушено. Коммиты на 28.10.2026: код `e0e3033` (пачка 1, XBaseVec), `3f75a3c`
   (1:1, хвосты), `17d32f8`, `184e0e4` (comb), `0e41217`, `44425bd`
   (abl2), `7cdebe3` (NAP), `e28b18c`, `ecd7663` (POEM); документы
   `aae007d`, `bb8a6b8` и коммит «перед /clear (28.10)»; правки Жорика в
