@@ -433,6 +433,18 @@ public final class XBaseEval {
             DuelEval.run24(export, dir, feiKeys, selLines, settings, out);
         } else if (a[0].equals("duel-eval-24-yunet400")) {
             DuelEval.run24(export, dir, feiKeys, selLines, settings, out, true);
+        } else if (a[0].equals("duel-thr-vec")) {
+            DuelThr.vec(a[1], export, dir, feiKeys, selLines, settings, out);
+        } else if (a[0].equals("duel-thr-b")) {
+            DuelThr.checkB(a[1], export, dir, feiKeys, selLines, settings, out);
+        } else if (a[0].equals("duel-thr-n")) {
+            DuelThr.nVec(a[1], export, dir, feiKeys, selLines, settings, out);
+        } else if (a[0].equals("duel-thr-n-b")) {
+            DuelThr.nCheckB(a[1], export, dir, feiKeys, selLines, settings, out);
+        } else if (a[0].equals("duel-thr-n-k2check")) {
+            DuelThr.k2check(export, dir, selLines, settings, out);
+        } else if (a[0].equals("duel-prokaev-check")) {
+            DuelThr.prokaevCheck(settings, out);
         } else if (a[0].equals("duel-shares-24")) {
             DuelEval.shares24(out);
         } else if (a[0].equals("prokaev-mask")) {
