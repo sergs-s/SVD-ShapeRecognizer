@@ -577,6 +577,10 @@ public final class XBaseEval {
             XBaseFeat2.own2(a[0].substring(0, a[0].indexOf('-')), export, dir, feiKeys, selLines, settings, out);
         } else if (a[0].equals("p4-retina-sheet")) {
             XBasePart4.retinaSheet(settings, out);
+        } else if (a[0].equals("pool-p4a")) {
+            XBasePart4.poolA(export, dir, feiKeys, selLines, settings, out);
+        } else if (a[0].equals("feret-p4a") || a[0].equals("gt-p4a")) {
+            XBasePart4.ownA(a[0].substring(0, a[0].indexOf('-')), export, dir, feiKeys, selLines, settings, out);
         } else if (a[0].equals("part3-regions")) {
             XBasePart3.sheet(export, dir, feiKeys, selLines, settings, out);
         } else if (a[0].equals("pool-part3") || a[0].equals("feret-part3") || a[0].equals("gt-part3")) {
