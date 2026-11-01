@@ -892,4 +892,349 @@ final class XBasePart4 {
         System.out.print(t);
         System.out.println("DONE");
     }
+
+    // ---------------------------------------------------------------- Б: параметры признака (пересчёт векторов, FeatP4)
+
+    /** Вариант Б: номер, группа (параметр), название, источник, параметры, признаки, которые меняются (1 – L1-tt-xs-F, 0 – L1-xs-F). */
+    record BV(int no, String group, String name, String src, FeatP4.P p, int[] feats) {}
+
+    static final String SRC_TT = "Tan, Triggs, IEEE TIP 19(6), 2010, разд. II, табл. I (рукопись HAL hal-00565029): γ ∈ [0; 0,5], σ₁ до 4; σ₀ = 0,5 – дисс. Vu, 2010, "
+            + "табл. 3.1 (DoG σ 0,5 и 3 на Yale B)";
+    static final String SRC_RET = "дисс. Vu, 2010, гл. 3, разд. 3.3, ур. 3.3.1–3.3.10, параметры разд. 3.4.1.3 (σ₁ = σ₂ = 1, σ_Ph = 0,5, σ_H = 3, Th = 3,5); кадры "
+            + "автора Yale B 192×168, у нас 92×112 и k = 2 184×224 (σ × 2), σ не масштабируются";
+    static final String SRC_POEM = "Vu, Caplier, ECCV 2010, разд. 5.1, рис. 4 (ориентации без знака 2–7) и рис. 5 (ячейка 3–8, блок 5–11); дисс. Vu, 2010, разд. "
+            + "4.4.1, рис. 4.4–4.6 (выбор: 3 без знака, w = 7, L = 10)";
+    static final String SRC_MS = "Chen, Cao, Wen, Sun, CVPR 2013, разд. 5.1 (окно 40×40, 4×4 ячейки, 5 масштабов), рис. 5 (1–5 масштабов, дальше выигрыш мал); "
+            + "размер окна и вес авторы не варьировали – значения постановки (Жорик №1 от 01.11)";
+
+    static List<BV> variantsB(IlluminationNorm.NormParams tt) {
+        FeatP4.P b = FeatP4.base(tt);
+        List<BV> l = new ArrayList<>();
+        int[] t1 = {1};
+        int[] x0 = {0};
+        int[] both = {1, 0};
+        java.util.function.BiFunction<Double, double[], IlluminationNorm.NormParams> ttp = (g, s) -> new IlluminationNorm.NormParams(tt.claheClip(), tt.claheTile(), g,
+                s[0], s[1], tt.alpha(), tt.tau());
+        l.add(new BV(1, "Б1", "Тан – Триггс γ = 0,1", SRC_TT, withTt(b, ttp.apply(0.1, new double[] {tt.sigma0(), tt.sigma1()})), t1));
+        l.add(new BV(2, "Б1", "Тан – Триггс γ = 0,3", SRC_TT, withTt(b, ttp.apply(0.3, new double[] {tt.sigma0(), tt.sigma1()})), t1));
+        l.add(new BV(3, "Б1", "Тан – Триггс σ₁ = 3", SRC_TT, withTt(b, ttp.apply(tt.gamma(), new double[] {tt.sigma0(), 3})), t1));
+        l.add(new BV(4, "Б1", "Тан – Триггс σ₁ = 4", SRC_TT, withTt(b, ttp.apply(tt.gamma(), new double[] {tt.sigma0(), 4})), t1));
+        l.add(new BV(5, "Б1", "Тан – Триггс σ₀ = 0,5 (σ₁ = 2)", SRC_TT, withTt(b, ttp.apply(tt.gamma(), new double[] {0.5, tt.sigma1()})), t1));
+        l.add(new BV(6, "Б1′-tt", "L1-tt-xs-F: ретинальный фильтр вместо Тан – Триггса", SRC_RET, new FeatP4.P(FeatP4.In.RETINA, b.inXs(), tt, b.orient(), b.cell(),
+                b.radius(), b.scales(), b.patch(), b.msWeight()), t1));
+        l.add(new BV(7, "Б1′-xs", "L1-xs-F: ретинальный фильтр (вместо кадра)", SRC_RET, new FeatP4.P(b.inTt(), FeatP4.In.RETINA, tt, b.orient(), b.cell(),
+                b.radius(), b.scales(), b.patch(), b.msWeight()), x0));
+        l.add(new BV(8, "Б2", "POEM m = 2", SRC_POEM, poemP(b, 2, b.cell(), b.radius()), both));
+        l.add(new BV(9, "Б2", "POEM ячейка w = 5", SRC_POEM, poemP(b, b.orient(), 5, b.radius()), both));
+        l.add(new BV(10, "Б2", "POEM блок L = 8 (радиус 4)", SRC_POEM, poemP(b, b.orient(), b.cell(), 4), both));
+        l.add(new BV(11, "Б2", "POEM блок L = 11 (радиус 5,5)", SRC_POEM, poemP(b, b.orient(), b.cell(), 5.5), both));
+        l.add(new BV(12, "Б2", "POEM m = 4", SRC_POEM, poemP(b, 4, b.cell(), b.radius()), both));
+        l.add(new BV(13, "Б3", "MS-LBP 4 масштаба", SRC_MS, msP(b, 4, b.patch(), 1), both));
+        l.add(new BV(14, "Б3", "MS-LBP окно 32", SRC_MS, msP(b, b.scales(), 32, 1), both));
+        l.add(new BV(15, "Б3", "MS-LBP вес × 0,5", SRC_MS, msP(b, b.scales(), b.patch(), 0.5), both));
+        l.add(new BV(16, "Б3", "MS-LBP вес × 2", SRC_MS, msP(b, b.scales(), b.patch(), 2), both));
+        l.add(new BV(17, "Б3", "MS-LBP окно 48", SRC_MS, msP(b, b.scales(), 48, 1), both));
+        l.add(new BV(18, "Б3", "MS-LBP 6 масштабов", SRC_MS, msP(b, 6, b.patch(), 1), both));
+        return l;
+    }
+
+    static FeatP4.P withTt(FeatP4.P b, IlluminationNorm.NormParams tt) {
+        return new FeatP4.P(b.inTt(), b.inXs(), tt, b.orient(), b.cell(), b.radius(), b.scales(), b.patch(), b.msWeight());
+    }
+
+    static FeatP4.P poemP(FeatP4.P b, int m, int w, double r) {
+        return new FeatP4.P(b.inTt(), b.inXs(), b.tt(), m, w, r, b.scales(), b.patch(), b.msWeight());
+    }
+
+    static FeatP4.P msP(FeatP4.P b, int s, int patch, double wt) {
+        return new FeatP4.P(b.inTt(), b.inXs(), b.tt(), b.orient(), b.cell(), b.radius(), s, patch, wt);
+    }
+
+    static final List<String> GROUPS_B = List.of("Б1", "Б1′-tt", "Б1′-xs", "Б2", "Б3");
+
+    /** Признаки варианта (как XBaseFeat2.vectors, отражения – FaceMirror для кадра «а» и k = 2). */
+    static XBaseEval vectorsB(Map<String, Mat> fr, Map<String, FrameK2.F> k2, FeatP4.P p, int f, int threads) {
+        Map<String, double[]> vec = new java.util.concurrent.ConcurrentHashMap<>();
+        Map<String, double[]> mir = new java.util.concurrent.ConcurrentHashMap<>();
+        java.util.concurrent.ForkJoinPool pool = new java.util.concurrent.ForkJoinPool(threads);
+        try {
+            pool.submit(() -> fr.entrySet().parallelStream().forEach(e -> {
+                Mat a = e.getValue();
+                FrameK2.F k = k2.get(e.getKey());
+                if (k == null) throw new IllegalStateException("p4b: нет кадра k = 2 " + e.getKey());
+                Mat am = FaceMirror.mirror(a);
+                Mat cm = FaceMirror.mirror(k.frame());
+                vec.put(e.getKey(), FeatP4.feature(p, f, a, k.frame(), k.pts()));
+                mir.put(e.getKey(), FeatP4.feature(p, f, am, cm, FrameK2.mirrorPts(k.pts())));
+                am.release();
+                cm.release();
+            })).get();
+        } catch (InterruptedException | java.util.concurrent.ExecutionException e) {
+            throw new IllegalStateException("p4b: признаки " + e, e);
+        } finally {
+            pool.shutdown();
+        }
+        XBaseEval x = new XBaseEval();
+        x.vec.put(XBaseEval.V.L1, new HashMap<>(vec));
+        x.mir.put(XBaseEval.V.L1, new HashMap<>(mir));
+        return x;
+    }
+
+    static Path dirB(XBaseVec.Setup u, int sm) {
+        return u.out.resolve("xbase_" + u.base + "_p4b" + (sm == 0 ? "" : "_smoke" + sm));
+    }
+
+    static Path fileB(Path d, XBaseVec.Blk b, int f, int v) {
+        return d.resolve(b.name() + "_f" + f + "_b" + v + ".tsv.gz");
+    }
+
+    /** Модели блока: v = 0 – векторы v8 пачки 2; иначе – файл варианта (признак f не меняется вариантом – v8). */
+    static List<XBaseVec.Model> modelsB(XBaseVec.Setup u, int sm, XBaseVec.Blk b, int f, BV v) throws IOException {
+        if (v == null || java.util.Arrays.stream(v.feats()).noneMatch(x -> x == f)) return XBaseFeat2.read(XBaseFeat2.dir(u, 0), b, f, V8);
+        return XBaseVec.read(fileB(dirB(u, sm), b, f, v.no())).values().iterator().next();
+    }
+
+    /** Векторы вариантов vs по всем блокам; готовые файлы с тем же коммитом пропускаются. Возвращает время по вариантам. */
+    static Map<Integer, Double> computeB(XBaseVec.Setup u, XBaseFeat2.Feats fs, List<BV> vs, int sm) throws IOException {
+        Path d = dirB(u, sm);
+        Files.createDirectories(d);
+        String commit = FarMethods.commit();
+        Map<Integer, Double> sec = new LinkedHashMap<>();
+        for (BV v : vs) {
+            for (int f : v.feats()) {
+                List<XBaseVec.Blk> todo = new ArrayList<>();
+                for (XBaseVec.Blk b : u.blocks) {
+                    Path p = fileB(d, b, f, v.no());
+                    if (Files.exists(p)) {
+                        if (!XBaseVec.readHead(p).contains(commit)) throw new IllegalStateException("p4b: " + p + " – другой коммит кода; удалите каталог " + d);
+                        continue;
+                    }
+                    todo.add(b);
+                }
+                if (todo.isEmpty()) continue;
+                long t0 = System.nanoTime();
+                XBaseEval x = vectorsB(u.fr, fs.k2, v.p(), f, fs.threads);
+                System.out.printf(Locale.ROOT, "%s-p4b: b%d f%d признаки (%.0f с)%n", u.base, v.no(), f, (System.nanoTime() - t0) / 1e9);
+                int step = Math.max(1, Math.min(4, todo.size()));
+                for (int i = 0; i < todo.size(); i += step) {
+                    List<List<Callable<XBaseVec.Model>>> jobs = new ArrayList<>();
+                    for (XBaseVec.Blk b : todo.subList(i, Math.min(todo.size(), i + step))) {
+                        jobs.add(XBaseVec.job(b.g(), x, b.gal(), b.probes(), b.parts(), b.s(), b.extra(), u.cin, u.cout));
+                    }
+                    List<List<XBaseVec.Model>> done = XBaseVec.run(jobs, u.tpl.threads);
+                    for (int k = 0; k < done.size(); k++) {
+                        XBaseVec.Blk b = todo.get(i + k);
+                        Path p = fileB(d, b, f, v.no());
+                        java.io.Writer w = XBaseVec.writer(p, "# Векторы 1 − cos (XBasePart4 " + u.base + "-p4b): вариант " + v.no() + " – " + v.name() + ", " + XBaseRule.FEATS[f]
+                                + "\n# Код: коммит " + commit + "\n");
+                        XBaseVec.write(w, String.format(b.abl2(), XBaseRule.FEATS[f]) + v.name(), done.get(k));
+                        XBaseVec.finish(w, p);
+                    }
+                    System.out.printf(Locale.ROOT, "%s-p4b: b%d f%d блоки %d–%d из %d%n", u.base, v.no(), f, i + 1, i + jobs.size(), todo.size());
+                }
+                sec.merge(v.no(), (System.nanoTime() - t0) / 1e9, Double::sum);
+            }
+        }
+        return sec;
+    }
+
+    /** Список вариантов из FACES_P4_VARIANTS (номера через запятую; пусто – все). */
+    static List<BV> pickB(List<BV> all) {
+        String s = System.getenv("FACES_P4_VARIANTS");
+        if (s == null || s.isBlank()) return all;
+        Set<Integer> want = new HashSet<>();
+        for (String x : s.split(",")) want.add(Integer.parseInt(x.trim()));
+        return all.stream().filter(v -> want.contains(v.no())).toList();
+    }
+
+    static final String NOTE_B = "Пачка 4, Б: параметры признака конфигурации (32) – (П2) + MS-LBP, слияние w = 0,75, β = 1, MLDA с пулом FERET, c = 1, 1 − cos. "
+            + "Б1 и Б1′-tt меняют только L1-tt-xs-F,\nБ1′-xs – только L1-xs-F, Б2 и Б3 – оба кандидата (код признака один); решающее – слияние, кандидаты отдельно – "
+            + "справочно. Выбор – уточнённое правило (в пределах 1 п. п. во\nвсех трёх наборах, самый простой; база первой; дальше – порядок номеров: Б2 – "
+            + "меньшая размерность раньше, Б3 – 4 масштаба, окно 32, веса, окно 48, 6 масштабов).\nВекторы базы – v8 пачки 2 (XBaseFeat2), вариант – FeatP4 "
+            + "(при умолчаниях побайтно v8, тест FeatP4Test).\n";
+
+    /** pool-p4b. */
+    static void poolB(FarExport.Loaded export, Path dir, Map<String, Map<Integer, String>> feiKeys, List<String> selLines, SettingsStore settings, Path out)
+            throws IOException {
+        long t0 = System.nanoTime();
+        int sm = smoke();
+        XBaseVec.Setup u = XBaseVec.setup("pool", export, dir, feiKeys, selLines, settings, out, sm);
+        List<BV> all = variantsB(u.tpl.params);
+        List<BV> vs = pickB(all);
+        XBaseFeat2.Feats fs = XBaseFeat2.feats(u, export, dir, settings, true);
+        Map<Integer, Double> sec = computeB(u, fs, vs, sm);
+        for (Mat m : u.fr.values()) m.release();
+        for (FrameK2.F k : fs.k2.values()) k.frame().release();
+        double total = (System.nanoTime() - t0) / 1e9;
+        StringBuilder t = new StringBuilder("Пачка 4, Б: параметры признака – pool (XBaseEval pool-p4b)" + (sm == 0 ? "" : " – ПРОБНЫЙ РЕЖИМ " + sm) + "\nКод: коммит "
+                + FarMethods.commit() + "; векторы вариантов – " + dirB(u, sm) + "\n").append(NOTE_B);
+        t.append("\n=== Варианты и источники ===\n");
+        for (BV v : all) t.append(String.format(Locale.ROOT, "%d | %s | %s | %s%n", v.no(), v.group(), v.name(), v.src()));
+        t.append("\n=== Время (признаки и модели; потоков ").append(u.tpl.threads).append(") ===\n");
+        for (Map.Entry<Integer, Double> e : sec.entrySet()) t.append(String.format(Locale.ROOT, "вариант %d: %.0f с%n", e.getKey(), e.getValue()));
+        t.append(String.format(Locale.ROOT, "Всего: %.0f с%n", total));
+        if (sm == 2) {
+            double frac = 1.0 / (10.0 / XBaseNap.SMOKE2_BLOCKS * (1 + XBaseNap.FERET_TO_GT));
+            t.append(String.format(Locale.ROOT, "Замер (доля полного прогона %.3f по блокам; признаки – полностью): %.0f с%n", frac, total));
+        }
+        int[] clamped = new int[2];
+        List<String> sets = u.groups;
+        StringBuilder sel = new StringBuilder("# Выбор по пулу (XBasePart4 pool-p4b): группа, номер (0 – база), вариант\n# Код: коммит " + FarMethods.commit() + "\n");
+        StringBuilder gt = new StringBuilder("\n(Набор GT; наборы FERET – только в D:\\data\\Feret\\reports\\eq\\)\n");
+        for (String grp : GROUPS_B) {
+            List<BV> gv = vs.stream().filter(v -> v.group().equals(grp)).toList();
+            if (gv.isEmpty()) continue;
+            String[] nm = new String[gv.size() + 1];
+            nm[0] = "база (32)";
+            for (int i = 0; i < gv.size(); i++) nm[i + 1] = gv.get(i).no() + ". " + gv.get(i).name();
+            double[][] crit = new double[sets.size()][nm.length];
+            int[] featsShown = gv.get(0).feats();
+            double[][][] cand = new double[2][sets.size()][nm.length];
+            for (int s = 0; s < sets.size(); s++) {
+                List<Integer> bi = new ArrayList<>();
+                for (int i = 0; i < u.blocks.size(); i++) if (u.blocks.get(i).group().equals(sets.get(s))) bi.add(i);
+                for (int j = 0; j < nm.length; j++) {
+                    BV v = j == 0 ? null : gv.get(j - 1);
+                    List<String> ls = new ArrayList<>();
+                    List<List<String>> cl = List.of(new ArrayList<>(), new ArrayList<>());
+                    for (int k : bi) {
+                        XBaseVec.Blk b = u.blocks.get(k);
+                        List<XBaseVec.Model> tt = modelsB(u, sm, b, 1, v);
+                        List<XBaseVec.Model> xs = modelsB(u, sm, b, 0, v);
+                        ls.add(XBaseVec.fuseLines(tt, xs, XBaseFeat2.W_FUSE, XBaseVec.fuseStats(tt, true), XBaseVec.fuseStats(xs, true), b.g().rOf, b.g().r0, clamped));
+                        cl.get(1).add(XBaseVec.normLines(tt, null, clamped));
+                        cl.get(0).add(XBaseVec.normLines(xs, null, clamped));
+                    }
+                    crit[s][j] = XBaseFeat2.poolSep(u, bi, ls, 1, true).crit();
+                    for (int f : featsShown) cand[f][s][j] = XBaseFeat2.poolSep(u, bi, cl.get(f), f, false).crit();
+                }
+            }
+            int ch = XBaseFeat2.chooseAll(crit);
+            t.append(XBaseFeat2.lagTable(grp + " – слияние w = 0,75: вариант × набор (критерий, в скобках – отставание от лучшего, п. п.)", nm, crit, sets, ch));
+            if (ch >= 0) {
+                t.append("Выбор ").append(grp).append(": ").append(nm[ch]).append('\n');
+            } else {
+                int b = 0;
+                for (int v = 1; v < nm.length; v++) if (XBaseFeat2.maxLag(crit, v) < XBaseFeat2.maxLag(crit, b)) b = v;
+                t.append(String.format(Locale.ROOT, "Выбор %s: во всех трёх в пределах 1 п. п. – нет; наименьшее наибольшее отставание – %s (%.1f), условие Δ – на своих%n",
+                        grp, nm[b], XBaseFeat2.maxLag(crit, b)));
+            }
+            sel.append(grp).append('\t').append(ch < 0 ? -1 : ch == 0 ? 0 : gv.get(ch - 1).no()).append('\t').append(ch >= 0 ? nm[ch] : "нет").append('\n');
+            for (int f : featsShown) {
+                double[][] c = new double[sets.size()][];
+                for (int s = 0; s < sets.size(); s++) c[s] = cand[f][s];
+                t.append(XBaseFeat2.lagTable("Справочно: " + grp + ", " + XBaseRule.FEATS[f] + " отдельно", nm, c, sets, -1));
+            }
+            for (int j = 0; j < nm.length; j++) gt.append(String.format(Locale.ROOT, "%s | %s | %.1f %%%n", grp, nm[j], crit[0][j]));
+        }
+        String sfx = sm == 0 ? "" : "_smoke" + sm;
+        Files.writeString(u.out.resolve("xbase_pool_p4b_select" + sfx + ".tsv"), sel.toString());
+        FarMethods.write(u.out.resolve("xbase_pool_p4b" + sfx + ".txt"), t);
+        Files.createDirectories(out);
+        FarMethods.write(out.resolve("xbase_pool_p4b" + sfx + "_gt.txt"), new StringBuilder(t.substring(0, t.indexOf("\n=== Время"))).append(gt));
+        System.out.print(t);
+        System.out.println("DONE");
+    }
+
+    /** Совместный вариант: параметры выбранных вариантов разных групп (номер 99). */
+    static BV joint(List<BV> chosen, IlluminationNorm.NormParams tt) {
+        FeatP4.P p = FeatP4.base(tt);
+        Set<Integer> fs = new java.util.TreeSet<>();
+        StringBuilder nm = new StringBuilder("совместно:");
+        for (BV v : chosen) {
+            FeatP4.P q = v.p();
+            FeatP4.P b = FeatP4.base(tt);
+            p = new FeatP4.P(q.inTt() != b.inTt() ? q.inTt() : p.inTt(), q.inXs() != b.inXs() ? q.inXs() : p.inXs(), q.tt().equals(b.tt()) ? p.tt() : q.tt(),
+                    q.orient() != b.orient() ? q.orient() : p.orient(), q.cell() != b.cell() ? q.cell() : p.cell(), q.radius() != b.radius() ? q.radius() : p.radius(),
+                    q.scales() != b.scales() ? q.scales() : p.scales(), q.patch() != b.patch() ? q.patch() : p.patch(), q.msWeight() != b.msWeight() ? q.msWeight()
+                    : p.msWeight());
+            for (int f : v.feats()) fs.add(f);
+            nm.append(' ').append(v.no()).append(". ").append(v.name()).append(';');
+        }
+        return new BV(99, "совместно", nm.toString(), "по выбранным вариантам", p, fs.stream().sorted(java.util.Comparator.reverseOrder()).mapToInt(Integer::intValue)
+                .toArray());
+    }
+
+    /** feret-p4b, gt-p4b: база, выбранные по пулу варианты (не база) и, если меняются две и больше групп, совместный. */
+    static void ownB(String base, FarExport.Loaded export, Path dir, Map<String, Map<Integer, String>> feiKeys, List<String> selLines, SettingsStore settings,
+                     Path out) throws IOException {
+        long t0 = System.nanoTime();
+        int sm = smoke();
+        XBaseVec.Setup u = XBaseVec.setup(base, export, dir, feiKeys, selLines, settings, out, 0);
+        Path sf = (base.equals("gt") ? u.su.dir.resolve("reports").resolve(XBaseEval.eqDir(0, true)) : u.out).resolve("xbase_pool_p4b_select" + (sm == 0 ? "" : "_smoke"
+                + sm) + ".tsv");
+        if (!Files.exists(sf)) throw new IllegalStateException(base + "-p4b: нет файла выбора " + sf + " (сначала pool-p4b)");
+        List<BV> all = variantsB(u.tpl.params);
+        List<BV> chosen = new ArrayList<>();
+        List<String> undecided = new ArrayList<>();
+        for (String l : Files.readAllLines(sf, StandardCharsets.UTF_8)) {
+            if (l.startsWith("#") || l.isBlank()) continue;
+            String[] c = l.split("\t");
+            int no = Integer.parseInt(c[1]);
+            if (no > 0) chosen.add(all.stream().filter(v -> v.no() == no).findFirst().orElseThrow());
+            if (no < 0) undecided.add(c[0]);
+        }
+        StringBuilder t = new StringBuilder("Пачка 4, Б: параметры признака – " + base + " (XBaseEval " + base + "-p4b)" + (sm == 0 ? "" : " – ПРОБНЫЙ РЕЖИМ " + sm)
+                + "\nКод: коммит " + FarMethods.commit() + "; выбор – " + sf.getFileName() + "\n").append(NOTE_B);
+        t.append("Выбор по пулу: ").append(chosen.isEmpty() ? "во всех группах – база" : chosen.stream().map(v -> v.no() + ". " + v.name()).toList().toString())
+                .append(undecided.isEmpty() ? "" : "; без решения по пулу (наименьшее отставание – на своих): " + undecided).append('\n');
+        if (chosen.isEmpty() && undecided.isEmpty()) {
+            for (Mat m : u.fr.values()) m.release();
+            t.append("Свои не считаются: по пулу выбрана база во всех группах.\n");
+            FarMethods.write(u.out.resolve("xbase_" + base + "_p4b.txt"), t);
+            System.out.print(t);
+            System.out.println("DONE");
+            return;
+        }
+        List<BV> vs = new ArrayList<>(chosen);
+        if (chosen.size() >= 2) vs.add(joint(chosen, u.tpl.params));
+        XBaseFeat2.Feats fs = XBaseFeat2.feats(u, export, dir, settings, true);
+        Map<Integer, Double> sec = computeB(u, fs, vs, sm);
+        for (Mat m : u.fr.values()) m.release();
+        for (FrameK2.F k : fs.k2.values()) k.frame().release();
+        int[] clamped = new int[2];
+        StringBuilder body = new StringBuilder();
+        StringBuilder hold = new StringBuilder("\n=== Держит ли П3 FAR при (Т2) (контроль по снимкам; КП – верхняя 95 % граница Клоппера – Пирсона) ===\n");
+        StringBuilder dl = new StringBuilder("\n=== Условие Δ (GT внутри сессии, разделимость при FAR 1 %, «вариант − база») ===\n");
+        for (String grp : u.groups) {
+            boolean t2 = !grp.equals("внутри");
+            String prefix = (base.equals("feret") ? "FERET " : "GT ") + grp;
+            List<Integer> bi = new ArrayList<>();
+            for (int i = 0; i < u.blocks.size(); i++) if (u.blocks.get(i).group().equals(grp)) bi.add(i);
+            Map<String, XBaseThr.Out> of = new LinkedHashMap<>();
+            List<String[]> pf = new ArrayList<>();
+            String bl = grp + " слияние w = 0,75, база (32)";
+            List<BV> rows = new ArrayList<>();
+            rows.add(null);
+            rows.addAll(vs);
+            for (BV v : rows) {
+                List<XBaseThr.Unit> us = new ArrayList<>();
+                for (int k : bi) {
+                    XBaseVec.Blk b = u.blocks.get(k);
+                    List<XBaseVec.Model> tt = modelsB(u, sm, b, 1, v);
+                    List<XBaseVec.Model> xs = modelsB(u, sm, b, 0, v);
+                    us.add(new XBaseThr.Unit(b.g(), b.gal(), b.pro(), b.parts(), XBaseVec.fuseLines(tt, xs, XBaseFeat2.W_FUSE, XBaseVec.fuseStats(tt, false), XBaseVec
+                            .fuseStats(xs, false), b.g().rOf, b.g().r0, clamped), null, t2));
+                }
+                String lb = v == null ? bl : grp + " слияние w = 0,75, " + v.no() + ". " + v.name();
+                XBaseThr.Out o = XBaseThr.evaluate(lb, us, u.persons, u.tpl);
+                of.put(lb, o);
+                if (v != null) pf.add(new String[] {lb, bl});
+                if (t2) hold.append(XBaseAbl3.holds(lb, o, XBaseThr.WAYS[2]));
+            }
+            XBaseLbp.tables(body, prefix + " – слияние кандидатов", of, u.persons, u.tpl, pf, t2);
+            if (!t2) for (String[] p : pf) {
+                double[] d = XBaseVt.delta(of.get(p[0]), of.get(p[1]), XBaseThr.WAYS[0], u.persons, u.tpl);
+                dl.append(String.format(Locale.ROOT, "%s: разность %+.1f п. п., верхняя граница %+.1f п. п. – условие %s%n", p[0], d[0], d[1], d[1] <= 3 ? "выполнено"
+                        : "НЕ выполнено"));
+            }
+        }
+        t.append("\n=== Время ===\n");
+        for (Map.Entry<Integer, Double> e : sec.entrySet()) t.append(String.format(Locale.ROOT, "вариант %d: %.0f с%n", e.getKey(), e.getValue()));
+        t.append(String.format(Locale.ROOT, "Всего: %.0f с (потоков %d)%n", (System.nanoTime() - t0) / 1e9, u.tpl.threads));
+        t.append(hold).append(base.equals("gt") ? dl : "").append(body);
+        FarMethods.write(u.out.resolve("xbase_" + base + "_p4b" + (sm == 0 ? "" : "_smoke" + sm) + ".txt"), t);
+        System.out.print(t);
+        System.out.println("DONE");
+    }
 }
