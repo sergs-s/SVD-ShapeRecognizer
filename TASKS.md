@@ -4879,3 +4879,45 @@ bffc773 + XBaseC1 = 8c98830). Отчёты – `reports/faces/xbase/xbase_fei_xs
   (не держит). База сверена с feat2c побайтно (FERET 58, GT 43 строки).
 - Итог по правилу (36): значимо лучше ни по пулу, ни на своих – база;
   отказ 27.10 от L1-xs-F (Т+М) подтверждён на (32).
+
+## Передача после /clear (Вася, 02.11.2026)
+
+- Сделано 01–02.11: пачка 4 целиком (А, Б, В, Г; решения (34), (35)), шум
+  правила выбора pool-noise (→ решение (36), (35) отменено), проверка Тан
+  – Триггса у L1-xs-F на (32) по (36) – база. Итоги – разделы выше
+  («Пачка 4 – … план» с итогами А–Г, «Итог Б», «Шум правила выбора»,
+  «Тан – Триггс у L1-xs-F на конфигурации (32)»), отметки – PLAN.md п.
+  5.5. Конфигурация итогового прогона – (32) с σ₀ = 1.
+- Код (всё в `XBasePart4`, `FeatP4`, `RetinaFilter`; режимы – CLAUDE.md,
+  «пачка 4»): `e9fe7f7`, `9ddb1fa`, `decc397`, `fd6f106`, `169735e`,
+  `1a67024` (pool-noise), `509392c` (p4e). Тесты – 313 + FeatP4Test,
+  RetinaFilterTest.
+- Не запушено (на 02.11, после пуша Хозяина до `e356a8e` и `4143d4df`):
+  проект – `7bc8d2d`, `f400bd6`, `210a63c` (правки Жорика в PLAN.md) и
+  коммит этой передачи; данные – `31d80f6c`.
+- Векторы и файлы оценок (нужны итоговому прогону и пересчёту Зануды):
+  - пачка 1 / (П2) база: `D:\data\Feret\reports\eq\xbase_pool_vec\`,
+    `xbase_feret_vec\`, GT – `reports/faces/xbase/xbase_gt_vec\`; файлы
+    оценок abl2 – `D:\data\Feret\reports\eq\xbase_{pool,feret}_abl2_
+    scores.tsv.gz`, `reports/faces/xbase/xbase_gt_abl2_scores.tsv.gz`;
+  - пачка 2 (v0 – (П2), v8 – (32) (П2) + MS-LBP и прочие варианты):
+    `D:\data\Feret\reports\eq\xbase_pool_feat2\`, `xbase_feret_feat2\`,
+    GT – `reports/faces/xbase/xbase_gt_feat2\` (то же –
+    `xbase_gt_feat2_ec68b50\`); база (32) на своих – файлы `*_v8`;
+  - пачка 3: `xbase_pool_part3\`, `xbase_feret_part3\` (FERET eq\), GT –
+    `reports/faces/xbase/xbase_gt_part3\`;
+  - пачка 4: Б – `D:\data\Feret\reports\eq\xbase_pool_p4b\` (варианты
+    1–18 и 19), `xbase_feret_p4b\` (b5, b19), GT –
+    `reports/faces/xbase/xbase_gt_p4b\` (только b19; векторы b5 GT были в
+    удалённой рабочей копии – вариант отменён (36), отчёт сохранён); Г –
+    `D:\data\Feret\reports\eq\xbase_feret_p4d\` (модели 40 галерей FERET
+    N = 10 и 50); модели Г для GT были в удалённой рабочей копии, отчёт
+    `xbase_gt_p4d.txt` сохранён (пересчёт – около 1,5 ч);
+  - таблица (Н): `reports/faces/duel/thr_n/duel_thr_N.tsv` (вне git;
+    копия – `SVD-faces-data/reports/duel_thr_ff98d7d/`), FERET –
+    `D:\data\Feret\reports\eq\duel_thr_n\`.
+- Отчёты FERET – только `D:\data\Feret\reports\eq\` (`xbase_pool_p4*`,
+  `xbase_feret_p4*`, `xbase_pool_noise.txt`); GT – `reports/faces/xbase/`,
+  копии – `SVD-faces-data/reports/xbase_<код>/`.
+- Открытых вопросов нет. Дальше – постановка итогового прогона (PLAN.md,
+  «Постановка итогового прогона перед ПО», №5 Жорика).
