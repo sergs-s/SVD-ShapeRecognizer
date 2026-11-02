@@ -1237,4 +1237,146 @@ final class XBasePart4 {
         System.out.print(t);
         System.out.println("DONE");
     }
+
+    // ---------------------------------------------------------------- шум правила выбора (Зануда 02.11, п. 2.2; Жорик №3 от 02.11)
+
+    static final int NOISE_B = 10000;
+    /** Сдвиг seed бутстрепа шума: faces.seed + 11000. */
+    static final long NOISE_SEED_OFFSET = 11000;
+
+    /** Критерий пула (среднее ошибок своих при FAR 1, 2, 5 %) по объединённой конфигурации при весах людей w. */
+    static double critW(FeiDecompose.Cfg c, int[] w) {
+        double s = 0;
+        for (int k = 0; k < XBaseRule.CRIT; k++) s += XBaseOther.errAtFar(List.of(c), w, XBaseRule.FARS[k])[0];
+        return s / XBaseRule.CRIT;
+    }
+
+    /** pool-noise: бутстреп по людям пула критерия базы и варианта и парной разности для решений (35), (32), (31), (30) и отвергнутого (Т+М). */
+    static void noise(FarExport.Loaded export, Path dir, Map<String, Map<Integer, String>> feiKeys, List<String> selLines, SettingsStore settings, Path out)
+            throws IOException {
+        long t0 = System.nanoTime();
+        XBaseVec.Setup u = XBaseVec.setup("pool", export, dir, feiKeys, selLines, settings, out, 0);
+        for (Mat m : u.fr.values()) m.release();
+        Path vf = XBaseFeat2.dir(u, 0);
+        Path vb = dirB(u, 0);
+        Path abl2 = u.out.resolve("xbase_pool_abl2_scores.tsv.gz");
+        for (Path p : List.of(vf, vb, abl2)) if (!Files.exists(p)) throw new IllegalStateException("pool-noise: нет " + p);
+        Map<String, String> ab = XBaseSubsp.blocks(abl2);
+        int[] clamped = new int[2];
+        // Строки: имя → [набор] объединённая конфигурация.
+        String[] rows = {"(32) слияние (П2) + MS-LBP, w = 0,75", "(35) то же, Тан – Триггс σ₀ = 0,5", "слияние (П2), w = 0,75", "слияние (П2), w = 0,5",
+            "L1-tt-xs-F (П2) отдельно", "слияние (П2) + MS-LBP, w = 0,5", "L1-tt-xs-F abl2, β = 1", "L1-tt-xs-F abl2, β = 0", "L1-xs-F abl2, β = 1",
+            "L1-xs-F abl2, β = 0", "L1-xs-F (М) всегда X+mirror", "L1-xs-F (Т+М) Тан – Триггс, всегда X+mirror"};
+        List<String> sets = u.groups;
+        FeiDecompose.Cfg[][] cfg = new FeiDecompose.Cfg[rows.length][sets.size()];
+        BV v5 = variantsB(u.tpl.params).stream().filter(v -> v.no() == 5).findFirst().orElseThrow();
+        for (int s = 0; s < sets.size(); s++) {
+            List<List<FeiDecompose.Cfg>> acc = new ArrayList<>();
+            for (int r = 0; r < rows.length; r++) acc.add(new ArrayList<>());
+            for (XBaseVec.Blk b : u.blocks) {
+                if (!b.group().equals(sets.get(s))) continue;
+                List<XBaseVec.Model> t8 = XBaseFeat2.read(vf, b, 1, V8);
+                List<XBaseVec.Model> x8 = XBaseFeat2.read(vf, b, 0, V8);
+                List<XBaseVec.Model> t0m = XBaseFeat2.read(vf, b, 1, 0);
+                List<XBaseVec.Model> x0m = XBaseFeat2.read(vf, b, 0, 0);
+                List<XBaseVec.Model> t5 = modelsB(u, 0, b, 1, v5);
+                java.util.function.BiFunction<XBaseEval.Gt, String, FeiDecompose.Cfg> parse = (g, l) -> XBaseEval.parse(g, java.util.EnumSet.of(XBaseEval.V.L1), b.gal(),
+                        b.probes(), XBaseFeat2.noParts(), l).cfg.get(XBaseEval.V.L1);
+                java.util.function.BiFunction<List<List<XBaseVec.Model>>, Double, String> fuse = (m, w) -> XBaseVec.fuseLines(m.get(0), m.get(1), w, XBaseVec.fuseStats(m
+                        .get(0), true), XBaseVec.fuseStats(m.get(1), true), b.g().rOf, b.g().r0, clamped);
+                XBaseEval.Gt g = b.g();
+                XBaseEval.Gt gm = XBaseAbl3.mirrorGt(g, true);
+                String[] l = new String[rows.length];
+                l[0] = fuse.apply(List.of(t8, x8), 0.75);
+                l[1] = fuse.apply(List.of(t5, x8), 0.75);
+                l[2] = fuse.apply(List.of(t0m, x0m), 0.75);
+                l[3] = fuse.apply(List.of(t0m, x0m), 0.5);
+                l[4] = XBaseVec.normLines(t0m, null, clamped);
+                l[5] = fuse.apply(List.of(t8, x8), 0.5);
+                String bt = String.format(b.abl2(), XBaseRule.FEATS[1]);
+                String bx = String.format(b.abl2(), XBaseRule.FEATS[0]);
+                String tb = XBaseAbl3.need(ab, bt + XBaseAbl2.rname(1, 0), abl2);
+                String xb = XBaseAbl3.need(ab, bx + XBaseAbl2.rname(0, 0), abl2);
+                l[6] = XBaseAbl3.beta(tb, 1);
+                l[7] = XBaseAbl3.beta(tb, 0);
+                l[8] = XBaseAbl3.beta(xb, 1);
+                l[9] = XBaseAbl3.beta(xb, 0);
+                l[10] = xb;
+                l[11] = XBaseAbl3.need(ab, bx + XBaseAbl2.rname(0, 3), abl2);
+                for (int r = 0; r < rows.length; r++) acc.get(r).add(parse.apply(r >= 10 ? gm : g, l[r]));
+            }
+            for (int r = 0; r < rows.length; r++) cfg[r][s] = XBaseRule.merge(acc.get(r));
+        }
+        // Пары: вариант, база (номера строк), подпись.
+        int[][] pairs = {{1, 0}, {0, 2}, {2, 4}, {3, 2}, {5, 0}, {6, 7}, {8, 9}, {11, 10}};
+        String[] pn = {"1) (35): σ₀ = 0,5 − σ₀ = 1 (слияние (32))", "2) (32): слияние (П2) + MS-LBP − слияние (П2) (w = 0,75)",
+            "3а) (31): слияние (П2) w = 0,75 − L1-tt-xs-F (П2) отдельно", "3б) (31): слияние (П2) w = 0,5 − w = 0,75 (пачка 1)",
+            "3в) слияние (П2) + MS-LBP w = 0,5 − w = 0,75 (pool-feat2b)", "4а) (30): L1-tt-xs-F β = 1 − β = 0", "4б) (30): L1-xs-F β = 1 − β = 0",
+            "5) отвергнутый: L1-xs-F (Т+М) − (М)"};
+        long seed = u.tpl.seed + NOISE_SEED_OFFSET;
+        int n = u.persons;
+        int[][] w = FeiBootstrap.weights(n, NOISE_B, seed);
+        int[] unit = FeiBootstrap.unit(n);
+        double[][] pt = new double[rows.length][sets.size()];
+        double[][][] rep = new double[rows.length][sets.size()][NOISE_B];
+        java.util.concurrent.ForkJoinPool pool = new java.util.concurrent.ForkJoinPool(u.tpl.threads);
+        try {
+            for (int r = 0; r < rows.length; r++) {
+                for (int s = 0; s < sets.size(); s++) {
+                    FeiDecompose.Cfg c = cfg[r][s];
+                    pt[r][s] = critW(c, unit);
+                    double[] out1 = rep[r][s];
+                    pool.submit(() -> java.util.stream.IntStream.range(0, NOISE_B).parallel().forEach(q -> out1[q] = critW(c, w[q]))).get();
+                }
+                System.out.printf(Locale.ROOT, "pool-noise: строка %d из %d (%.0f с)%n", r + 1, rows.length, (System.nanoTime() - t0) / 1e9);
+            }
+        } catch (InterruptedException | java.util.concurrent.ExecutionException e) {
+            throw new IllegalStateException("pool-noise: " + e, e);
+        } finally {
+            pool.shutdown();
+        }
+        StringBuilder t = new StringBuilder("Шум правила выбора по пулу – pool (XBaseEval pool-noise; рецензия Зануды 02.11, п. 2.2; Жорик №3 от 02.11)\nКод: коммит "
+                + FarMethods.commit() + "\n");
+        t.append(String.format(Locale.ROOT, "Бутстреп по людям пула: B = %d, seed = faces.seed + %d = %d, людей %d (человек вытягивается целиком, одни веса на все строки "
+                + "и наборы).%nКритерий – среднее ошибок своих при фактическом FAR контроля 1, 2, 5 %%; интервалы – процентили 2,5–97,5 %%; «значимо» – интервал "
+                + "разности не содержит 0.%nИсточники: векторы pool-feat2 (v0 – (П2), v8 – (П2) + MS-LBP) – %s; pool-p4b (вариант 5) – %s; файл оценок pool-abl2 – %s "
+                + "(β и (Т+М), как pool-comb).%n", NOISE_B, NOISE_SEED_OFFSET, seed, n, vf, vb, abl2.getFileName()));
+        t.append("\n=== Строки: критерий, точка [95 %] по наборам ===\nстрока");
+        for (String s : sets) t.append(" | ").append(s);
+        t.append('\n');
+        for (int r = 0; r < rows.length; r++) {
+            t.append(rows[r]);
+            for (int s = 0; s < sets.size(); s++) {
+                double[] a = FeiBootstrap.sorted(rep[r][s].clone());
+                t.append(String.format(Locale.ROOT, " | %.2f %% [%.2f; %.2f]", pt[r][s], FeiBootstrap.quantile(a, 0.025), FeiBootstrap.quantile(a, 0.975)));
+            }
+            t.append('\n');
+        }
+        t.append("\n=== Пары «вариант − база»: разность критерия, п. п., точка [95 %]; * – значимо ===\nпара");
+        for (String s : sets) t.append(" | ").append(s);
+        t.append('\n');
+        for (int p = 0; p < pairs.length; p++) {
+            t.append(pn[p]);
+            for (int s = 0; s < sets.size(); s++) {
+                double[] d = new double[NOISE_B];
+                for (int q = 0; q < NOISE_B; q++) d[q] = rep[pairs[p][0]][s][q] - rep[pairs[p][1]][s][q];
+                double[] ds = FeiBootstrap.sorted(d);
+                double lo = FeiBootstrap.quantile(ds, 0.025);
+                double hi = FeiBootstrap.quantile(ds, 0.975);
+                t.append(String.format(Locale.ROOT, " | %+.2f [%+.2f; %+.2f]%s", pt[pairs[p][0]][s] - pt[pairs[p][1]][s], lo, hi, lo > 0 || hi < 0 ? " *" : ""));
+            }
+            t.append('\n');
+        }
+        t.append("\n=== Шум критерия: полуширина 95 % интервала базы (32), п. п. ===\n");
+        for (int s = 0; s < sets.size(); s++) {
+            double[] a = FeiBootstrap.sorted(rep[0][s].clone());
+            t.append(String.format(Locale.ROOT, "%s: %.2f%n", sets.get(s), (FeiBootstrap.quantile(a, 0.975) - FeiBootstrap.quantile(a, 0.025)) / 2));
+        }
+        t.append(String.format(Locale.ROOT, "%nВремя: %.0f с (потоков %d).%n", (System.nanoTime() - t0) / 1e9, u.tpl.threads));
+        FarMethods.write(u.out.resolve("xbase_pool_noise.txt"), t);
+        Files.createDirectories(out);
+        FarMethods.write(out.resolve("xbase_pool_noise_gt.txt"), t);
+        System.out.print(t);
+        System.out.println("DONE");
+    }
 }
