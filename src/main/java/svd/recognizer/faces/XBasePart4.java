@@ -1188,6 +1188,12 @@ final class XBasePart4 {
         }
         List<BV> vs = new ArrayList<>(chosen);
         if (chosen.size() >= 2) vs.add(joint(chosen, u.tpl.params));
+        ownEval(u, base, vs, sm, t, t0, export, dir, settings, "p4b");
+    }
+
+    /** Свои: векторы вариантов vs, слияние «база − вариант» по группам, П3, условие Δ; отчёт xbase_&lt;база&gt;_&lt;tag&gt;.txt. */
+    static void ownEval(XBaseVec.Setup u, String base, List<BV> vs, int sm, StringBuilder t, long t0, FarExport.Loaded export, Path dir, SettingsStore settings,
+                        String tag) throws IOException {
         XBaseFeat2.Feats fs = XBaseFeat2.feats(u, export, dir, settings, true);
         Map<Integer, Double> sec = computeB(u, fs, vs, sm);
         for (Mat m : u.fr.values()) m.release();
@@ -1233,9 +1239,133 @@ final class XBasePart4 {
         for (Map.Entry<Integer, Double> e : sec.entrySet()) t.append(String.format(Locale.ROOT, "вариант %d: %.0f с%n", e.getKey(), e.getValue()));
         t.append(String.format(Locale.ROOT, "Всего: %.0f с (потоков %d)%n", (System.nanoTime() - t0) / 1e9, u.tpl.threads));
         t.append(hold).append(base.equals("gt") ? dl : "").append(body);
-        FarMethods.write(u.out.resolve("xbase_" + base + "_p4b" + (sm == 0 ? "" : "_smoke" + sm) + ".txt"), t);
+        FarMethods.write(u.out.resolve("xbase_" + base + "_" + tag + (sm == 0 ? "" : "_smoke" + sm) + ".txt"), t);
         System.out.print(t);
         System.out.println("DONE");
+    }
+
+    // ---------------------------------------------------------------- Тан – Триггс у L1-xs-F (решение (36), Жорик №4 от 02.11)
+
+    /** Вариант 19: L1-xs-F – Тан – Триггс с параметрами L1-tt-xs-F (у MS-LBP – σ × 2); L1-tt-xs-F не меняется. */
+    static BV variantE(IlluminationNorm.NormParams tt) {
+        FeatP4.P b = FeatP4.base(tt);
+        return new BV(19, "Т-xs", "L1-xs-F: Тан – Триггс (как у L1-tt-xs-F)", "решение Хозяина (36), постановка Жорика №4 от 02.11; параметры – (32): γ = 0,2, "
+                + "σ₀ = 1, σ₁ = 2, α = 0,1, τ = 10", new FeatP4.P(b.inTt(), FeatP4.In.TT, tt, b.orient(), b.cell(), b.radius(), b.scales(), b.patch(), b.msWeight()),
+                new int[] {0});
+    }
+
+    /** pool-p4e: векторы варианта 19, критерий и парная разность с бутстрепом по людям пула (как pool-noise); слияние решает, L1-xs-F отдельно – справочно. */
+    static void poolE(FarExport.Loaded export, Path dir, Map<String, Map<Integer, String>> feiKeys, List<String> selLines, SettingsStore settings, Path out)
+            throws IOException {
+        long t0 = System.nanoTime();
+        int sm = smoke();
+        XBaseVec.Setup u = XBaseVec.setup("pool", export, dir, feiKeys, selLines, settings, out, sm);
+        BV v = variantE(u.tpl.params);
+        XBaseFeat2.Feats fs = XBaseFeat2.feats(u, export, dir, settings, true);
+        Map<Integer, Double> sec = computeB(u, fs, List.of(v), sm);
+        for (Mat m : u.fr.values()) m.release();
+        for (FrameK2.F k : fs.k2.values()) k.frame().release();
+        int[] clamped = new int[2];
+        List<String> sets = u.groups;
+        String[] rows = {"база (32): слияние w = 0,75", "вариант: слияние w = 0,75, L1-xs-F с Тан – Триггсом", "L1-xs-F отдельно, база (справочно)",
+            "L1-xs-F отдельно, Тан – Триггс (справочно)"};
+        FeiDecompose.Cfg[][] cfg = new FeiDecompose.Cfg[rows.length][sets.size()];
+        for (int s = 0; s < sets.size(); s++) {
+            List<List<FeiDecompose.Cfg>> acc = new ArrayList<>();
+            for (int r = 0; r < rows.length; r++) acc.add(new ArrayList<>());
+            for (XBaseVec.Blk b : u.blocks) {
+                if (!b.group().equals(sets.get(s))) continue;
+                List<XBaseVec.Model> tt = modelsB(u, sm, b, 1, null);
+                List<XBaseVec.Model> x8 = modelsB(u, sm, b, 0, null);
+                List<XBaseVec.Model> xv = modelsB(u, sm, b, 0, v);
+                String[] l = {XBaseVec.fuseLines(tt, x8, XBaseFeat2.W_FUSE, XBaseVec.fuseStats(tt, true), XBaseVec.fuseStats(x8, true), b.g().rOf, b.g().r0, clamped),
+                    XBaseVec.fuseLines(tt, xv, XBaseFeat2.W_FUSE, XBaseVec.fuseStats(tt, true), XBaseVec.fuseStats(xv, true), b.g().rOf, b.g().r0, clamped),
+                    XBaseVec.normLines(x8, null, clamped), XBaseVec.normLines(xv, null, clamped)};
+                for (int r = 0; r < rows.length; r++) {
+                    XBaseEval.Gt g = r >= 2 ? XBaseAbl3.mirrorGt(b.g(), true) : b.g();
+                    acc.get(r).add(XBaseEval.parse(g, java.util.EnumSet.of(XBaseEval.V.L1), b.gal(), b.probes(), XBaseFeat2.noParts(), l[r]).cfg.get(XBaseEval.V.L1));
+                }
+            }
+            for (int r = 0; r < rows.length; r++) cfg[r][s] = XBaseRule.merge(acc.get(r));
+        }
+        long seed = u.tpl.seed + NOISE_SEED_OFFSET;
+        int n = u.persons;
+        int[][] w = FeiBootstrap.weights(n, NOISE_B, seed);
+        int[] unit = FeiBootstrap.unit(n);
+        double[][] pt = new double[rows.length][sets.size()];
+        double[][][] rep = new double[rows.length][sets.size()][NOISE_B];
+        java.util.concurrent.ForkJoinPool pool = new java.util.concurrent.ForkJoinPool(u.tpl.threads);
+        try {
+            for (int r = 0; r < rows.length; r++) for (int s = 0; s < sets.size(); s++) {
+                FeiDecompose.Cfg c = cfg[r][s];
+                pt[r][s] = critW(c, unit);
+                double[] o1 = rep[r][s];
+                pool.submit(() -> java.util.stream.IntStream.range(0, NOISE_B).parallel().forEach(q -> o1[q] = critW(c, w[q]))).get();
+            }
+        } catch (InterruptedException | java.util.concurrent.ExecutionException e) {
+            throw new IllegalStateException("pool-p4e: " + e, e);
+        } finally {
+            pool.shutdown();
+        }
+        StringBuilder t = new StringBuilder("Тан – Триггс у L1-xs-F (решение (36), Жорик №4 от 02.11) – pool (XBaseEval pool-p4e)" + (sm == 0 ? "" : " – ПРОБНЫЙ РЕЖИМ "
+                + sm) + "\nКод: коммит " + FarMethods.commit() + "; векторы варианта – " + dirB(u, sm) + "; база – векторы v8 pool-feat2 (" + XBaseFeat2.dir(u, 0) + ")\n");
+        t.append("База (32): (П2) + MS-LBP, σ₀ = 1, слияние w = 0,75, β = 1, L1-xs-F всегда X+mirror; вариант – ").append(v.name()).append(" (").append(v.src())
+                .append(");\nL1-tt-xs-F не меняется. Строки базы – из векторов v8 pool-feat2 (те же файлы, что pool-feat2b, pool-p4a, pool-noise). Критерий – среднее "
+                        + "ошибок своих при FAR 1, 2, 5 %.\n");
+        t.append(String.format(Locale.ROOT, "Бутстреп по людям пула: B = %d, seed = faces.seed + %d = %d, людей %d (как pool-noise).%n", NOISE_B, NOISE_SEED_OFFSET, seed, n));
+        t.append("\n=== Строки: критерий, точка [95 %] ===\nстрока");
+        for (String s : sets) t.append(" | ").append(s);
+        t.append('\n');
+        for (int r = 0; r < rows.length; r++) {
+            t.append(rows[r]);
+            for (int s = 0; s < sets.size(); s++) {
+                double[] a = FeiBootstrap.sorted(rep[r][s].clone());
+                t.append(String.format(Locale.ROOT, " | %.2f %% [%.2f; %.2f]", pt[r][s], FeiBootstrap.quantile(a, 0.025), FeiBootstrap.quantile(a, 0.975)));
+            }
+            t.append('\n');
+        }
+        t.append("\n=== Парная разность «вариант − база», п. п., точка [95 %]; * – значимо ===\nпара");
+        for (String s : sets) t.append(" | ").append(s);
+        t.append('\n');
+        boolean better = false;
+        for (int[] p : new int[][] {{1, 0}, {3, 2}}) {
+            t.append(p[0] == 1 ? "слияние (решающее)" : "L1-xs-F отдельно (справочно)");
+            for (int s = 0; s < sets.size(); s++) {
+                double[] d = new double[NOISE_B];
+                for (int q = 0; q < NOISE_B; q++) d[q] = rep[p[0]][s][q] - rep[p[1]][s][q];
+                double[] ds = FeiBootstrap.sorted(d);
+                double lo = FeiBootstrap.quantile(ds, 0.025);
+                double hi = FeiBootstrap.quantile(ds, 0.975);
+                if (p[0] == 1 && hi < 0) better = true;
+                t.append(String.format(Locale.ROOT, " | %+.2f [%+.2f; %+.2f]%s", pt[p[0]][s] - pt[p[1]][s], lo, hi, lo > 0 || hi < 0 ? " *" : ""));
+            }
+            t.append('\n');
+        }
+        t.append("По пулу (правило (36)): ").append(better ? "слияние с вариантом значимо лучше базы хотя бы на одном наборе" : "значимо лучше ни на одном наборе – "
+                + "решение по своим").append('\n');
+        t.append("\n=== Время ===\n");
+        for (Map.Entry<Integer, Double> e : sec.entrySet()) t.append(String.format(Locale.ROOT, "вариант %d: %.0f с%n", e.getKey(), e.getValue()));
+        t.append(String.format(Locale.ROOT, "Всего: %.0f с (потоков %d)%n", (System.nanoTime() - t0) / 1e9, u.tpl.threads));
+        String sfx = sm == 0 ? "" : "_smoke" + sm;
+        FarMethods.write(u.out.resolve("xbase_pool_p4e" + sfx + ".txt"), t);
+        Files.createDirectories(out);
+        FarMethods.write(out.resolve("xbase_pool_p4e" + sfx + "_gt.txt"), t);
+        System.out.print(t);
+        System.out.println("DONE");
+    }
+
+    /** feret-p4e, gt-p4e: база (32) и вариант 19 на своих (как feret-p4b, gt-p4b). */
+    static void ownE(String base, FarExport.Loaded export, Path dir, Map<String, Map<Integer, String>> feiKeys, List<String> selLines, SettingsStore settings,
+                     Path out) throws IOException {
+        long t0 = System.nanoTime();
+        int sm = smoke();
+        XBaseVec.Setup u = XBaseVec.setup(base, export, dir, feiKeys, selLines, settings, out, 0);
+        BV v = variantE(u.tpl.params);
+        StringBuilder t = new StringBuilder("Тан – Триггс у L1-xs-F (решение (36), Жорик №4 от 02.11) – " + base + " (XBaseEval " + base + "-p4e)" + (sm == 0 ? ""
+                : " – ПРОБНЫЙ РЕЖИМ " + sm) + "\nКод: коммит " + FarMethods.commit() + "\n").append(NOTE_B);
+        t.append("Вариант: ").append(v.name()).append(" (").append(v.src()).append("); правило (36) на своих: значимо лучше межсессионно при FAR 1 % либо EER "
+                + "при выполненном Δ.\n");
+        ownEval(u, base, List.of(v), sm, t, t0, export, dir, settings, "p4e");
     }
 
     // ---------------------------------------------------------------- шум правила выбора (Зануда 02.11, п. 2.2; Жорик №3 от 02.11)
