@@ -959,4 +959,42 @@ final class XBaseFinal {
         System.out.print(rep);
         System.out.println("DONE");
     }
+
+    // ---------------------------------------------------------------- разд. 7: описи пула и когорты
+
+    /**
+     * final-lists: опись пула FERET (человек, номер даты, снимок; правило eq) – D:\data\Feret\derived\final_pool.tsv (имена снимков FERET
+     * – только локально) и когорты FEI в W (человек, номер, снимок) – reports/faces/xbase/final/final_cohort.tsv; SHA-256 – отчёт
+     * final_lists.txt (для разд. 7 постановки).
+     */
+    static void lists(FarExport.Loaded export, Path dir, Map<String, Map<Integer, String>> feiKeys, List<String> selLines, SettingsStore settings, Path out)
+            throws IOException {
+        XBaseA0.FeretSetup su = XBaseA0.feretSetup(dir, selLines, settings);
+        Map<String, List<List<String>>> pool = XBaseXsF.pool(su.ro, su.byKey);
+        StringBuilder p = new StringBuilder("# Пул FERET итогового прогона (XBaseXsF.pool, правило eq): человек, дата по порядку (с 1), снимок\n");
+        for (Map.Entry<String, List<List<String>>> e : new TreeMap<>(pool).entrySet()) {
+            for (int d = 0; d < e.getValue().size(); d++) for (String k : e.getValue().get(d)) p.append(e.getKey()).append('\t').append(d + 1).append('\t').append(k)
+                    .append('\n');
+        }
+        long seed = settings.loadFacesSeed();
+        StringBuilder c = new StringBuilder("# Когорта FEI в W (XBaseEval.cohortPersons, seed faces.seed): человек, номер снимка, ключ\n");
+        for (String q : XBaseEval.cohortPersons(feiKeys, seed)) {
+            for (Map.Entry<Integer, String> e : new TreeMap<>(feiKeys.get(q)).entrySet()) c.append(q).append('\t').append(e.getKey()).append('\t').append(e.getValue())
+                    .append('\n');
+        }
+        Path pf = su.dir.resolve(FeretData.DERIVED).resolve("final_pool.tsv");
+        Files.createDirectories(out);
+        Path cf = out.resolve("final_cohort.tsv");
+        Files.writeString(pf, p.toString(), StandardCharsets.UTF_8);
+        Files.writeString(cf, c.toString(), StandardCharsets.UTF_8);
+        StringBuilder t = new StringBuilder("Итоговый прогон: описи пула и когорты (XBaseEval final-lists)\nКод: коммит " + FarMethods.commit() + "\n");
+        t.append(String.format(Locale.ROOT, "Пул FERET: %d человек, %s%n", pool.size(), FrameB.fmt(pf.toString(), (int) p.chars().filter(ch -> ch == '\n').count() - 1,
+                FrameB.sha256(pf)).trim()));
+        t.append(String.format(Locale.ROOT, "Когорта FEI: %d человек, %s%n", XBaseEval.cohortPersons(feiKeys, seed).size(), FrameB.fmt(cf.toString(), (int) c.chars()
+                .filter(ch -> ch == '\n').count() - 1, FrameB.sha256(cf)).trim()));
+        t.append(FrameB.fmt("fei_selection.tsv экспорта", 1, FrameB.sha256(dir.resolve(FarExport.FEI_SELECTION))));
+        FarMethods.write(out.resolve("final_lists.txt"), t);
+        System.out.print(t);
+        System.out.println("DONE");
+    }
 }

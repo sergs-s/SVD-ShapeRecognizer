@@ -581,6 +581,8 @@ public final class XBaseEval {
             XBaseFinal.phase1(a[0].substring(a[0].lastIndexOf('-') + 1), a[0].contains("freeze"), export, dir, feiKeys, selLines, settings, out);
         } else if (a[0].equals("frames-b-vt")) {
             XBaseFinal.vtFrames(selLines, settings, out.resolve("final"));
+        } else if (a[0].equals("final-lists")) {
+            XBaseFinal.lists(export, dir, feiKeys, selLines, settings, out.resolve("final"));
         } else if (a[0].equals("final-select")) {
             XBaseFinal.select(Paths.get(System.getenv("FACES_FERET_DIR")), out);
         } else if (a[0].equals("p4-retina-sheet")) {
