@@ -183,7 +183,7 @@ public final class FarExport {
         /** Кадр снимка варианта v из PNG без векторизации (FarMethods); отказ детектора — null. */
         Mat frame(Sample s, Variant v) throws IOException {
             String key = s.file().toString();
-            return found.get(key) ? readPng(dir.resolve(dirName(v)).resolve(key + ".png"), v == Variant.SFACE) : null;
+            return found.get(key) ? readPng(dir.resolve(FrameB.dir(dirName(v))).resolve(key + ".png"), v == Variant.SFACE) : null;
         }
 
         /** Векторы одного варианта из PNG (отказ детектора — Feat.NONE). */
@@ -195,7 +195,7 @@ public final class FarExport {
                 if (!found.get(key)) {
                     feats.put(key, Feat.NONE);
                 } else {
-                    Mat frame = readPng(dir.resolve(dirName(v)).resolve(key + ".png"), v == Variant.SFACE);
+                    Mat frame = readPng(dir.resolve(FrameB.dir(dirName(v))).resolve(key + ".png"), v == Variant.SFACE);
                     double[] x = GalleryEvaluation.vector(frame, v, sface);
                     frame.release();
                     feats.put(key, new Feat(true, v == Variant.A ? x : null, v == Variant.B ? x : null, v == Variant.C ? x : null,

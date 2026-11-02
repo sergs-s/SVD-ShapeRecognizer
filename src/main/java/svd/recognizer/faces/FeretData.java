@@ -322,7 +322,7 @@ final class FeretData {
 
     /** Кадр из derived (вариант "sface" — BGR, прочие — серые: a, a_manual, a_y4). */
     static Mat frame(Path dir, String variant, String key) throws IOException {
-        Path f = dir.resolve(DERIVED).resolve(variant).resolve(key + ".png");
+        Path f = dir.resolve(DERIVED).resolve(FrameB.dir(variant)).resolve(key + ".png");
         Mat m = Imgcodecs.imread(f.toString(), variant.equals("sface") ? Imgcodecs.IMREAD_COLOR : Imgcodecs.IMREAD_GRAYSCALE);
         if (m.empty()) throw new IOException("Нет кадра " + f);
         return m;

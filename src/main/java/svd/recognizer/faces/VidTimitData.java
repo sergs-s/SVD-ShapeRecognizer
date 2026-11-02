@@ -163,7 +163,7 @@ final class VidTimitData {
     }
 
     static Path png(Path dir, String key) {
-        return dir.resolve(DERIVED).resolve("a").resolve(key.substring(KEY_PREFIX.length()).replace('/', '_') + ".png");
+        return dir.resolve(DERIVED).resolve(FrameB.dir("a")).resolve(key.substring(KEY_PREFIX.length()).replace('/', '_') + ".png");
     }
 
     /** Кэш детекций: ключ → строка YuNet (null – лица нет); оборванная последняя строка пропускается. */

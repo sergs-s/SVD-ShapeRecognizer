@@ -313,7 +313,7 @@ final class DuelThr {
     }
 
     static Path outDir(String base, Path out) {
-        return base.equals("feret") ? Paths.get(System.getenv("FACES_FERET_DIR"), "reports", "eq", "duel_thr") : out.getParent().resolve("duel").resolve("thr");
+        return base.equals("feret") ? Paths.get(System.getenv("FACES_FERET_DIR"), "reports", XBaseEval.eqDir(0, true), "duel_thr") : out.getParent().resolve("duel").resolve("thr");
     }
 
     static Setup setup(String base, FarExport.Loaded export, Path dir, Map<String, Map<Integer, String>> feiKeys, List<String> selLines, SettingsStore settings,
@@ -695,7 +695,7 @@ final class DuelThr {
 
     static Path nDir(String base, Path out) {
         String sfx = FAST && SUBS == null ? "_fast" : "";
-        return base.equals("feret") ? Paths.get(System.getenv("FACES_FERET_DIR"), "reports", "eq", "duel_thr_n" + sfx)
+        return base.equals("feret") ? Paths.get(System.getenv("FACES_FERET_DIR"), "reports", XBaseEval.eqDir(0, true), "duel_thr_n" + sfx)
                 : out.getParent().resolve("duel").resolve("thr_n" + sfx);
     }
 

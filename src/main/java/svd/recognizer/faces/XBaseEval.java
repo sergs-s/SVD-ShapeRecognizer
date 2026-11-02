@@ -575,6 +575,14 @@ public final class XBaseEval {
             XBaseFeat2.pool2(export, dir, feiKeys, selLines, settings, out);
         } else if (a[0].equals("feret-feat2b") || a[0].equals("gt-feat2b")) {
             XBaseFeat2.own2(a[0].substring(0, a[0].indexOf('-')), export, dir, feiKeys, selLines, settings, out);
+        } else if (a[0].equals("frames-b")) {
+            XBaseFinal.framesB(export, dir, selLines, settings, out.resolve("final"));
+        } else if (a[0].equals("final-feret") || a[0].equals("final-gt") || a[0].equals("final-freeze-feret") || a[0].equals("final-freeze-gt") || a[0].equals("final-fei") || a[0].equals("final-freeze-fei") || a[0].equals("final-own") || a[0].equals("final-freeze-own")) {
+            XBaseFinal.phase1(a[0].substring(a[0].lastIndexOf('-') + 1), a[0].contains("freeze"), export, dir, feiKeys, selLines, settings, out);
+        } else if (a[0].equals("frames-b-vt")) {
+            XBaseFinal.vtFrames(selLines, settings, out.resolve("final"));
+        } else if (a[0].equals("final-select")) {
+            XBaseFinal.select(Paths.get(System.getenv("FACES_FERET_DIR")), out);
         } else if (a[0].equals("p4-retina-sheet")) {
             XBasePart4.retinaSheet(settings, out);
         } else if (a[0].equals("pool-p4a")) {
@@ -1159,7 +1167,7 @@ public final class XBaseEval {
 
     /** Каталог отчётов №8 внутри каталога режима: eq&lt;seed offset + k&gt; (GT) или eq (FERET); null — прежний каталог. */
     static String eqDir(Integer eq, boolean feret) {
-        return eq == null ? null : feret ? "eq" : "eq" + (EQ_SEED_OFFSET + eq);
+        return eq == null ? null : feret ? (FrameB.on() ? "eq_b" : "eq") : "eq" + (EQ_SEED_OFFSET + eq);
     }
 
     static List<Map<String, List<String>>> withinSplit(List<String> own, Map<String, List<String>> dateKeys, long seed) {
