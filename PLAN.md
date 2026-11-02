@@ -4718,10 +4718,47 @@ NetBeans – Вася на локальной машине.
               запуска; (36) – σ₀ = 1, единое правило выбора, σ₀ = 0,5 –
               выбор в Ф1б, VidTIMIT – после выбора.
             7. Заморозка (заполняет Вася до запуска)
-            Коммит кода: …; SHA-256 экспортов кадров Б: …; SHA-256
-            описей пула, когорты, vt_selection: …; seed: faces.seed +
-            7000 (бутстреп), + 11100, + 11110, + 11200, + 11300 (новые
-            протоколы).
+            Коммит кода: 4d50929 (кадры Б, Ф1, Ф1б, контроль
+            замораживания, описи; код Ф2–Ф5, Ф3, Ф4 и итогового отчёта –
+            отдельными коммитами до запуска этих частей, код Ф1 и
+            конфигурация не меняются); данные SVD-faces-data – 15d5766e.
+            Кадры Б: 92×112 – способ Б ревизии 1.12 (warpAffine в кадр
+            k·(92×112), k = ⌈1 / масштаб подобия⌉, затем INTER_AREA;
+            без сглаживания код повторяет кадр «а» побайтно – проверено
+            на всех снимках, кроме своей базы); k = 2 – прежний кадр «в».
+            SHA-256 экспортов кадров Б (SHA-256 текста описи «путь, TAB,
+            SHA-256 файла», LF, по порядку путей; описи –
+            frames_b_manifest.tsv в каталогах баз): FERET derived\a_b
+            (2722) b89ee3ed88c64f80b366bc4ac06e721015383291fa4c768cdf09dd2495feb745,
+            derived\c (1346) d7a9c4cf307d488c764a69c376fa4daf1b2e8915448e292a3c0429b767c65575,
+            derived\c_points.tsv eefcfe620e147445f63ac5e92ef093976cabfe8e5c03d91bdda2f6ec5b24b3ad;
+            GT a_b (750) 0fed86d79c3db76f7f0312eba5096f56866c0694857d93c1f2ef383125275229,
+            c e220846a5b8e3a40244f21848f60b0ed3a5daf7c80d4171de123b689b8e4a3f4;
+            FEI a_b (1859) 2d7affc1d37661ac0cb6a9da49d9053929611842c2a4f4a429c5aa5d65d9bac2,
+            c f06cc2d18972fcd75a489f302be62fa6604976546cf416aa3718b648559e3cc2;
+            MUCT a_b (3755) 7962c6ac0cbf56ead6b6f8bb7a329fda641f4155661a5185d44f9eb6a2eb618c,
+            c eb613c68096eafc82c14b33ec66a622f6e6aefdd77219cbda73f3a5990bfa3df;
+            своя база a_b (113) df49b02cdc5a1bd47fd99c175dd01900b6855530b8d2385d8b741821e21029ab,
+            c 6217210dfe491e6703a4e3452f9bdb83034d5d33f6cf58fb9f303f3998a0761b;
+            ORL a_b (400) 8f40c0fd9f42cf5e9597cc4e278cb58590b11a8df1351c01c4c8de3cd2f89ea9,
+            c c5dc880da87749a8fb28a1a3ea2f99c536a608c1d9d43399656ff822d2f4eea4;
+            VidTIMIT (ключи Ф3: 258 кадров фраз (В2), 43 кадра head3)
+            a_b (301) 258776ae42d8fbeba153345d18404e7d60697dda6a405c5534225a6ff4a500ae,
+            c (301) cdf705007f6d0d08dca4ea7fbd9ea3f0998d43d0a3b75958111a7b9694f04eed,
+            final_vt_c_points.tsv 8b6e1f64090530ee4463d009608a0cdd9142cd153851d86f67831f475a2d75c1,
+            final_vt.tsv 0ed5ba9ccb1205606a1ef096a6fd460aeefc06bab02a5a5791bf415a655c687b;
+            файлы описей: FERET 27b0d6bb1ba51e64801d9100e8a472f4ca6c73a0deec68f6677be70260670cf2,
+            экспорт b46d12da28a8159e7caa38c2b7aa62bd9cfa1ca6047e139aa9c6d6fdc7111f48,
+            VidTIMIT fd3ba44e476851e3fde5b688e171e8e3a695c3504535b06ce75cf00391a25461.
+            SHA-256 описей пула, когорты, vt_selection: пул FERET
+            (173 человека, 890 снимков, D:\data\Feret\derived\final_pool.tsv)
+            76e697e01c9bd1131d7174cad91308c469ca25bfcdeff1cf070df0a1066c406f;
+            когорта FEI в W (20 человек, 190 снимков, final_cohort.tsv)
+            434c04a21533c49ef5b7e629d4432d22788217eb11ecfb4c83d2caf5627aa8c5;
+            vt_selection.tsv e903453e7fe3782ed872c46d1f8ab8e6223aae44db633eccb6a9d78e2a3f799f;
+            fei_selection.tsv ba4e796c2631ab0f86fde716ef39938ab81fa820dcbebb81fa43074d8e1cf8cb.
+            Seed: faces.seed + 7000 (бутстреп), + 11100, + 11110, + 11200,
+            + 11300 (новые протоколы).
             Слияние в master (решение Хозяина 27.10.2026; прежнее
             условие «после этапа своей базы» снято – своя база больше не
             главная мерка): после итогового прогона (до или после
