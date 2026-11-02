@@ -331,6 +331,9 @@ final class XBaseFinal {
         Map<String, String> extra = new LinkedHashMap<>();
         if (base.equals("fei")) {
             u = feiSetup(export, dir, feiKeys, selLines, settings, sm);
+        } else if (base.equals("vt")) {
+            vtSigma = chosenSigma(out);
+            u = vtSetup(export, dir, feiKeys, selLines, settings, sm);
         } else if (base.equals("own")) {
             u = ownSetup(export, dir, feiKeys, selLines, settings, sm);
         } else if (base.equals("feret")) {
@@ -351,10 +354,12 @@ final class XBaseFinal {
                 for (Map.Entry<String, String> e : extra.entrySet()) x.probes().add(new Probe(CTRL_X, e.getValue(), i++, e.getKey(), -1));
             }
         }
-        List<String> std = u.fr.keySet().stream().filter(k -> !k.startsWith("muct") && !k.startsWith("own")).toList();
+        List<String> std = u.fr.keySet().stream().filter(k -> !k.startsWith("muct") && !k.startsWith("own") && !k.startsWith(VidTimitData.KEY_PREFIX)).toList();
         List<String> muct = u.fr.keySet().stream().filter(k -> k.startsWith("muct") || k.startsWith("own")).toList();
         Map<String, FrameK2.F> k2 = FrameK2.load(std, u.su, u.su.dir, export, dir, Paths.get(settings.loadFacesGtDir()), Paths.get(settings.loadFacesFeiDir()));
         if (!muct.isEmpty()) k2.putAll(k2Muct(muct, export, dir, settings));
+        List<String> vtk = u.fr.keySet().stream().filter(k -> k.startsWith(VidTimitData.KEY_PREFIX)).toList();
+        if (!vtk.isEmpty()) k2.putAll(k2Vt(vtk, settings));
         Path fd = base.equals("feret") ? u.su.dir.resolve("reports").resolve(XBaseEval.eqDir(0, true)).resolve(freeze ? "final_a" : "final") : out.resolve(freeze
                 ? "final_a" : "final");
         if (sm > 0) fd = fd.resolveSibling(fd.getFileName() + "_smoke" + sm);
@@ -364,6 +369,7 @@ final class XBaseFinal {
     /** FERET и GT (Ф1) – σ₀ = 1 и 0,5; кадры «а», FEI и своя база – σ₀ = 1 (σ₀ = 0,5 – при FACES_FINAL_TT05=1, досчёт после Ф1б). */
     static List<Cfg> cfgs(boolean freeze, String base) {
         if (freeze) return List.of(TT1, XS);
+        if (base.equals("vt")) return List.of(vtSigma == 1 ? TT1 : TT05, XS);
         if (base.equals("feret") || base.equals("gt")) return List.of(TT1, TT05, XS);
         return "1".equals(System.getenv("FACES_FINAL_TT05")) ? List.of(TT1, TT05, XS) : List.of(TT1, XS);
     }
@@ -466,7 +472,7 @@ final class XBaseFinal {
         if (u.base.equals("feret")) {
             for (String k : keys) sf.put(k, FeretData.frame(u.su.dir, "sface", k));
         } else {
-            for (Sample s : u.tpl.samples.values()) {
+            for (Sample s : export.data().samples()) {
                 String k = s.file().toString();
                 if (!keys.contains(k)) continue;
                 Mat c = export.frame(s, GalleryEvaluation.Variant.SFACE);
@@ -489,7 +495,7 @@ final class XBaseFinal {
         Run r = setup(base, freeze, export, dir, feiKeys, selLines, settings, out);
         XBaseVec.Setup u = r.u();
         Map<String, Double> sec = compute(r);
-        XBaseEval xsf = freeze ? null : sfaceVectors(r, export, settings);
+        XBaseEval xsf = freeze || base.equals("vt") ? null : sfaceVectors(r, export, settings);
         for (Mat m : u.fr.values()) m.release();
         for (FrameK2.F k : r.k2().values()) k.frame().release();
         int[] clamped = new int[2];
@@ -631,6 +637,7 @@ final class XBaseFinal {
         tpl.persons = persons;
         tpl.pIdx = pIdx;
         tpl.imageNo = numOf;
+        feiKeys.forEach((p, m) -> tpl.byPerson.put(p, new TreeMap<>(Map.of(0, new ArrayList<>(new TreeMap<>(m).values())))));
         tpl.rOf = rOf;
         u.tpl = tpl;
         u.groups.add("внутри");
@@ -996,5 +1003,344 @@ final class XBaseFinal {
         FarMethods.write(out.resolve("final_lists.txt"), t);
         System.out.print(t);
         System.out.println("DONE");
+    }
+
+    // ---------------------------------------------------------------- Ф4: вход таблицы (Н)
+
+    /** Выбранная σ₀ (final_sigma.tsv Ф1б). */
+    static double chosenSigma(Path out) throws IOException {
+        Path f = out.resolve("final").resolve("final_sigma.tsv");
+        if (!Files.exists(f)) throw new IllegalStateException("final: нет " + f + " (сначала final-select)");
+        for (String l : Files.readAllLines(f, StandardCharsets.UTF_8)) if (l.startsWith("sigma0\t")) return Double.parseDouble(l.substring(7).trim());
+        throw new IllegalStateException("final: в " + f + " нет строки sigma0");
+    }
+
+    /**
+     * final-v8 &lt;feret | gt&gt;: модели Ф1 выбранной σ₀ (L1-tt-xs-F) и L1-xs-F в формате векторов v8 для DuelThr duel-thr-n
+     * (FACES_DUELTHR_V8_&lt;БАЗА&gt;): &lt;блок&gt;_f1_v8.tsv.gz, &lt;блок&gt;_f0_v8.tsv.gz в каталоге моделей Ф1 (v8\), пробы Ф2 (ctrlx) убраны.
+     */
+    static void v8(String base, Path feretDir, Path out) throws IOException {
+        double sigma = chosenSigma(out);
+        Path d = base.equals("feret") ? feretDir.resolve("reports").resolve("eq_b").resolve("final") : out.resolve("final");
+        Path vd = d.resolve("vec");
+        Path od = d.resolve("v8");
+        Files.createDirectories(od);
+        String tt = sigma == 1 ? TT1.id() : TT05.id();
+        StringBuilder t = new StringBuilder("Итоговый прогон, Ф4: векторы v8 для (Н) – " + base + " (XBaseEval final-v8)\nКод: коммит " + FarMethods.commit() + "; σ₀ = "
+                + sigma + "\n");
+        List<Path> fs;
+        try (var s = Files.list(vd)) {
+            fs = s.filter(p -> p.getFileName().toString().endsWith("_" + tt + ".tsv.gz") || p.getFileName().toString().endsWith("_" + XS.id() + ".tsv.gz")).sorted()
+                    .toList();
+        }
+        for (Path p : fs) {
+            String n = p.getFileName().toString();
+            boolean isTt = n.endsWith("_" + tt + ".tsv.gz");
+            String blk = n.substring(0, n.length() - (isTt ? tt : XS.id()).length() - ".tsv.gz".length() - 1);
+            Map<String, List<XBaseVec.Model>> bl = XBaseVec.read(p);
+            if (bl.size() != 1) throw new IllegalStateException("final-v8: в " + p + " блоков " + bl.size());
+            Map.Entry<String, List<XBaseVec.Model>> e = bl.entrySet().iterator().next();
+            List<XBaseVec.Model> ms = XBasePart4.filtered(e.getValue(), row -> !row.role().equals(CTRL_X));
+            Path q = od.resolve(blk + "_f" + (isTt ? 1 : 0) + "_v8.tsv.gz");
+            java.io.Writer w = XBaseVec.writer(q, "# Векторы v8 итогового прогона (XBaseFinal final-v8) из " + n + " (SHA-256 " + FrameB.sha256(p) + "), пробы Ф2 убраны\n"
+                    + "# Код: коммит " + FarMethods.commit() + "\n");
+            XBaseVec.write(w, e.getKey(), ms);
+            XBaseVec.finish(w, q);
+            t.append(q.getFileName()).append(" ← ").append(n).append('\n');
+        }
+        FarMethods.write(od.resolve("final_v8.txt"), t);
+        System.out.print(t);
+        System.out.println("DONE");
+    }
+
+    // ---------------------------------------------------------------- Ф4: проверка (34) при N = 100
+
+    static final long N100_SEED = 11200;
+    static final long N100H_SEED = 11300;
+    static final int N100 = 100;
+
+    /**
+     * final-n100 (Ф4, проверка (34) при N = 100; как часть Г пачки 4, 20 галерей): (о) однородная – 100 человек FERET с ≥ 2 датами из обеих
+     * половин №2 (Random(faces.seed + 11200), одна последовательность на 20 галерей), W – галерея + остальные люди пула (классами) + когорта
+     * FEI 20 (MldaFast), пробы – межсессионные (роль «межс.») и 200 контрольных FERET; (р) разнородная, справочно – все свои GT межс. (N = 6
+     * снимков, правило №8) + FERET до 100 (Random(faces.seed + 11300)), контроль – те же 200 FERET. Порог: (а) П3 по (Т2) галереи, FAR 1 %;
+     * (б) t(100) таблицы (FACES_P4_TABLE) с приведениями таблицы; (в) t(100) с приведениями по (Т2) галереи. Только FACES_FRAMES=b.
+     */
+    static void n100(FarExport.Loaded export, Path dir, Map<String, Map<Integer, String>> feiKeys, List<String> selLines, SettingsStore settings, Path out)
+            throws IOException {
+        if (!FrameB.on()) throw new IllegalStateException("final-n100: только FACES_FRAMES=b");
+        long t0 = System.nanoTime();
+        String tf = System.getenv("FACES_P4_TABLE");
+        if (tf == null) throw new IllegalStateException("final-n100: задайте FACES_P4_TABLE – таблица (Н) итогового прогона");
+        XBasePart4.TRow tr = XBasePart4.readTable(Paths.get(tf)).get(N100);
+        if (tr == null) throw new IllegalStateException("final-n100: в таблице нет N = 100");
+        int nGal = smoke() == 0 ? XBasePart4.GALLERIES : 2;
+        XBaseVec.Setup u = XBaseVec.setup("feret", export, dir, feiKeys, selLines, settings, out, 0);
+        XBaseVec.Setup ug = XBaseVec.setup("gt", export, dir, feiKeys, selLines, settings, out, 0);
+        XBaseVec.Blk gx = ug.blocks.get(0);
+        if (!gx.group().equals("межс.")) throw new IllegalStateException("final-n100: первый блок GT – не межс.");
+        Map<String, List<String>> gal = new LinkedHashMap<>();
+        Map<String, List<String>> pro = new LinkedHashMap<>();
+        XBaseVec.Blk b0 = null;
+        for (XBaseVec.Blk b : u.blocks) {
+            if (!b.group().equals("межс.")) continue;
+            if (b0 == null) b0 = b;
+            gal.putAll(b.gal());
+            pro.putAll(b.pro());
+        }
+        List<String> all = new ArrayList<>(new TreeSet<>(gal.keySet()));
+        Map<String, List<List<String>>> pool = XBaseXsF.pool(u.su.ro, u.su.byKey);
+        // объединённые карты для разнородной галереи (ключи GT содержат разделитель пути – не пересекаются с FERET)
+        Map<String, Integer> imageNo = new HashMap<>(b0.g().imageNo);
+        imageNo.putAll(ug.tpl.imageNo);
+        for (Probe q : gx.probes()) imageNo.putIfAbsent(q.key(), q.image());
+        Map<String, Double> rOf = new HashMap<>(b0.g().rOf);
+        rOf.putAll(gx.g().rOf);
+        List<String> gtOwn = gx.g().own;
+        u.fr.putAll(ug.fr);
+        List<String> kinds = List.of("о", "р");
+        Map<String, List<XBasePart4.DG>> gals = new LinkedHashMap<>();
+        for (String kind : kinds) {
+            boolean het = kind.equals("р");
+            java.util.Random rnd = new java.util.Random(u.tpl.seed + (het ? N100H_SEED : N100_SEED));
+            List<XBasePart4.DG> l = new ArrayList<>();
+            for (int k = 0; k < nGal; k++) {
+                List<String> perm = new ArrayList<>(all);
+                java.util.Collections.shuffle(perm, rnd);
+                int nf = het ? N100 - gtOwn.size() : N100;
+                List<String> fer = new ArrayList<>(new TreeSet<>(perm.subList(0, nf)));
+                Set<String> rest = new TreeSet<>(perm.subList(nf, perm.size()));
+                Map<String, List<List<String>>> trainPool = new TreeMap<>();
+                for (String p : rest) if (pool.containsKey(p)) trainPool.put(p, pool.get(p));
+                List<String> own = new ArrayList<>(fer);
+                if (het) own.addAll(gtOwn);
+                java.util.Collections.sort(own);
+                XBaseEval.Gt g = XBaseFeret.withOwn(b0.g(), own);
+                g.poseR0 = b0.g().poseR0;
+                if (het) {
+                    g.imageNo = imageNo;
+                    g.rOf = rOf;
+                    List<String> ps = new ArrayList<>(g.persons);
+                    for (String p : gtOwn) if (!ps.contains(p)) ps.add(p);
+                    Map<String, Integer> pi = new HashMap<>();
+                    for (int i = 0; i < ps.size(); i++) pi.put(ps.get(i), i);
+                    g.persons = ps;
+                    g.pIdx = pi;
+                }
+                List<List<String>> cohort = new ArrayList<>(u.cin);
+                cohort.addAll(XBaseXsF.train(XBaseXsF.Kind.XS, List.of(), Map.of(), trainPool, Set.of(), Map.of()).extra());
+                g.cohort = cohort;
+                Map<String, List<String>> gk = new LinkedHashMap<>();
+                Map<String, List<String>> pk = new LinkedHashMap<>();
+                for (String p : own) {
+                    boolean isGt = het && gtOwn.contains(p);
+                    gk.put(p, isGt ? gx.gal().get(p) : gal.get(p));
+                    pk.put(p, isGt ? gx.pro().get(p) : pro.get(p));
+                }
+                long seed = u.tpl.seed + (het ? N100H_SEED : N100_SEED);
+                List<List<String>> parts = XBaseOther.cvParts(own, seed, k);
+                l.add(new XBasePart4.DG(g, gk, pk, parts, XBaseEval.probes(g, pk), XBaseThr.extra(g, pk, parts)));
+            }
+            gals.put(kind, l);
+        }
+        Path cd = (smoke() == 0 ? u.out.resolve("final") : u.out.resolve("final_smoke" + smoke())).resolve("n100");
+        Files.createDirectories(cd);
+        String commit = FarMethods.commit();
+        XBaseFeat2.Feats fs = XBaseFeat2.feats(u, export, dir, settings, true);
+        for (int f = 1; f >= 0; f--) {
+            XBaseEval x = null;
+            for (String kind : kinds) {
+                Path p = cd.resolve("n100_" + (kind.equals("о") ? "hom" : "het") + "_f" + f + ".tsv.gz");
+                if (Files.exists(p)) {
+                    if (!XBaseVec.readHead(p).contains(commit)) throw new IllegalStateException("final-n100: " + p + " – другой коммит кода; удалите каталог " + cd);
+                    continue;
+                }
+                if (x == null) x = XBaseFeat2.vectors(u.fr, fs, f, XBasePart4.V8);
+                long tm = System.nanoTime();
+                List<List<java.util.concurrent.Callable<XBaseVec.Model>>> jobs = new ArrayList<>();
+                for (XBasePart4.DG d : gals.get(kind)) jobs.add(XBasePart4.jobsD(x, f, d.g(), d.gal(), d.main(), d.parts(), d.extra()));
+                List<List<XBaseVec.Model>> done = XBaseVec.run(jobs, u.tpl.threads);
+                java.io.Writer w = XBaseVec.writer(p, "# XBaseFinal final-n100: (" + kind + "), N = 100, " + XBaseRule.FEATS[f] + ", галерей " + done.size()
+                        + "\n# Код: коммит " + commit + "\n");
+                for (int k = 0; k < done.size(); k++) XBaseVec.write(w, "g" + k, done.get(k));
+                XBaseVec.finish(w, p);
+                System.out.printf(Locale.ROOT, "final-n100: (%s) f%d – %d галерей (%.0f с)%n", kind, f, done.size(), (System.nanoTime() - tm) / 1e9);
+            }
+        }
+        for (Mat m : u.fr.values()) m.release();
+        for (FrameK2.F k : fs.k2.values()) k.frame().release();
+        XBaseEval.Gt tpl0 = XBaseAbl.copy(u.tpl, u.tpl.cohort, u.tpl.rOf, u.tpl.r0);
+        tpl0.b = 0;
+        StringBuilder t = new StringBuilder("Итоговый прогон, Ф4: проверка (34) при N = 100 (XBaseEval final-n100)\nКод: коммит " + commit + "; таблица – " + tf
+                + " (SHA-256 " + FrameB.sha256(Paths.get(tf)) + "); t(100) = " + tr.t() + " (" + tr.by() + ")\n");
+        t.append("(о) однородная: 100 человек FERET с ≥ 2 датами из обеих половин, seed faces.seed + 11200; (р) разнородная (справочно): свои GT межс. (" + gtOwn.size()
+                + ") + FERET до 100, seed faces.seed + 11300;\nW – галерея + остальные люди пула классами + когорта FEI 20 (MldaFast), 5 частей с переобучением; "
+                + "контроль – 200 контрольных FERET. Галерей " + nGal + ".\n");
+        t.append("\nвид | вариант | галерей | FAR контроля | 97,5 % по галереям | ошибка своих | держит FAR 1 % | t / приведения\n");
+        String[] vn = {"(а) П3 по (Т2) галереи", "(б) t(100) таблицы, приведения таблицы", "(в) t(100), приведения по (Т2) галереи"};
+        for (String kind : kinds) {
+            Map<String, List<XBaseVec.Model>> mt = XBaseVec.read(cd.resolve("n100_" + (kind.equals("о") ? "hom" : "het") + "_f1.tsv.gz"));
+            Map<String, List<XBaseVec.Model>> mx = XBaseVec.read(cd.resolve("n100_" + (kind.equals("о") ? "hom" : "het") + "_f0.tsv.gz"));
+            List<List<double[]>> v = List.of(new ArrayList<>(), new ArrayList<>(), new ArrayList<>());
+            List<XBasePart4.DG> l = gals.get(kind);
+            for (int k = 0; k < l.size(); k++) {
+                XBasePart4.DG d = l.get(k);
+                List<XBaseVec.Model> tt = mt.get("g" + k);
+                List<XBaseVec.Model> xs = mx.get("g" + k);
+                double[] stt = XBaseVec.fuseStats(tt, false);
+                double[] sxs = XBaseVec.fuseStats(xs, false);
+                String lines = XBaseVec.fuseLines(tt, xs, XBaseFeat2.W_FUSE, stt, sxs, d.g().rOf, d.g().r0, null);
+                XBaseThr.Out o = XBaseThr.evaluate("N = 100 g" + k, List.of(new XBaseThr.Unit(d.g(), d.gal(), d.pro(), d.parts(), lines, null, true)), d.g().persons.size(),
+                        tpl0);
+                FeiThreshold.Res r = o.res.get(XBaseThr.WAYS[2]);
+                double[] cnt = r.counts[3][0][0];
+                double own = java.util.Arrays.stream(cnt).sum();
+                v.get(0).add(new double[] {own - cnt[FeiDecompose.G_OK], own, r.far[3][0][0], r.far[3][0][1]});
+                long[] cb = XBasePart4.countT(tt, xs, tr.st(), tr.sx(), d.g().rOf, d.g().r0, tr.t());
+                long[] cc = XBasePart4.countT(tt, xs, stt, sxs, d.g().rOf, d.g().r0, tr.t());
+                v.get(1).add(new double[] {cb[0], cb[1], cb[2], cb[3]});
+                v.get(2).add(new double[] {cc[0], cc[1], cc[2], cc[3]});
+            }
+            for (int q = 0; q < 3; q++) {
+                long e0 = 0, o0 = 0, a0 = 0, c0 = 0;
+                List<Double> fr = new ArrayList<>();
+                for (double[] a : v.get(q)) {
+                    e0 += (long) a[0];
+                    o0 += (long) a[1];
+                    a0 += (long) a[2];
+                    c0 += (long) a[3];
+                    fr.add(100 * a[2] / a[3]);
+                }
+                double cp = 100 * FaceEvaluation.binomialUpperBound((int) a0, (int) c0, 0.95);
+                t.append(String.format(Locale.ROOT, "(%s) | %s | %d | %d/%d = %.2f %%, КП ↑%.2f %% | %.2f %% | %d/%d = %.1f %% | %s | %s%n", kind, vn[q], v.get(q).size(), a0, c0,
+                        100.0 * a0 / c0, cp, XBasePart4.quantile(fr, 0.975), e0, o0, 100.0 * e0 / o0, cp <= 1 ? "да" : "нет", q == 0 ? "П3 FAR 1 %" : String.format(
+                        Locale.ROOT, "t = %.2f%s", tr.t(), q == 1 ? String.format(Locale.ROOT, "; μ_tt %.4f σ_tt %.4f μ_xs %.4f σ_xs %.4f", tr.st()[0], tr.st()[1], tr.sx()[0],
+                                tr.sx()[1]) : "")));
+            }
+        }
+        t.append(String.format(Locale.ROOT, "%nВремя: %.0f с (потоков %d).%n", (System.nanoTime() - t0) / 1e9, u.tpl.threads));
+        FarMethods.write(cd.resolve("final_n100.txt"), t);
+        System.out.print(t);
+        System.out.println("DONE");
+    }
+
+    // ---------------------------------------------------------------- Ф3: VidTIMIT
+
+    static final long VT_SPLIT_SEED = 11100;
+    static final int VT_OWN = 22;
+    /** σ₀ Ф3 – выбранная в Ф1б (final_sigma.tsv), задаётся в setup. */
+    static double vtSigma = Double.NaN;
+
+    /**
+     * Ф3 – мягкая межсессионная проверка (неделя, та же камера): 43 человека, свои 22 / контроль 21 (Collections.shuffle людей по имени,
+     * Random(faces.seed + 11100)), ротация 1 – роли наоборот; галерея M = 1 – кадры (В2) сессии 1, M = 2 – сессий 1 и 2; пробы своих и
+     * контрольных – сессия 3: кадры (В2) двух фраз и кадр head3 (final_vt.tsv); W – галерея своих + когорта FEI 20 + пул FERET (173, классами);
+     * части (Т2) – XBaseOther.cvParts(свои, faces.seed, CV_S + 200 + 10 · ротация + M). Группы «M = 1», «M = 2».
+     */
+    static XBaseVec.Setup vtSetup(FarExport.Loaded export, Path dir, Map<String, Map<Integer, String>> feiKeys, List<String> selLines, SettingsStore settings,
+                                  int sm) throws IOException {
+        long seed = settings.loadFacesSeed();
+        String rawR0 = settings.loadFacesFeiPoseR0();
+        if (rawR0 == null) throw new IllegalStateException("final-vt: задайте faces.fei.pose.r0 / FACES_FEI_POSE_R0");
+        double r0 = FeiPose.r0(rawR0, "+pose");
+        Path vdir = VidTimitData.dir(settings);
+        Path der = vdir.resolve(VidTimitData.DERIVED);
+        Map<String, Map<Integer, List<String>>> ses = new TreeMap<>();
+        Map<String, Double> rOf = new HashMap<>();
+        Map<String, Integer> numOf = new HashMap<>();
+        for (String l : Files.readAllLines(der.resolve(VT_LIST), StandardCharsets.UTF_8)) {
+            if (l.startsWith("#") || l.startsWith("person\t") || l.isBlank()) continue;
+            String[] c = l.split("\t", -1);
+            ses.computeIfAbsent(c[0], k -> new TreeMap<>()).computeIfAbsent(Integer.parseInt(c[1]), k -> new ArrayList<>()).add(c[4]);
+            rOf.put(c[4], Math.abs(Double.parseDouble(c[5])));
+        }
+        List<String> persons = new ArrayList<>(ses.keySet());
+        Map<String, Integer> pIdx = new HashMap<>();
+        for (int i = 0; i < persons.size(); i++) pIdx.put(persons.get(i), i);
+        for (Map<Integer, List<String>> m : ses.values()) for (List<String> ks : m.values()) for (String k : ks) numOf.put(k, numOf.size());
+        List<String> perm = new ArrayList<>(persons);
+        java.util.Collections.shuffle(perm, new java.util.Random(seed + VT_SPLIT_SEED));
+        List<List<String>> halves = List.of(new ArrayList<>(new TreeSet<>(perm.subList(0, VT_OWN))), new ArrayList<>(new TreeSet<>(perm.subList(VT_OWN, perm.size()))));
+        XBaseA0.FeretSetup su = XBaseA0.feretSetup(dir, selLines, settings);
+        Map<String, List<List<String>>> pool = XBaseXsF.pool(su.ro, su.byKey);
+        List<List<String>> poolCls = XBaseXsF.train(XBaseXsF.Kind.XS, List.of(), Map.of(), pool, Set.of(), Map.of()).extra();
+        if (sm == 1) poolCls = poolCls.subList(0, Math.min(XBaseDates.SMOKE_POOL, poolCls.size()));
+        List<List<String>> cohort = new ArrayList<>();
+        for (String p : XBaseEval.cohortPersons(feiKeys, seed)) cohort.add(new ArrayList<>(feiKeys.get(p).values()));
+        List<List<String>> train = new ArrayList<>(cohort);
+        train.addAll(poolCls);
+        XBaseVec.Setup u = new XBaseVec.Setup();
+        u.base = "vt";
+        u.su = su;
+        u.persons = persons.size();
+        XBaseEval.Gt tpl = new XBaseEval.Gt();
+        tpl.seed = seed;
+        tpl.b = settings.loadFacesFeiBootstrap();
+        tpl.threads = settings.loadFacesFeiCvThreads();
+        tpl.params = IlluminationNorm.NormParams.of(settings);
+        tpl.r0 = r0;
+        tpl.rLimit = XBaseEval.poseLimit(selLines);
+        tpl.persons = persons;
+        tpl.pIdx = pIdx;
+        tpl.imageNo = numOf;
+        ses.forEach((p, m) -> tpl.byPerson.put(p, new TreeMap<>(Map.of(3, m.get(3)))));
+        tpl.rOf = rOf;
+        u.tpl = tpl;
+        u.fr = new LinkedHashMap<>();
+        for (String k : numOf.keySet()) {
+            Mat m = Imgcodecs.imread(VidTimitData.png(vdir, k).toString(), Imgcodecs.IMREAD_GRAYSCALE);
+            if (m.empty()) throw new IOException("final-vt: нет кадра " + VidTimitData.png(vdir, k));
+            u.fr.put(k, m);
+        }
+        List<Sample> fei = new ArrayList<>();
+        export.data().fei().values().forEach(fei::addAll);
+        Set<String> ck = new HashSet<>();
+        cohort.forEach(ck::addAll);
+        u.fr.putAll(XBaseEval.frames(export, fei, ck));
+        for (List<String> c : poolCls) for (String k : c) if (!u.fr.containsKey(k)) u.fr.put(k, FeretData.frame(su.dir, "a", k));
+        for (int m = 1; m <= 2; m++) u.groups.add("M = " + m);
+        for (int rot = 0; rot < 2; rot++) {
+            if (sm == 1 && rot > 0) break;
+            List<String> own = XBaseVt.trimOwn(halves.get(rot), sm);
+            List<String> ctrl = halves.get(1 - rot);
+            for (int m = 1; m <= 2; m++) {
+                Map<String, List<String>> gal = new LinkedHashMap<>();
+                Map<String, List<String>> pro = new LinkedHashMap<>();
+                List<Probe> probes = new ArrayList<>();
+                for (int i = 0; i < own.size(); i++) {
+                    String p = own.get(i);
+                    List<String> g = new ArrayList<>(ses.get(p).get(1));
+                    if (m == 2) g.addAll(ses.get(p).get(2));
+                    gal.put(p, g);
+                    pro.put(p, ses.get(p).get(3));
+                    for (String k : ses.get(p).get(3)) probes.add(new Probe(FeiScores.OWN, p, numOf.get(k), k, i));
+                }
+                for (String p : ctrl) for (String k : ses.get(p).get(3)) probes.add(new Probe(FeiScores.CTRL, p, numOf.get(k), k, -1));
+                XBaseEval.Gt g = XBaseAbl.copy(tpl, train, rOf, r0);
+                g.own = own;
+                g.ctrl = ctrl;
+                g.persons = persons;
+                g.pIdx = pIdx;
+                g.imageNo = numOf;
+                List<List<String>> parts = XBaseOther.cvParts(own, seed, XBaseEval.CV_S + 200 + 10 * rot + m);
+                u.blocks.add(new XBaseVec.Blk("r" + rot + "_m" + m, "M = " + m + ", %s, ротация " + rot + ", ", g, gal, pro, parts, probes, XBaseThr.extra(g, pro, parts),
+                        10 * rot + m, "M = " + m));
+            }
+        }
+        return u;
+    }
+
+    /** Кадры k = 2 VidTIMIT Ф3: derived\c\ и точки final_vt_c_points.tsv (frames-b-vt). */
+    static Map<String, FrameK2.F> k2Vt(Iterable<String> keys, SettingsStore settings) throws IOException {
+        Path der = VidTimitData.dir(settings).resolve(VidTimitData.DERIVED);
+        Map<String, double[][]> pts = FrameK2.readPoints(der.resolve(VT_POINTS));
+        Map<String, FrameK2.F> out = new LinkedHashMap<>();
+        for (String k : keys) {
+            Path f = der.resolve(FrameK2.DIR).resolve(k.substring(VidTimitData.KEY_PREFIX.length()).replace('/', '_') + ".png");
+            Mat m = Imgcodecs.imread(f.toString(), Imgcodecs.IMREAD_GRAYSCALE);
+            if (m.empty() || !pts.containsKey(k)) throw new IOException("final-vt: нет кадра k = 2 или точек " + k);
+            out.put(k, new FrameK2.F(m, pts.get(k)));
+        }
+        return out;
     }
 }

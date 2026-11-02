@@ -577,12 +577,16 @@ public final class XBaseEval {
             XBaseFeat2.own2(a[0].substring(0, a[0].indexOf('-')), export, dir, feiKeys, selLines, settings, out);
         } else if (a[0].equals("frames-b")) {
             XBaseFinal.framesB(export, dir, selLines, settings, out.resolve("final"));
-        } else if (a[0].equals("final-feret") || a[0].equals("final-gt") || a[0].equals("final-freeze-feret") || a[0].equals("final-freeze-gt") || a[0].equals("final-fei") || a[0].equals("final-freeze-fei") || a[0].equals("final-own") || a[0].equals("final-freeze-own")) {
+        } else if (a[0].equals("final-feret") || a[0].equals("final-gt") || a[0].equals("final-freeze-feret") || a[0].equals("final-freeze-gt") || a[0].equals("final-fei") || a[0].equals("final-freeze-fei") || a[0].equals("final-own") || a[0].equals("final-freeze-own") || a[0].equals("final-vt")) {
             XBaseFinal.phase1(a[0].substring(a[0].lastIndexOf('-') + 1), a[0].contains("freeze"), export, dir, feiKeys, selLines, settings, out);
         } else if (a[0].equals("frames-b-vt")) {
             XBaseFinal.vtFrames(selLines, settings, out.resolve("final"));
         } else if (a[0].equals("final-lists")) {
             XBaseFinal.lists(export, dir, feiKeys, selLines, settings, out.resolve("final"));
+        } else if (a[0].equals("final-v8")) {
+            XBaseFinal.v8(a[1], Paths.get(System.getenv("FACES_FERET_DIR")), out);
+        } else if (a[0].equals("final-n100")) {
+            XBaseFinal.n100(export, dir, feiKeys, selLines, settings, out);
         } else if (a[0].equals("final-select")) {
             XBaseFinal.select(Paths.get(System.getenv("FACES_FERET_DIR")), out);
         } else if (a[0].equals("p4-retina-sheet")) {
