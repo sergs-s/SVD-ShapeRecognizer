@@ -1094,7 +1094,8 @@ final class XBaseFinal {
         Map<String, List<List<String>>> pool = XBaseXsF.pool(u.su.ro, u.su.byKey);
         // объединённые карты для разнородной галереи (ключи GT содержат разделитель пути – не пересекаются с FERET)
         Map<String, Integer> imageNo = new HashMap<>(b0.g().imageNo);
-        imageNo.putAll(ug.tpl.imageNo);
+        if (ug.tpl.imageNo != null) imageNo.putAll(ug.tpl.imageNo);
+        for (Sample s : ug.tpl.samples.values()) imageNo.putIfAbsent(s.file().toString(), XBaseEval.image(s));
         for (Probe q : gx.probes()) imageNo.putIfAbsent(q.key(), q.image());
         Map<String, Double> rOf = new HashMap<>(b0.g().rOf);
         rOf.putAll(gx.g().rOf);
