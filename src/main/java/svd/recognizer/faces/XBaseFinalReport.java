@@ -401,12 +401,13 @@ final class XBaseFinalReport {
         for (XBaseVec.Blk b : bs) {
             List<XBaseVec.Model> mt = XBaseFinal.models(r, b, tt, false);
             List<XBaseVec.Model> mx = XBaseFinal.models(r, b, XBaseFinal.XS, false);
-            String lines = XBaseVec.fuseLines(mt, mx, XBaseFeat2.W_FUSE, XBaseVec.fuseStats(mt, false), XBaseVec.fuseStats(mx, false), b.g().rOf, b.g().r0, clamped);
-            us.get(0).add(new XBaseThr.Unit(b.g(), b.gal(), b.pro(), b.parts(), lines, null, t2));
-            us.get(1).add(new XBaseThr.Unit(b.g(), b.gal(), b.pro(), b.parts(), XBaseAbl3.oneLines(lines), null, t2));
+            String lines = XBaseVec.normLines(mt, null, clamped);
+            XBaseEval.Gt g = XBaseAbl3.mirrorGt(b.g(), false);
+            us.get(0).add(new XBaseThr.Unit(g, b.gal(), b.pro(), b.parts(), lines, null, t2));
+            us.get(1).add(new XBaseThr.Unit(g, b.gal(), b.pro(), b.parts(), XBaseAbl3.oneLines(lines), null, t2));
         }
         StringBuilder body = new StringBuilder();
-        XBaseAbl3.own11(body, new StringBuilder(), "Режим 1:1 (отдельная таблица) – " + grp, grp + " ", us, u.persons, u.tpl, t2);
+        XBaseAbl3.own11(body, new StringBuilder(), "Режим 1:1 (отдельная таблица; L1-tt-xs-F, как ревизия 2.8 – оценки слияния не расстояния) – " + grp, grp + " ", us, u.persons, u.tpl, t2);
         return body.toString();
     }
 
