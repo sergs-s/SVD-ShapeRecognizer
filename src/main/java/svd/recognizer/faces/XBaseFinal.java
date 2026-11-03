@@ -389,7 +389,9 @@ final class XBaseFinal {
             for (XBaseVec.Blk b : u.blocks) {
                 Path p = vfile(r, b, c);
                 if (Files.exists(p)) {
-                    if (!XBaseVec.readHead(p).contains(commit)) throw new IllegalStateException("final: " + p + " – другой коммит кода; удалите каталог " + r.dir());
+                    String head = XBaseVec.readHead(p);
+                    if (!head.contains(commit) && acceptedCommit(head) == null) throw new IllegalStateException("final: " + p + " – другой коммит кода; удалите каталог " + r.dir());
+                    if (!head.contains(commit)) sec.merge("модели из коммита " + acceptedCommit(head), 0.0, Double::sum);
                     continue;
                 }
                 todo.add(b);
@@ -554,7 +556,7 @@ final class XBaseFinal {
             XBaseLbp.tables(body, prefix + " – слияние кандидатов", of, u.persons, u.tpl, pairs, t2);
             if (byGroup.get(grp).containsKey("SFace")) {
                 List<XBaseDates.Pass> passes = new ArrayList<>();
-                for (XBaseVec.Blk b : bs) passes.add(new XBaseDates.Pass(b.g(), b.gal(), null, b.pro(), b.parts(), b.probes(), b.extra()));
+                for (XBaseVec.Blk b : bs) passes.add(new XBaseDates.Pass(b.g(), b.gal(), null, b.pro(), b.parts(), b.probes().stream().filter(q -> !q.role().equals(CTRL_X)).toList(), b.extra()));
                 XBaseDates.sface(body, prefix, List.of(new XBaseDates.Line(grp + " SFace", passes, byGroup.get(grp).get("SFace"))), u.persons, u.tpl, List.of());
             }
         }
@@ -1342,5 +1344,16 @@ final class XBaseFinal {
             out.put(k, new FrameK2.F(m, pts.get(k)));
         }
         return out;
+    }
+
+    /**
+     * Коммиты, модели которых принимаются без пересчёта (FACES_FINAL_ACCEPT, через запятую): только когда код моделей (признак, постановки,
+     * обучение) после них не менялся – правки касались отчёта; в отчёте – строка «модели из коммита …». null – не принят.
+     */
+    static String acceptedCommit(String head) {
+        String s = System.getenv("FACES_FINAL_ACCEPT");
+        if (s == null || s.isBlank()) return null;
+        for (String c : s.split(",")) if (!c.isBlank() && head.contains("коммит " + c.trim())) return c.trim();
+        return null;
     }
 }
