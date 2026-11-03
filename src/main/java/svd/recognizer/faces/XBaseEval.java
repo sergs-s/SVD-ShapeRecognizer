@@ -587,6 +587,8 @@ public final class XBaseEval {
             XBaseFinal.v8(a[1], Paths.get(System.getenv("FACES_FERET_DIR")), out);
         } else if (a[0].equals("final-n100")) {
             XBaseFinal.n100(export, dir, feiKeys, selLines, settings, out);
+        } else if (a[0].equals("final-report")) {
+            XBaseFinalReport.report(a[1], export, dir, feiKeys, selLines, settings, out);
         } else if (a[0].equals("final-select")) {
             XBaseFinal.select(Paths.get(System.getenv("FACES_FERET_DIR")), out);
         } else if (a[0].equals("p4-retina-sheet")) {
