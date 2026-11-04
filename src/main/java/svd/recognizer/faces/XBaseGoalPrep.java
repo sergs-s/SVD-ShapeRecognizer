@@ -79,13 +79,13 @@ final class XBaseGoalPrep {
     }
 
     /** Оценки основной модели как конфигурации разбора (порог по «чужим» здесь не нужен: части пусты). */
-    private static FeiDecompose.Cfg cfg(XBaseVec.Blk b, XBaseEval.Gt g, String lines) {
+    static FeiDecompose.Cfg cfg(XBaseVec.Blk b, XBaseEval.Gt g, String lines) {
         List<List<String>> none = new ArrayList<>();
         for (int q = 0; q < FeiMethods.CV_PARTS; q++) none.add(List.of());
         return XBaseEval.parse(g, EnumSet.of(V.L1), b.gal(), XBaseEval.probes(g, b.pro()), none, lines).cfg.get(V.L1);
     }
 
-    private static String fused(XBaseFinal.Run r, XBaseVec.Blk b, XBaseFinal.Cfg c, Map<String, Double> rOf, double r0) throws IOException {
+    static String fused(XBaseFinal.Run r, XBaseVec.Blk b, XBaseFinal.Cfg c, Map<String, Double> rOf, double r0) throws IOException {
         List<XBaseVec.Model> mt = XBaseFinal.models(r, b, c, false);
         List<XBaseVec.Model> mx = XBaseFinal.models(r, b, XBaseFinal.XS, false);
         return XBaseVec.fuseLines(mt, mx, XBaseFeat2.W_FUSE, XBaseVec.fuseStats(mt, false), XBaseVec.fuseStats(mx, false), rOf, r0, new int[2]);

@@ -1,0 +1,147 @@
+package svd.recognizer.faces;
+
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
+import java.util.Random;
+import org.junit.Test;
+
+public class EsrcSolverTest {
+
+    private static double[][] columns(Random rnd, int d, int p) {
+        double[][] phi = new double[p][d];
+        for (double[] col : phi) {
+            double n = 0;
+            for (int i = 0; i < d; i++) {
+                col[i] = rnd.nextGaussian();
+                n += col[i] * col[i];
+            }
+            n = Math.sqrt(n);
+            for (int i = 0; i < d; i++) col[i] /= n;
+        }
+        return phi;
+    }
+
+    private static double dot(double[] a, double[] b) {
+        double s = 0;
+        for (int i = 0; i < a.length; i++) s += a[i] * b[i];
+        return s;
+    }
+
+    private static double[][] gram(double[][] phi) {
+        double[][] g = new double[phi.length][phi.length];
+        for (int i = 0; i < phi.length; i++) for (int j = 0; j < phi.length; j++) g[i][j] = dot(phi[i], phi[j]);
+        return g;
+    }
+
+    private static double[] atPhi(double[][] phi, double[] y) {
+        double[] c = new double[phi.length];
+        for (int j = 0; j < phi.length; j++) c[j] = dot(phi[j], y);
+        return c;
+    }
+
+    private static double[] residual(double[][] phi, double[] x, double[] y) {
+        double[] r = y.clone();
+        for (int j = 0; j < phi.length; j++) if (x[j] != 0) for (int i = 0; i < r.length; i++) r[i] -= x[j] * phi[j][i];
+        return r;
+    }
+
+    /** Условия оптимальности LASSO: на активных столбцах Φᵀr = λ·sign(x), на прочих |Φᵀr| ≤ λ. */
+    private static void kkt(double[][] phi, double[] x, double[] r) {
+        double lambda = 0;
+        for (int j = 0; j < phi.length; j++) lambda = Math.max(lambda, Math.abs(dot(phi[j], r)));
+        for (int j = 0; j < phi.length; j++) {
+            if (x[j] != 0) assertEquals("активный столбец " + j, lambda * Math.signum(x[j]), dot(phi[j], r), 1e-7);
+        }
+    }
+
+    private static double objective(double[][] phi, double[] x, double[] y, double lambda) {
+        double[] r = residual(phi, x, y);
+        double l1 = 0;
+        for (double v : x) l1 += Math.abs(v);
+        return 0.5 * dot(r, r) + lambda * l1;
+    }
+
+    private static double[] ista(double[][] phi, double[] y, double lambda, int iters) {
+        double[][] g = gram(phi);
+        double[] c0 = atPhi(phi, y);
+        double l = 0;
+        for (int i = 0; i < g.length; i++) l += g[i][i];
+        double[] x = new double[phi.length];
+        for (int it = 0; it < iters; it++) {
+            double[] nx = new double[x.length];
+            for (int j = 0; j < x.length; j++) {
+                double gr = -c0[j];
+                for (int t = 0; t < x.length; t++) gr += g[j][t] * x[t];
+                double v = x[j] - gr / l;
+                nx[j] = Math.signum(v) * Math.max(Math.abs(v) - lambda / l, 0);
+            }
+            x = nx;
+        }
+        return x;
+    }
+
+    @Test
+    public void reachesEpsilonAndSatisfiesKkt() {
+        for (int seed = 0; seed < 30; seed++) {
+            Random rnd = new Random(seed);
+            boolean over = seed % 2 == 0;
+            int d = over ? 40 : 120;
+            int p = over ? 120 : 60;
+            double[][] phi = columns(rnd, d, p);
+            double[] y = columns(rnd, d, 1)[0];
+            double eps = over ? 0.05 : 0.5;
+            EsrcSolver.Result s = EsrcSolver.solve(gram(phi), atPhi(phi, y), 1, eps, 5000);
+            assertFalse(s.capped());
+            double[] r = residual(phi, s.x(), y);
+            assertEquals("невязка, сид " + seed, s.rr(), dot(r, r), 1e-9);
+            if (over) assertEquals(eps * eps, dot(r, r), 1e-9);
+            kkt(phi, s.x(), r);
+        }
+    }
+
+    @Test
+    public void matchesIsta() {
+        Random rnd = new Random(7);
+        int d = 30;
+        double[][] phi = columns(rnd, d, 50);
+        double[] y = columns(rnd, d, 1)[0];
+        EsrcSolver.Result s = EsrcSolver.solve(gram(phi), atPhi(phi, y), 1, 0.4, 5000);
+        double[] r = residual(phi, s.x(), y);
+        double lambda = 0;
+        for (double[] col : phi) lambda = Math.max(lambda, Math.abs(dot(col, r)));
+        double[] x = ista(phi, y, lambda, 40000);
+        assertEquals(objective(phi, x, y, lambda), objective(phi, s.x(), y, lambda), 1e-6);
+    }
+
+    @Test
+    public void exactColumnIsFewSteps() {
+        Random rnd = new Random(3);
+        double[][] phi = columns(rnd, 200, 20);
+        EsrcSolver.Result s = EsrcSolver.solve(gram(phi), atPhi(phi, phi[4]), 1, 0.05, 100);
+        assertTrue(s.x()[4] > 0.9);
+        int nz = 0;
+        for (double v : s.x()) if (v != 0) nz++;
+        assertTrue("активных " + nz, nz <= 3);
+    }
+
+    @Test
+    public void duplicateColumnDoesNotBreak() {
+        Random rnd = new Random(11);
+        double[][] phi = columns(rnd, 15, 30);
+        phi[7] = phi[3].clone();
+        double[] y = columns(rnd, 15, 1)[0];
+        EsrcSolver.Result s = EsrcSolver.solve(gram(phi), atPhi(phi, y), 1, 0.05, 5000);
+        assertFalse(s.capped());
+        double[] r = residual(phi, s.x(), y);
+        assertEquals(s.rr(), dot(r, r), 1e-8);
+    }
+
+    @Test
+    public void bigEpsilonIsZero() {
+        Random rnd = new Random(1);
+        double[][] phi = columns(rnd, 10, 5);
+        EsrcSolver.Result s = EsrcSolver.solve(gram(phi), atPhi(phi, phi[0]), 1, 1.5, 10);
+        assertEquals(0, s.steps());
+    }
+}

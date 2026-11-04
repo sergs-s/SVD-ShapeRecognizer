@@ -1086,7 +1086,7 @@ public final class FarMethods {
         }
     }
 
-    private static String git(String... args) throws IOException, InterruptedException {
+    static String git(String... args) throws IOException, InterruptedException {
         List<String> cmd = new ArrayList<>(List.of("git"));
         cmd.addAll(List.of(args));
         Process p = new ProcessBuilder(cmd).redirectErrorStream(true).start();
