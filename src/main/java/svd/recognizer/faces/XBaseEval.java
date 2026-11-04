@@ -589,6 +589,8 @@ public final class XBaseEval {
             XBaseFinal.n100(export, dir, feiKeys, selLines, settings, out);
         } else if (a[0].equals("final-cmp10")) {
             XBaseFinalReport.cmp10(export, dir, feiKeys, selLines, settings, out);
+        } else if (a[0].equals("final-addon")) {
+            XBaseFinalReport.addon(a[1], export, dir, feiKeys, selLines, settings, out);
         } else if (a[0].equals("final-report")) {
             XBaseFinalReport.report(a[1], export, dir, feiKeys, selLines, settings, out);
         } else if (a[0].equals("final-select")) {

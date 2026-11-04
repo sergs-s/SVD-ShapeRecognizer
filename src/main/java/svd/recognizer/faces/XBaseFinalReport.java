@@ -178,7 +178,6 @@ final class XBaseFinalReport {
         StringBuilder body = new StringBuilder();
         StringBuilder work = new StringBuilder("\n=== Рабочий порог (34): t(N) таблицы (Н), приведения по (Т2) своей галереи; s ≤ t – приём ===\nгруппа | строка | N (узел) | t | "
                 + "t выбран | " + SUM_HEAD + "\n");
-        StringBuilder sfaceWork = new StringBuilder();
         StringBuilder cmp = new StringBuilder("\n=== Сравнения разд. 3 (разделимость при FAR 1 % | EER | pAUC ≤ 10 %; п. п.) ===\nпара | FAR 1 % | EER | pAUC\n");
         StringBuilder meas = new StringBuilder("\n=== Меры разд. 3: разделимость при фактическом FAR контроля 1, 2, 5, 10 %, EER, pAUC ≤ 10 % (95 % интервал) ===\nгруппа | строка | 1 % | "
                 + "2 % | 5 % | 10 % | EER | pAUC\n");
@@ -240,9 +239,6 @@ final class XBaseFinalReport {
                             b.parts(), ls.get(i)).cfg.get(XBaseEval.V.SFACE));
                 }
                 ms.put(grp + " SFace", measure(cs, u.persons, w));
-                List<Out1> so = new ArrayList<>();
-                for (int i = 0; i < bs.size(); i++) so.addAll(sfaceAtT(ls.get(i), sfaceT(bs.get(i).g().own.size())));
-                sfaceWork.append(String.format(Locale.ROOT, "%s | SFace | %d | %.2f | решение (24) | %s%n", grp, bs.get(0).g().own.size(), sfaceT(bs.get(0).g().own.size()), summary(so)));
             }
             for (Map.Entry<String, M> e : ms.entrySet()) {
                 XBaseRule.Sep s = e.getValue().sep;
@@ -280,7 +276,6 @@ final class XBaseFinalReport {
                 body.append(phase2(r, bs, table, tt));
                 body.append(phase5(r, bs, table, tt, dir));
             }
-            if (t2 || base.equals("vt")) body.append(oneToOne(r, bs, tt, grp, u, t2));
         }
         if (base.equals("vt")) {
             M a = all.get("M = 2 " + fl);
@@ -290,7 +285,6 @@ final class XBaseFinalReport {
                     z.paucRep))).append("\n");
         }
         if (base.equals("vt")) t.append(vtParts(r, u, table, tt));
-        if (sfaceWork.length() > 0) work.append("\n=== SFace при пороге таблицы (24): 1 − cos с лучшим шаблоном ≤ t, между узлами – меньший ===\nгруппа | строка | N | t | источник | ").append(SUM_HEAD).append("\n").append(sfaceWork);
         t.append(work).append(meas).append(cmp).append(body);
         t.append(String.format(Locale.ROOT, "%nВремя: %.0f с%n", (System.nanoTime() - t0) / 1e9));
         Path rf = r.dir().resolve("final_report_" + base + ".txt");
@@ -399,47 +393,194 @@ final class XBaseFinalReport {
         return p.getName(p.getNameCount() - 2) + "/" + p.getName(p.getNameCount() - 1);
     }
 
+    // ---------------------------------------------------------------- досчитано 04.11 (Жорик №1 от 04.11)
+
+    static final String ADDON_MARK = "######## Досчитано 04.11";
+
     /**
-     * Строки 1:1 по сырым 1 − cos: у своего заявлен свой; у чужого (контроль, «чужие» порога) – seed &lt; 0: худший случай, заявлен ближайший
-     * человек галереи; иначе заявлен случайный – Random(seed + hashCode ключа снимка), один выбор на обе модели X и X+mirror. Остальные
-     * расстояния – XBaseAbl.ABS_C (решение – только по d₁ до заявленного).
+     * Строки 1:1 слияния: у своего заявлен свой; у чужого – seed &lt; 0: худший случай (ближайший по ℓ), иначе случайный человек галереи
+     * (Random как XBaseVec.oneRandom, по порядку проб); оценка – ℓ(заявленного) после приведения по (Т2), сжатие XBaseVec.squash; второе –
+     * постоянная. Модель L1-tt-xs-F – по позе, L1-xs-F – X+mirror; строка – под обоими методами, как XBaseVec.fuseLines.
      */
-    static String claimLines(List<XBaseVec.Model> ms, long seed) {
+    static String fuseOne(List<XBaseVec.Model> tt, List<XBaseVec.Model> xs, double w, double[] st, double[] sx, Map<String, Double> rOf, double r0, long seed) {
         StringBuilder b = new StringBuilder();
-        for (XBaseVec.Model m : ms) {
-            for (XBaseVec.Row r : m.rows()) {
-                int ng = r.dg().length;
-                int keep = r.trueIdx();
-                if (keep < 0 && seed >= 0) keep = new java.util.Random(seed + r.key().hashCode()).nextInt(ng);
-                if (keep < 0) {
-                    keep = 0;
-                    for (int g = 1; g < ng; g++) if (r.dg()[g] < r.dg()[keep]) keep = g;
+        Map<String, XBaseVec.Model> byTask = new LinkedHashMap<>();
+        for (XBaseVec.Model m : tt) byTask.putIfAbsent(m.task(), m);
+        for (String task : byTask.keySet()) {
+            XBaseVec.Model tX = XBaseVec.find(tt, task, false);
+            XBaseVec.Model tM = XBaseVec.find(tt, task, true);
+            XBaseVec.Model xM = XBaseVec.find(xs, task, true);
+            java.util.Random rnd = new java.util.Random(seed + task.hashCode() * 31L + tX.method().hashCode());
+            for (int i = 0; i < tX.rows().size(); i++) {
+                XBaseVec.Row rx = xM.rows().get(i);
+                XBaseVec.Row r0r = tX.rows().get(i);
+                if (!rx.key().equals(r0r.key()) || !rx.role().equals(r0r.role())) throw new IllegalStateException("final-addon: слияние – разные пробы");
+                XBaseVec.Row rt = rOf.get(r0r.key()) <= r0 ? r0r : tM.rows().get(i);
+                int ng = rt.dg().length;
+                double[] ln = new double[ng];
+                List<Integer> ok = new ArrayList<>();
+                for (int g = 0; g < ng; g++) {
+                    if (Double.isInfinite(rt.dg()[g]) || Double.isInfinite(rx.dg()[g])) {
+                        ln[g] = Double.POSITIVE_INFINITY;
+                        continue;
+                    }
+                    ln[g] = w * (XBaseVec.ell(rt.dg()[g]) - st[0]) / st[1] + (1 - w) * (XBaseVec.ell(rx.dg()[g]) - sx[0]) / sx[1];
+                    ok.add(g);
                 }
-                double[] dg = new double[ng];
-                java.util.Arrays.fill(dg, XBaseAbl.ABS_C);
-                dg[keep] = r.dg()[keep];
-                b.append(XBaseVec.line(m.method(), m.s(), m.gallery(), new XBaseVec.Row(r.role(), r.person(), r.image(), r.key(), r.trueIdx(), dg, r.dci(), r.dco())));
+                int c = rt.trueIdx();
+                if (c < 0) {
+                    if (seed >= 0) {
+                        c = ok.get(rnd.nextInt(ok.size()));
+                    } else {
+                        c = ok.get(0);
+                        for (int g : ok) if (ln[g] < ln[c]) c = g;
+                    }
+                }
+                double[] v = new double[ng];
+                java.util.Arrays.fill(v, XBaseAbl.ABS_C);
+                v[c] = XBaseAbl.ABS_C * XBaseVec.squash(ln[c], null);
+                for (XBaseVec.Model m : List.of(tX, tM)) b.append(FeiScores.line(m.method(), m.s(), 0, rt.role(), rt.person(), rt.image(), rt.trueIdx(), m.gallery(), v, false));
             }
         }
         return b.toString();
     }
 
-    /** 1:1 (отдельная таблица, L1-tt-xs-F – у слияния оценки не расстояния): 1:N, 1:1 худший случай, 1:1 случайно заявленный. */
-    static String oneToOne(XBaseFinal.Run r, List<XBaseVec.Blk> bs, XBaseFinal.Cfg tt, String grp, XBaseVec.Setup u, boolean t2) throws IOException {
-        String[] names = {"L1-tt-xs-F 1:N", "L1-tt-xs-F 1:1, заявлен ближайший (худший случай)", "L1-tt-xs-F 1:1, заявлен случайный"};
-        List<List<XBaseThr.Unit>> us = List.of(new ArrayList<>(), new ArrayList<>(), new ArrayList<>());
-        int[] clamped = new int[2];
-        for (XBaseVec.Blk b : bs) {
-            List<XBaseVec.Model> mt = XBaseFinal.models(r, b, tt, false);
-            XBaseEval.Gt g = XBaseAbl3.mirrorGt(b.g(), false);
-            String[] ls = {XBaseVec.normLines(mt, null, clamped), claimLines(mt, -1), claimLines(mt, u.tpl.seed + FeiBootstrap.SEED_OFFSET)};
-            for (int i = 0; i < ls.length; i++) us.get(i).add(new XBaseThr.Unit(g, b.gal(), b.pro(), b.parts(), ls[i], null, t2));
+    /** Строка таблицы 1:1: разделимость, EER, П3. */
+    static String oneRow(String lab, XBaseThr.Out o, String way, int persons, XBaseEval.Gt tpl, int[][] w, double[][] acc) {
+        XBaseRule.Sep s = XBaseRule.sep(o.res.get(XBaseThr.WAYS[0]).cfgs, FeiBootstrap.unit(persons), w);
+        FeiThreshold.Res r = o.res.get(way);
+        List<String> row = new ArrayList<>(List.of(lab));
+        for (int k = 0; k < XBaseRule.FARS.length; k++) row.add(XBaseSepLtp.cell(s.err[k], s.errRep[k]));
+        row.add(XBaseSepLtp.cell(s.eer[3], s.eerRep));
+        row.add(FeiThreshold.errCell(r, 3, 0, 0, tpl.b));
+        row.add(FeiThreshold.farCell(r, 3, 0, tpl.b));
+        if (acc != null) {
+            double[] cnt = r.counts[3][0][0];
+            double own = java.util.Arrays.stream(cnt).sum();
+            for (int k = 0; k < XBaseRule.FARS.length; k++) acc[0][k] += s.err[k];
+            acc[0][XBaseRule.FARS.length] += s.eer[3];
+            acc[1][0] += 100 * (own - cnt[FeiDecompose.G_OK]) / own;
+            acc[1][1] += 100 * r.far[3][0][0] / r.far[3][0][1];
         }
-        Map<String, XBaseThr.Out> outs = new LinkedHashMap<>();
-        for (int i = 0; i < names.length; i++) outs.put(grp + " " + names[i], XBaseThr.evaluate(grp + " " + names[i], us.get(i), u.persons, u.tpl));
-        StringBuilder body = new StringBuilder();
-        XBaseLbp.tables(body, "Режим 1:1 (отдельная таблица) – " + grp, outs, u.persons, u.tpl, List.of(), t2);
-        return body.toString();
+        return String.join(" | ", row) + "\n";
+    }
+
+    /** 1:1 группы: 1:N, худший случай, 5 случайных повторов (seed faces.seed + 10600 + повтор, как пачка 1) и их среднее – для слияния и L1-tt-xs-F. */
+    static String oneTable(XBaseFinal.Run r, List<XBaseVec.Blk> bs, XBaseFinal.Cfg tt, String grp, XBaseVec.Setup u, boolean t2, int[][] w) throws IOException {
+        StringBuilder s = new StringBuilder("\n=== 1:1 – " + grp + " (П3 FAR 1 % по «чужим» " + (t2 ? "(Т2)" : "(Т0)") + "; в 1:1 «чужие» порога заявляют так же, как контроль) ===\nстрока | разд. 1 % | 2 % | 5 % | "
+                + "10 % | EER | П3: ошибка своих | FAR контроля\n");
+        String way = XBaseThr.WAYS[t2 ? 2 : 0];
+        int[] clamped = new int[2];
+        for (int f = 0; f < 2; f++) {
+            String feat = f == 0 ? "слияние" : "L1-tt-xs-F";
+            double[][] acc = new double[2][XBaseRule.FARS.length + 1];
+            for (int rep = -1; rep <= 5; rep++) {
+                List<XBaseThr.Unit> us = new ArrayList<>();
+                for (XBaseVec.Blk b : bs) {
+                    List<XBaseVec.Model> mt = XBaseFinal.models(r, b, tt, false);
+                    XBaseEval.Gt g = f == 0 ? b.g() : XBaseAbl3.mirrorGt(b.g(), false);
+                    String ls;
+                    if (f == 0) {
+                        List<XBaseVec.Model> mx = XBaseFinal.models(r, b, XBaseFinal.XS, false);
+                        double[] st = XBaseVec.fuseStats(mt, false);
+                        double[] sx = XBaseVec.fuseStats(mx, false);
+                        ls = rep < 0 ? XBaseVec.fuseLines(mt, mx, XBaseFeat2.W_FUSE, st, sx, g.rOf, g.r0, clamped) : fuseOne(mt, mx, XBaseFeat2.W_FUSE, st, sx, g.rOf, g.r0,
+                                rep == 0 ? -1 : u.tpl.seed + 10600 + rep);
+                    } else {
+                        ls = rep < 0 ? XBaseVec.normLines(mt, null, clamped) : rep == 0 ? XBaseAbl3.oneLines(XBaseVec.lines(mt)) : XBaseVec.oneRandom(mt, u.tpl.seed + 10600 + rep);
+                    }
+                    us.add(new XBaseThr.Unit(g, b.gal(), b.pro(), b.parts(), ls, null, t2));
+                }
+                String lab = grp + " " + feat + (rep < 0 ? " 1:N" : rep == 0 ? " 1:1, заявлен ближайший (худший случай)" : " 1:1 случайный, повтор " + rep);
+                XBaseThr.Out o = XBaseThr.evaluate(lab, us, u.persons, u.tpl);
+                s.append(oneRow(lab, o, way, u.persons, u.tpl, w, rep > 0 ? acc : null));
+            }
+            s.append(String.format(Locale.ROOT, "%s %s 1:1 случайный, среднее 5 повторов | %.1f %% | %.1f %% | %.1f %% | %.1f %% | %.1f %% | %.1f %% | %.2f %%%n", grp, feat, acc[0][0] / 5, acc[0][1] / 5,
+                    acc[0][2] / 5, acc[0][3] / 5, acc[0][4] / 5, acc[1][0] / 5, acc[1][1] / 5));
+        }
+        return s.toString();
+    }
+
+    /** SFace VidTIMIT: кадры alignCrop из исходных кадров по строкам YuNet Ф3, строки оценок по блокам (без обучения); файл оценок – для пересчёта. */
+    static Map<String, List<String>> sfaceVt(XBaseFinal.Run r, SettingsStore settings) throws IOException {
+        Path vdir = VidTimitData.dir(settings);
+        Path der = vdir.resolve(VidTimitData.DERIVED);
+        Map<String, double[]> rows = VidTimitData.readDetections(der.resolve(VidTimitData.DETECTIONS));
+        rows.putAll(VidTimitData.readDetections(der.resolve(XBaseFinal.VT_HEAD_DET)));
+        org.opencv.objdetect.FaceRecognizerSF sf = org.opencv.objdetect.FaceRecognizerSF.create(Paths.get(settings.loadFacesModelsDir()).resolve(FaceAlignment.SFACE_FILE).toString(), "");
+        Map<String, Mat> crops = new LinkedHashMap<>();
+        for (String l : Files.readAllLines(der.resolve(XBaseFinal.VT_LIST), StandardCharsets.UTF_8)) {
+            if (l.startsWith("#") || l.startsWith("person\t") || l.isBlank()) continue;
+            String k = l.split("\t", -1)[4];
+            String dk = k.substring(VidTimitData.KEY_PREFIX.length());
+            String[] q = dk.split("/");
+            Mat color = org.opencv.imgcodecs.Imgcodecs.imread(vdir.resolve(q[0]).resolve("video").resolve(q[1]).resolve(q[2]).toString(), org.opencv.imgcodecs.Imgcodecs.IMREAD_COLOR);
+            if (color.empty() || rows.get(dk) == null) throw new IOException("final-addon: нет кадра или детекции " + dk);
+            crops.put(k, FeretData.frameSface(color, rows.get(dk), sf));
+            color.release();
+        }
+        XBaseEval xsf = new XBaseEval();
+        xsf.sfaceMin = 1;
+        xsf.sfaceVectors(crops, sf);
+        crops.values().forEach(Mat::release);
+        Map<String, List<String>> out = new LinkedHashMap<>();
+        StringBuilder sc = new StringBuilder("# SFace VidTIMIT (XBaseFinalReport final-addon, досчитано 04.11; alignCrop по строкам YuNet Ф3, без обучения)\n# Код: коммит " + FarMethods.commit() + "\n");
+        for (XBaseVec.Blk b : r.u().blocks) {
+            String ls = XBaseFinal.sfaceLines(r, b, xsf);
+            out.computeIfAbsent(b.group(), g -> new ArrayList<>()).add(ls);
+            sc.append("# ").append(b.group()).append(" | SFace | ").append(b.name()).append('\n').append(ls);
+        }
+        Path f = r.dir().resolve("final_vt_sface_scores.tsv.gz");
+        java.io.Writer w = XBaseVec.writer(f, sc.toString());
+        XBaseVec.finish(w, f);
+        return out;
+    }
+
+    /** final-addon &lt;база&gt;: раздел «досчитано 04.11» в конце final_report_&lt;база&gt;.txt (повтор заменяет раздел; основная часть отчёта не меняется). */
+    static void addon(String base, FarExport.Loaded export, Path dir, Map<String, Map<Integer, String>> feiKeys, List<String> selLines, SettingsStore settings, Path out)
+            throws IOException {
+        if (!FrameB.on()) throw new IllegalStateException("final-addon: FACES_FRAMES=b");
+        long t0 = System.nanoTime();
+        double sigma = XBaseFinal.chosenSigma(out);
+        XBaseFinal.Run r = XBaseFinal.setup(base, false, export, dir, feiKeys, selLines, settings, out);
+        XBaseVec.Setup u = r.u();
+        for (Mat m : u.fr.values()) m.release();
+        for (FrameK2.F k : r.k2().values()) k.frame().release();
+        XBaseFinal.Cfg tt = sigma == 1 ? XBaseFinal.TT1 : XBaseFinal.TT05;
+        int[][] w = u.tpl.b > 0 ? FeiBootstrap.weights(u.persons, u.tpl.b, u.tpl.seed + FeiBootstrap.SEED_OFFSET) : new int[0][];
+        StringBuilder t = new StringBuilder(ADDON_MARK + " (вне постановки, по её списку; Жорик №1 от 04.11) ########\nКод: коммит " + FarMethods.commit() + "; σ₀ = " + sigma + "; B = " + u.tpl.b
+                + ", seed " + (u.tpl.seed + FeiBootstrap.SEED_OFFSET) + "; без обучения.\n");
+        if (r.sm() == 0) t.append("Таблицы «Режим 1:1» основной части отчёта (код 8d36075) не использовать: там у своих сырое d₁, у чужих – d₁ после β, шкалы разные. Действует таблица этого раздела.\n");
+        Map<String, List<String>> sf = new LinkedHashMap<>();
+        if (base.equals("vt")) {
+            sf = sfaceVt(r, settings);
+        } else {
+            for (Map.Entry<String, Map<String, List<String>>> e : sfaceLines(r.dir().resolve("final_" + base + "_scores.tsv.gz")).entrySet()) sf.put(e.getKey(), e.getValue().get("SFace"));
+        }
+        t.append("\n=== SFace при пороге таблицы (24): 1 − cos с лучшим шаблоном ≤ t; t*(N) = 0,53 / 0,46 / 0,41 / 0,35 при N = 10, 50, 100, 200, между узлами – меньший ===\nгруппа | N | t | ").append(SUM_HEAD)
+                .append('\n');
+        for (String grp : u.groups) {
+            List<XBaseVec.Blk> bs = u.blocks.stream().filter(b -> b.group().equals(grp)).toList();
+            List<String> ls = sf.get(grp);
+            if (ls == null) continue;
+            int n = bs.get(0).g().own.size();
+            List<Out1> so = new ArrayList<>();
+            for (int i = 0; i < bs.size(); i++) so.addAll(sfaceAtT(ls.get(i), sfaceT(bs.get(i).g().own.size())));
+            t.append(String.format(Locale.ROOT, "%s | %d | %.2f | %s%n", grp, n, sfaceT(n), summary(so)));
+        }
+        if (base.equals("feret")) {
+            Path c = u.out.resolve("final").resolve("final_cmp10.txt");
+            if (Files.exists(c)) t.append("\n=== Сравнение 10 ===\n").append(Files.readString(c, StandardCharsets.UTF_8));
+        }
+        for (String grp : u.groups) t.append(oneTable(r, u.blocks.stream().filter(b -> b.group().equals(grp)).toList(), tt, grp, u, !grp.equals("внутри"), w));
+        t.append(String.format(Locale.ROOT, "%nВремя раздела: %.0f с%n", (System.nanoTime() - t0) / 1e9));
+        Path rf = r.dir().resolve("final_report_" + base + ".txt");
+        String old = Files.exists(rf) ? Files.readString(rf, StandardCharsets.UTF_8) : "";
+        int at = old.indexOf(ADDON_MARK);
+        if (at >= 0) old = old.substring(0, at);
+        FarMethods.write(rf, new StringBuilder(old).append(old.isEmpty() ? "" : "\n\n").append(t));
+        System.out.print(t);
+        System.out.println("DONE");
     }
 
     /** Порог SFace по решению (24): t*(N) = 0,53 / 0,46 / 0,41 / 0,35 при N = 10, 50, 100, 200; между узлами – меньший, N &lt; 10 – t(10), N &gt; 200 – t(200). */
