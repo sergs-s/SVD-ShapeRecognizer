@@ -113,6 +113,129 @@ final class XBasePldaF {
         return new Fit(out, info);
     }
 
+    /** Одна модель без выбора по позе и без слияния: mirror – модель, tt – признак. */
+    private static FeiDecompose.Cfg single(XBaseVec.Blk b, XBaseVec.Model m) {
+        List<Probe> pr = b.probes().stream().filter(q -> !q.role().equals(XBaseFinal.CTRL_X)).toList();
+        Map<String, XBaseVec.Row> row = new HashMap<>();
+        for (XBaseVec.Row r : m.rows()) row.put(r.key(), r);
+        List<double[]> own = new ArrayList<>();
+        List<Boolean> ok = new ArrayList<>();
+        List<double[]> ctrl = new ArrayList<>();
+        for (Probe p : pr) {
+            XBaseVec.Row r = row.get(p.key());
+            int bi = 0;
+            for (int g = 1; g < r.dg().length; g++) if (r.dg()[g] < r.dg()[bi]) bi = g;
+            int pIdx = b.g().pIdx.get(p.person());
+            if (p.role().equals(FeiScores.OWN)) {
+                own.add(new double[] {pIdx, r.dg()[bi]});
+                ok.add(bi == r.trueIdx());
+            } else {
+                ctrl.add(new double[] {pIdx, r.dg()[bi]});
+            }
+        }
+        FeiDecompose.Cfg c = new FeiDecompose.Cfg();
+        c.ownP = own.stream().mapToInt(d -> (int) d[0]).toArray();
+        c.ownR = own.stream().mapToDouble(d -> d[1]).toArray();
+        c.ownOk = new boolean[own.size()];
+        for (int i = 0; i < c.ownOk.length; i++) c.ownOk[i] = ok.get(i);
+        c.ctrlP = ctrl.stream().mapToInt(d -> (int) d[0]).toArray();
+        c.ctrlR = ctrl.stream().mapToDouble(d -> d[1]).toArray();
+        return c;
+    }
+
+    private static String quart(double[] a) {
+        double[] v = a.clone();
+        Arrays.sort(v);
+        return String.format(Locale.ROOT, "%.1f / %.1f / %.1f", v[v.length / 4], v[v.length / 2], v[3 * v.length / 4]);
+    }
+
+    /**
+     * Диагностика, не для выбора (gt-plda-f-check, feret-plda-f-check): по готовым −LLR – опознание, квартили LLR₁ у своих и контрольных, каждая модель отдельно (без смешения X и X+mirror при выборе
+     * по позе); одна модель основной задачи – история правдоподобия EM до 200 итераций и доля дисперсии.
+     */
+    static void diagnose(String base, FarExport.Loaded export, Path dir, Map<String, Map<Integer, String>> feiKeys, List<String> selLines, SettingsStore settings, Path out) throws Exception {
+        if (!FrameB.on()) throw new IllegalStateException("plda-f: FACES_FRAMES=b");
+        XBaseFinal.Run r = XBaseFinal.setup(base, false, export, dir, feiKeys, selLines, settings, out);
+        XBaseVec.Setup u = r.u();
+        Path root = r.dir().resolveSibling("plda_f");
+        int[] size = DIMS[0];
+        XBaseFinal.Run rs = runOf(u, root, size);
+        int[][] w = FeiBootstrap.weights(u.persons, u.tpl.b, u.tpl.seed + FeiBootstrap.SEED_OFFSET);
+        StringBuilder t = new StringBuilder("Проба 2 – PLDA – диагностика, НЕ ДЛЯ ВЫБОРА – " + base + " (XBaseEval " + base + "-plda-f-check; " + sizeId(size) + ")\nКод: коммит " + FarMethods.commit() + "\n");
+        t.append("\nгруппа | признак | модель | верный лучший у своих | LLR₁ свои (25 / 50 / 75 %) | LLR₁ контрольные | pAUC ≤ 10 % | EER\n");
+        List<String> groups = base.equals("gt") ? List.of("межс.", "внутри") : List.of("межс.");
+        for (String grp : groups) {
+            List<XBaseVec.Blk> gb = u.blocks.stream().filter(b -> b.group().equals(grp)).toList();
+            for (XBaseFinal.Cfg c : List.of(XBaseFinal.TT1, XBaseFinal.XS)) {
+                for (boolean mirror : new boolean[] {false, true}) {
+                    List<FeiDecompose.Cfg> cs = new ArrayList<>();
+                    for (XBaseVec.Blk b : gb) cs.add(single(b, XBaseVec.find(XBaseFinal.models(rs, b, c, false), "main", mirror)));
+                    XBaseFinalReport.M m = XBaseFinalReport.measure(cs, u.persons, w);
+                    int ok = 0;
+                    int n = 0;
+                    List<double[]> ownL = new ArrayList<>();
+                    List<double[]> ctlL = new ArrayList<>();
+                    for (FeiDecompose.Cfg k : cs) {
+                        for (boolean o : k.ownOk) {
+                            n++;
+                            if (o) ok++;
+                        }
+                        ownL.add(Arrays.stream(k.ownR).map(v -> -v).toArray());
+                        ctlL.add(Arrays.stream(k.ctrlR).map(v -> -v).toArray());
+                    }
+                    t.append(String.format(Locale.ROOT, "%s | %s | %s | %d из %d | %s | %s | %s | %s%n", grp, c.id(), mirror ? "X+mirror" : "X", ok, n, quart(ownL.stream().flatMapToDouble(Arrays::stream).toArray()),
+                            quart(ctlL.stream().flatMapToDouble(Arrays::stream).toArray()), XBaseSepLtp.cell(m.pauc, m.paucRep), XBaseSepLtp.cell(m.sep.eer[3], m.sep.eerRep)));
+                }
+            }
+        }
+        // История EM: основная задача первого блока, L1-tt-xs-F, X
+        XBaseVec.Blk b0 = u.blocks.stream().filter(b -> b.group().equals("межс.")).findFirst().orElseThrow();
+        Set<String> need = new HashSet<>();
+        b0.gal().values().forEach(need::addAll);
+        b0.g().cohort.forEach(need::addAll);
+        Map<String, Mat> fr = new HashMap<>();
+        for (Map.Entry<String, Mat> e : u.fr.entrySet()) if (need.contains(e.getKey())) fr.put(e.getKey(), e.getValue());
+        XBaseEval x = XBasePart4.vectorsB(fr, r.k2(), XBaseFinal.param(XBaseFinal.TT1, u.tpl.params), XBaseFinal.TT1.f(), u.tpl.threads);
+        XBaseEsrc.Task task = XBaseEsrc.tasks(b0, true).get(0);
+        List<List<double[]>> cls = new ArrayList<>();
+        for (List<List<String>> group : List.of(task.gallery(), b0.g().cohort)) {
+            for (List<String> keys : group) {
+                List<double[]> l = new ArrayList<>();
+                for (String k : keys) l.add(x.vec.get(V.L1).get(k));
+                cls.add(l);
+            }
+        }
+        LdaMath.Span span = MldaFast.span(LdaMath.Data.of(cls), 1e-10, Integer.MAX_VALUE);
+        int axes = Math.min(PCA_M, span.basis().length);
+        List<double[][]> train = new ArrayList<>();
+        int pos = 0;
+        int images = 0;
+        for (List<double[]> l : cls) {
+            double[][] xs = new double[l.size()][];
+            for (int i = 0; i < xs.length; i++) xs[i] = Arrays.copyOf(span.y()[pos++], axes);
+            train.add(xs);
+            images += xs.length;
+        }
+        double total = 0;
+        double kept = 0;
+        for (int i = 0; i < span.sigma().length; i++) {
+            total += span.sigma()[i] * span.sigma()[i];
+            if (i < axes) kept += span.sigma()[i] * span.sigma()[i];
+        }
+        PldaEm m = PldaEm.train(train, size[0], size[1], 200, 0);
+        t.append(String.format(Locale.ROOT, "%nМодель X, L1-tt-xs-F, блок %s: классов %d, снимков %d, параметров F и G на ось %d; доля дисперсии в %d осях PCA %.3f%nlog p по итерациям:", b0.name(), train.size(), images, size[0] + size[1], axes, kept / total));
+        for (int i : new int[] {1, 2, 5, 10, 20, 50, 100, 150, 200}) t.append(String.format(Locale.ROOT, " %d: %.1f;", i, m.history[i - 1]));
+        t.append(String.format(Locale.ROOT, "%nотносительное изменение за шаг: на 100-м %.2e, на 200-м %.2e%n", Math.abs(m.history[99] - m.history[98]) / Math.abs(m.history[98]), Math.abs(m.history[199] - m.history[198]) / Math.abs(m.history[198])));
+        double[] sg = m.sigma.clone();
+        Arrays.sort(sg);
+        t.append(String.format(Locale.ROOT, "Σ по осям: наименьшее %.3e, медиана %.3e, наибольшее %.3e%n", sg[0], sg[sg.length / 2], sg[sg.length - 1]));
+        for (Mat q : u.fr.values()) q.release();
+        for (FrameK2.F k : r.k2().values()) k.frame().release();
+        FarMethods.write(root.resolve("xbase_" + base + "_plda_f_check.txt"), t);
+        System.out.print(t);
+        System.out.println("DONE");
+    }
+
     private static double[] project(double[][] basis, double[] x, double[] mean) {
         double[] y = new double[basis.length];
         for (int j = 0; j < y.length; j++) {
