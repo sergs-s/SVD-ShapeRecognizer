@@ -471,6 +471,145 @@ final class XBaseEsrc {
         System.out.println("DONE");
     }
 
+    /**
+     * Диагностика без выбора (gt-esrc-check, GT межс., W; вложения – из контрольной точки): 1) первый шаг пути без словаря = лучший по косинусу; 2) условия
+     * оптимальности и невязка решателя на настоящих данных; 3) энергия пробы: ‖Dβ‖², ‖Aα‖², зазор r₁ / r₂; верный лучший кандидат; 4) строка «без словаря» (A – тот же решатель, D пуст).
+     */
+    static void check(FarExport.Loaded export, Path dir, Map<String, Map<Integer, String>> feiKeys, List<String> selLines, SettingsStore settings, Path out) throws Exception {
+        if (!FrameB.on()) throw new IllegalStateException("esrc: FACES_FRAMES=b");
+        XBaseFinal.Run r = XBaseFinal.setup("gt", false, export, dir, feiKeys, selLines, settings, out);
+        XBaseVec.Setup u = r.u();
+        for (Mat m : u.fr.values()) m.release();
+        for (FrameK2.F k : r.k2().values()) k.frame().release();
+        XBaseVec.Blk b = u.blocks.stream().filter(x -> x.group().equals("межс.")).findFirst().orElseThrow();
+        Path root = r.dir().resolveSibling("esrc");
+        Path nod = root.resolve("check_nodict");
+        Files.createDirectories(nod.resolve("vec"));
+        XBaseFinal.Run rn = new XBaseFinal.Run(u, r.k2(), Map.of(), nod, false, 0);
+        ForkJoinPool pool = new ForkJoinPool(u.tpl.threads);
+        StringBuilder t = new StringBuilder("Этап «к цели», проба 1 – ESRC – диагностика, НЕ ДЛЯ ВЫБОРА (XBaseEval gt-esrc-check; GT межс., W)\nКод: коммит " + FarMethods.commit() + "; ε = " + EPS + "\n\n");
+        t.append("признак, модель | первый шаг без D = лучший по косинусу | макс. |невязка − ε| | макс. нарушение условий оптимальности | ‖Dβ‖², свои / контр. | ‖Aα‖², свои / контр. | 1 − r₁/r₂, медиана, свои / контр. | верный лучший: (32), ESRC, без D\n");
+        for (XBaseFinal.Cfg c : List.of(XBaseFinal.TT1, XBaseFinal.XS)) {
+            List<XBaseVec.Model> fins = XBaseFinal.models(r, b, c, false);
+            List<XBaseVec.Model> ms = new ArrayList<>();
+            for (Task task : tasks(b, false)) {
+                XBaseVec.Model fin = XBaseVec.find(fins, task.name(), task.mirror());
+                Emb e = readEmb(root.resolve("emb").resolve(task.file(b, c)));
+                check(e, fin, task.file(b, c));
+                XBaseVec.Model nm = solve(new Emb(e.centers(), new double[0][], e.keys(), e.probes()), task, fin, pool, null);
+                ms.add(nm);
+                if (!task.name().equals("main")) continue;
+                int ng = e.centers().length;
+                double[][] a = new double[ng][];
+                for (int g = 0; g < ng; g++) a[g] = unit(e.centers()[g]);
+                double[][] ga = new double[ng][ng];
+                for (int i = 0; i < ng; i++) for (int j = 0; j < ng; j++) ga[i][j] = dot(a[i], a[j]);
+                List<double[]> cl = new ArrayList<>(Arrays.asList(a));
+                for (double[] at : e.atoms()) {
+                    double[] un = unit(at);
+                    if (un != null) cl.add(un);
+                }
+                double[][] phi = cl.toArray(new double[0][]);
+                int p = phi.length;
+                double[][] gram = new double[p][p];
+                pool.submit(() -> IntStream.range(0, p).parallel().forEach(i -> {
+                    for (int j = 0; j < p; j++) gram[i][j] = dot(phi[i], phi[j]);
+                })).get();
+                int same = 0;
+                double worstR = 0;
+                double worstK = 0;
+                double[] eD = new double[2];
+                double[] eA = new double[2];
+                int[] cnt = new int[2];
+                List<List<Double>> gaps = List.of(new ArrayList<>(), new ArrayList<>());
+                int own = 0;
+                int okB = 0;
+                int okE = 0;
+                int okN = 0;
+                int nProbes = e.probes().length;
+                for (int i = 0; i < nProbes; i++) {
+                    double[] y = unit(e.probes()[i]);
+                    double[] c0 = new double[ng];
+                    for (int g = 0; g < ng; g++) c0[g] = dot(a[g], y);
+                    EsrcSolver.Result s1 = EsrcSolver.solve(ga, c0, 1.0, 0, 1);
+                    int b1 = -1;
+                    for (int g = 0; g < ng; g++) if (s1.x()[g] != 0) b1 = g;
+                    XBaseVec.Row fr = fin.rows().get(i);
+                    if (b1 == argmin(fr.dg())) same++;
+                    double[] cc = new double[p];
+                    for (int j = 0; j < p; j++) cc[j] = dot(phi[j], y);
+                    EsrcSolver.Result s = EsrcSolver.solve(gram, cc, 1.0, EPS, 20 * Math.min(p, y.length));
+                    double[] res = y.clone();
+                    double[] da = new double[y.length];
+                    double[] dd = new double[y.length];
+                    for (int j = 0; j < p; j++) {
+                        if (s.x()[j] == 0) continue;
+                        double[] target = j < ng ? da : dd;
+                        for (int q = 0; q < y.length; q++) {
+                            res[q] -= s.x()[j] * phi[j][q];
+                            target[q] += s.x()[j] * phi[j][q];
+                        }
+                    }
+                    worstR = Math.max(worstR, Math.abs(Math.sqrt(dot(res, res)) - EPS));
+                    double lam = 0;
+                    for (int j = 0; j < p; j++) lam = Math.max(lam, Math.abs(dot(phi[j], res)));
+                    for (int j = 0; j < p; j++) if (s.x()[j] != 0) worstK = Math.max(worstK, Math.abs(Math.abs(dot(phi[j], res)) - lam));
+                    if (!fr.role().equals(FeiScores.OWN) && !fr.role().equals(FeiScores.CTRL)) continue;
+                    int k = fr.role().equals(FeiScores.OWN) ? 0 : 1;
+                    cnt[k]++;
+                    eD[k] += dot(dd, dd);
+                    eA[k] += dot(da, da);
+                    // невязки ESRC – прежней формулой
+                    double[] bs = y.clone();
+                    for (int q = 0; q < y.length; q++) bs[q] -= dd[q];
+                    double[] rg = new double[ng];
+                    for (int g = 0; g < ng; g++) {
+                        double sum = 0;
+                        for (int q = 0; q < y.length; q++) {
+                            double v = bs[q] - s.x()[g] * a[g][q];
+                            sum += v * v;
+                        }
+                        rg[g] = Math.sqrt(sum);
+                    }
+                    double[] so = rg.clone();
+                    Arrays.sort(so);
+                    gaps.get(k).add(1 - so[0] / so[1]);
+                    if (k == 0) {
+                        own++;
+                        if (argmin(fr.dg()) == fr.trueIdx()) okB++;
+                        if (argmin(rg) == fr.trueIdx()) okE++;
+                        if (argmin(nm.rows().get(i).dg()) == fr.trueIdx()) okN++;
+                    }
+                }
+                t.append(String.format(Locale.ROOT, "%s, %s | %d/%d | %.2e | %.2e | %.3f / %.3f | %.3f / %.3f | %.4f / %.4f | %d, %d, %d из %d%n", c.id(), task.mirror() ? "X+mirror" : "X", same, nProbes, worstR, worstK,
+                        eD[0] / cnt[0], eD[1] / cnt[1], eA[0] / cnt[0], eA[1] / cnt[1], median(gaps.get(0)), median(gaps.get(1)), okB, okE, okN, own));
+            }
+            java.io.Writer w = XBaseVec.writer(XBaseFinal.vfile(rn, b, c), "# Без словаря (XBaseEsrc gt-esrc-check), " + c.name() + "\n# Код: коммит " + FarMethods.commit() + "\n");
+            XBaseVec.write(w, b.name() + " без D " + c.name(), ms);
+            XBaseVec.finish(w, XBaseFinal.vfile(rn, b, c));
+        }
+        pool.shutdown();
+        int[][] wt = FeiBootstrap.weights(u.persons, u.tpl.b, u.tpl.seed + FeiBootstrap.SEED_OFFSET);
+        XBaseFinalReport.M mB = XBaseFinalReport.measure(List.of(XBaseGoalPrep.cfg(b, b.g(), XBaseGoalPrep.fused(r, b, XBaseFinal.TT1, b.g().rOf, b.g().r0))), u.persons, wt);
+        XBaseFinalReport.M mN = XBaseFinalReport.measure(List.of(XBaseGoalPrep.cfg(b, b.g(), XBaseGoalPrep.fused(rn, b, XBaseFinal.TT1, b.g().rOf, b.g().r0))), u.persons, wt);
+        t.append("\nстрока | pAUC ≤ 10 % | EER | FAR 5 % | FAR 1 %\n").append(level("(32) слияние", mB)).append(level("A без словаря, W, слияние", mN));
+        t.append("пара | pAUC ≤ 10 % | EER | FAR 5 % | FAR 1 %\n").append(row("без словаря − (32)", mN, mB));
+        FarMethods.write(root.resolve("xbase_gt_esrc_check.txt"), t);
+        System.out.print(t);
+        System.out.println("DONE");
+    }
+
+    private static int argmin(double[] v) {
+        int b = 0;
+        for (int i = 1; i < v.length; i++) if (v[i] < v[b]) b = i;
+        return b;
+    }
+
+    private static double median(List<Double> l) {
+        double[] v = l.stream().mapToDouble(Double::doubleValue).sorted().toArray();
+        return v.length == 0 ? Double.NaN : v[v.length / 2];
+    }
+
     private static String row(String lab, XBaseFinalReport.M a, XBaseFinalReport.M z) {
         StringBuilder b = new StringBuilder(lab);
         double[][] ds = {FeiNorm.diff(a.paucRep, z.paucRep), FeiNorm.diff(a.sep.eerRep, z.sep.eerRep), FeiNorm.diff(a.sep.errRep[2], z.sep.errRep[2]), FeiNorm.diff(a.sep.errRep[0], z.sep.errRep[0])};
