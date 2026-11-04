@@ -243,7 +243,7 @@ final class XBaseFinalReport {
             for (Map.Entry<String, M> e : ms.entrySet()) {
                 XBaseRule.Sep s = e.getValue().sep;
                 List<String> row = new ArrayList<>(List.of(grp, e.getKey().substring(grp.length() + 1)));
-                for (int k = 0; k < XBaseRule.FARS.length; k++) row.add(XBaseSepLtp.cell(s.err[k], s.errRep[k]));
+                for (int k = 0; k < XBaseRule.FARS.length; k++) row.add(XBaseSepLtp.cell(s.err[k], s.errRep[k]) + (base.equals("vt") ? String.format(Locale.ROOT, " (факт. FAR %.2f %%)", s.far[k]) : ""));
                 row.add(XBaseSepLtp.cell(s.eer[3], s.eerRep));
                 row.add(XBaseSepLtp.cell(e.getValue().pauc, e.getValue().paucRep));
                 meas.append(String.join(" | ", row)).append('\n');
@@ -283,6 +283,10 @@ final class XBaseFinalReport {
             cmp.append("M = 2 − M = 1, ").append(fl).append(" | ").append(ci(a.sep.err[0] - z.sep.err[0], FeiNorm.diff(a.sep.errRep[0], z.sep.errRep[0]))).append(" | ")
                     .append(ci(a.sep.eer[3] - z.sep.eer[3], FeiNorm.diff(a.sep.eerRep, z.sep.eerRep))).append(" | ").append(ci(a.pauc - z.pauc, FeiNorm.diff(a.paucRep,
                     z.paucRep))).append("\n");
+        }
+        if (base.equals("vt")) {
+            List<Long> nc = u.blocks.stream().filter(b -> b.group().equals("M = 1")).map(b -> b.probes().stream().filter(q -> q.role().equals(FeiScores.CTRL)).count()).toList();
+            meas.append("VidTIMIT: порог разделимости – по контрольным чужим ротации, попыток на ротацию ").append(nc).append(" (людей 21 и 22, по 3 попытки); при номинальном FAR 1 % ни одна попытка не допускается: столбец «1 %» – разделимость при фактическом FAR 0 %, не при 1 %; фактический FAR – в скобках.\n\n");
         }
         if (base.equals("vt")) t.append(vtParts(r, u, table, tt));
         t.append(work).append(meas).append(cmp).append(body);
@@ -550,7 +554,9 @@ final class XBaseFinalReport {
         int[][] w = u.tpl.b > 0 ? FeiBootstrap.weights(u.persons, u.tpl.b, u.tpl.seed + FeiBootstrap.SEED_OFFSET) : new int[0][];
         StringBuilder t = new StringBuilder(ADDON_MARK + " (вне постановки, по её списку; Жорик №1 от 04.11) ########\nКод: коммит " + FarMethods.commit() + "; σ₀ = " + sigma + "; B = " + u.tpl.b
                 + ", seed " + (u.tpl.seed + FeiBootstrap.SEED_OFFSET) + "; без обучения.\n");
-        if (r.sm() == 0) t.append("Таблицы «Режим 1:1» основной части отчёта (код 8d36075) не использовать: там у своих сырое d₁, у чужих – d₁ после β, шкалы разные. Действует таблица этого раздела.\n");
+        Path rf0 = r.dir().resolve("final_report_" + base + ".txt");
+        if (r.sm() == 0 && Files.exists(rf0) && Files.readString(rf0, StandardCharsets.UTF_8).contains("Режим 1:1 (отдельная таблица")) t.append("Таблицы «Режим 1:1» основной части отчёта (код 8d36075) не использовать: там у своих сырое d₁, у чужих – d₁ после β, шкалы разные. Действует таблица этого раздела.\n");
+        if (base.equals("vt")) t.append("VidTIMIT: столбец «разд. 1 %» таблиц 1:1 – при фактическом FAR 0 % (контрольных попыток на ротацию 63 и 66, 1 % не допускает ни одной).\n");
         Map<String, List<String>> sf = new LinkedHashMap<>();
         if (base.equals("vt")) {
             sf = sfaceVt(r, settings);
