@@ -588,7 +588,7 @@ public final class XBaseEval {
         } else if (a[0].equals("final-n100")) {
             XBaseFinal.n100(export, dir, feiKeys, selLines, settings, out);
         } else if (a[0].equals("dup-scan")) {
-            XBaseDup.scan(export, settings, out);
+            XBaseDup.scan(export, dir, selLines, settings, out);
         } else if (a[0].equals("final-cmp10")) {
             XBaseFinalReport.cmp10(export, dir, feiKeys, selLines, settings, out);
         } else if (a[0].equals("final-addon")) {

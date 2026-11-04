@@ -40,7 +40,7 @@ final class XBaseDup {
     static final int SHEET_PAIRS = 60;
     static final int SHEET_ROWS = 20;
 
-    record Img(String person, String name, Sample sample, double[] v) {}
+    record Img(String person, String name, String date, java.util.concurrent.Callable<Mat> frame, double[] v) {}
 
     record Pair(String a, String b, double min, String ia, String ib, Img xa, Img xb, double median) {}
 
@@ -50,33 +50,64 @@ final class XBaseDup {
         return 1 - s;
     }
 
-    static void scan(FarExport.Loaded export, SettingsStore settings, Path out) throws IOException {
+    static void scan(FarExport.Loaded export, Path exportDir, List<String> selLines, SettingsStore settings, Path out) throws IOException {
         long t0 = System.nanoTime();
         Path d = out.getParent().resolve("duplicates");
         Files.createDirectories(d);
         FaceRecognizerSF rec = FaceRecognizerSF.create(Paths.get(settings.loadFacesModelsDir()).resolve(FaceAlignment.SFACE_FILE).toString(), "");
         StringBuilder rep = new StringBuilder("Поиск пар-дублей (XBaseEval dup-scan; без обучения)\nКод: коммит " + FarMethods.commit() + "\n1 − cos признаков SFace, кадры alignCrop экспорта; пара людей "
                 + "– наименьшее 1 − cos по парам снимков; кандидаты – ниже 99-го процентиля «свой – свой». Решение о дубле – только глазами.\n");
-        Map<String, Map<String, List<Sample>>> bases = new LinkedHashMap<>();
-        bases.put("fei", export.data().fei());
-        bases.put("muct", export.data().muct());
-        for (Map.Entry<String, Map<String, List<Sample>>> e : bases.entrySet()) {
+        for (Map.Entry<String, Map<String, List<Sample>>> e : List.of(Map.entry("gt", export.data().gt()), Map.entry("fei", export.data().fei()), Map.entry("muct", export.data().muct()))) {
             String base = e.getKey();
             Map<String, List<Img>> imgs = new TreeMap<>();
-            int n = 0;
             for (Map.Entry<String, List<Sample>> p : e.getValue().entrySet()) {
                 for (Sample s : p.getValue()) {
                     Mat c = export.frame(s, GalleryEvaluation.Variant.SFACE);
                     if (c == null) continue;
                     double[] v = GalleryEvaluation.vector(c, GalleryEvaluation.Variant.SFACE, rec);
                     c.release();
-                    imgs.computeIfAbsent(p.getKey(), k -> new ArrayList<>()).add(new Img(p.getKey(), FarExport.stem(s.file()), s, v));
-                    n++;
+                    imgs.computeIfAbsent(p.getKey(), k -> new ArrayList<>()).add(new Img(p.getKey(), FarExport.stem(s.file()), "", () -> export.frame(s, GalleryEvaluation.Variant.SFACE), v));
                 }
             }
+            rep.append(one(base, imgs, d));
+        }
+        rep.append(String.format(Locale.ROOT, "%nВремя: %.0f с%n", (System.nanoTime() - t0) / 1e9));
+        FarMethods.write(d.resolve("dup_scan.txt"), rep);
+        System.out.print(rep);
+        if (System.getenv("FACES_FERET_DIR") != null) feret(exportDir, selLines, settings, rec);
+        System.out.println("DONE");
+    }
+
+    /** FERET: fa/fb всех людей с лицом YuNet; «свой – свой» – только снимки разных дат. Списки и листы – только D:\data\Feret\reports\duplicates\. */
+    static void feret(Path exportDir, List<String> selLines, SettingsStore settings, FaceRecognizerSF rec) throws IOException {
+        long t0 = System.nanoTime();
+        XBaseA0.FeretSetup su = XBaseA0.feretSetup(exportDir, selLines, settings);
+        Path d = su.dir.resolve("reports").resolve("duplicates");
+        Files.createDirectories(d);
+        Map<String, List<Img>> imgs = new TreeMap<>();
+        for (FeretData.Img im : su.imgs) {
+            if (su.det.get(im.key()) == null) continue;
+            Mat c = FeretData.frame(su.dir, "sface", im.key());
+            double[] v = GalleryEvaluation.vector(c, GalleryEvaluation.Variant.SFACE, rec);
+            c.release();
+            String k = im.key();
+            imgs.computeIfAbsent(im.person(), x -> new ArrayList<>()).add(new Img(im.person(), k, im.date(), () -> FeretData.frame(su.dir, "sface", k), v));
+        }
+        StringBuilder rep = new StringBuilder("Поиск пар-дублей FERET (XBaseEval dup-scan; без обучения)\nКод: коммит " + FarMethods.commit() + "\nfa/fb всех людей с лицом YuNet; 1 − cos SFace; «свой – свой» – пары снимков разных дат одного человека.\n");
+        rep.append(one("feret", imgs, d));
+        rep.append(String.format(Locale.ROOT, "%nВремя: %.0f с%n", (System.nanoTime() - t0) / 1e9));
+        FarMethods.write(d.resolve("dup_scan_feret.txt"), rep);
+        System.out.print(rep);
+    }
+
+    /** Одна база: распределение своих, пары людей, список и листы; строка отчёта. */
+    static String one(String base, Map<String, List<Img>> imgs, Path d) throws IOException {
+        StringBuilder rep = new StringBuilder();
+        {
+            int n = imgs.values().stream().mapToInt(List::size).sum();
             List<String> persons = new ArrayList<>(imgs.keySet());
             List<Double> own = new ArrayList<>();
-            for (List<Img> l : imgs.values()) for (int i = 0; i < l.size(); i++) for (int j = i + 1; j < l.size(); j++) own.add(dist(l.get(i).v(), l.get(j).v()));
+            for (List<Img> l : imgs.values()) for (int i = 0; i < l.size(); i++) for (int j = i + 1; j < l.size(); j++) if (base.equals("feret") ? !l.get(i).date().equals(l.get(j).date()) : true) own.add(dist(l.get(i).v(), l.get(j).v()));
             double[] so = own.stream().mapToDouble(Double::doubleValue).sorted().toArray();
             double p99 = FeiBootstrap.quantile(so, 0.99);
             List<Pair> pairs = new ArrayList<>();
@@ -120,16 +151,13 @@ final class XBaseDup {
                 if (i < 15) rep.append(String.format(Locale.ROOT, "%s | %s | %.4f | %s, %s | %.4f%n", q.a(), q.b(), q.min(), q.ia(), q.ib(), q.median()));
             }
             Files.writeString(d.resolve(base + "_pairs.tsv"), tsv.toString(), StandardCharsets.UTF_8);
-            sheets(export, base, pairs.subList(0, Math.min(SHEET_PAIRS, pairs.size())), d);
+            sheets(base, pairs.subList(0, Math.min(SHEET_PAIRS, pairs.size())), d);
         }
-        rep.append(String.format(Locale.ROOT, "%nВремя: %.0f с%n", (System.nanoTime() - t0) / 1e9));
-        FarMethods.write(d.resolve("dup_scan.txt"), rep);
-        System.out.print(rep);
-        System.out.println("DONE");
+        return rep.toString();
     }
 
     /** Листы: строка – лучшая пара снимков (кадры alignCrop рядом) с подписью; по SHEET_ROWS строк, в двух столбцах. */
-    static void sheets(FarExport.Loaded export, String base, List<Pair> pairs, Path d) throws IOException {
+    static void sheets(String base, List<Pair> pairs, Path d) throws IOException {
         int perSheet = SHEET_ROWS * 2;
         for (int s = 0; s * perSheet < pairs.size(); s++) {
             List<Mat> cols = new ArrayList<>();
@@ -138,7 +166,7 @@ final class XBaseDup {
                 for (int r = 0; r < SHEET_ROWS; r++) {
                     int i = s * perSheet + c * SHEET_ROWS + r;
                     if (i >= pairs.size()) break;
-                    rows.add(row(export, pairs.get(i), i + 1));
+                    rows.add(row(pairs.get(i), i + 1));
                 }
                 if (rows.isEmpty()) continue;
                 Mat col = new Mat();
@@ -160,9 +188,15 @@ final class XBaseDup {
     }
 
     /** Строка листа: подпись (номер, люди, снимки, расстояния – латиницей) сверху, под ней два кадра. */
-    static Mat row(FarExport.Loaded export, Pair q, int no) throws IOException {
-        Mat a = export.frame(q.xa().sample(), GalleryEvaluation.Variant.SFACE);
-        Mat b = export.frame(q.xb().sample(), GalleryEvaluation.Variant.SFACE);
+    static Mat row(Pair q, int no) throws IOException {
+        Mat a;
+        Mat b;
+        try {
+            a = q.xa().frame().call();
+            b = q.xb().frame().call();
+        } catch (Exception x) {
+            throw new IOException(x);
+        }
         Mat pair = new Mat();
         Core.hconcat(List.of(a, new Mat(a.rows(), 8, a.type(), new Scalar(255, 255, 255)), b), pair);
         Mat pad = new Mat(a.rows(), 300, a.type(), new Scalar(255, 255, 255));
