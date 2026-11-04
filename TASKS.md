@@ -5151,3 +5151,48 @@ bffc773 + XBaseC1 = 8c98830). Отчёты – `reports/faces/xbase/xbase_fei_xs
   исключений в ошибку своих – 0, в (34) – только GT N = 10 (−0,2 п. п.). Цель
   на строках ответа не достигнута. Прежняя таблица – `thr_n_final` рабочей
   копии и `SVD-faces-data/reports/duel_thr_ff98d7d/` (кадры «а»).
+
+## Передача после /clear (Вася, 04.11.2026)
+
+- Сделано с 02.11: итоговый прогон перед ПО (кадры Б, контроль замораживания,
+  Ф1–Ф5, Ф4, Ф3, отчёты), досчёт по №1 Жорика (сравнение 10, SFace при пороге
+  (24), 1:1), поиск дублей на GT, FEI, MUCT, FERET (решение (38)), пересчёт
+  таблицы N → t по (37), (38). Итоги – разделы выше («Итоговый прогон перед ПО
+  – план» и его продолжение), числа – PLAN.md, абзацы «Итог итогового прогона
+  перед ПО», «Досчитано…», «Итог пересчёта таблицы N → t по (37) и (38)»,
+  «Реестр открытых пунктов». Независимый пересчёт Зануды совпал
+  (`D:\НТБВТ\Зануда_пересчёт_04.11.md`).
+- Код: `e919e4f`, `4d50929`, `538ba60`, `7b5a956`, `d8cf6dd`, `8a15199`,
+  `8d36075`, `2be8025`, `8af794a`, `5b0b10b`, `3d0f67e`, `42ba276`, `57eaec8`.
+  Данные: `15d5766e`, `40dd35ef`, `37ce0bc8`, `6b88a6b0`, `ad2201eb`,
+  `f5ddb5d5`. Запушено Хозяином до `047d2c8` (проект) и `f5ddb5d5` (данные);
+  коммит этой передачи – не запушен.
+- Где файлы (всё вне git, кроме `SVD-faces-data`; из временной копии `wt_final2`
+  перенесено в основную 04.11, сверено побайтно, расхождений нет):
+  - модели и файлы оценок Ф1, Ф3 не-FERET – `reports/faces/xbase/final/`
+    (`vec\`, `v8\`, `final_*_scores.tsv.gz`, `final_report_*.txt`,
+    `final_report_*_n37.txt`, `*_t37.txt`, опись когорты, `frames_b*.txt`),
+    кадры «а» – `reports/faces/xbase/final_a/` (GT – контроль замораживания, FEI);
+    пакеты и журналы цепочек – `reports/faces/xbase/final/chain/`;
+  - FERET – только `D:\data\Feret\reports\`: `eq_b\final\` (`vec\`, `v8\`,
+    оценки, отчёты, `final_cmp10.txt`, `n100\`), `eq_b\duel_thr_n\` (векторы
+    таблицы, r10, r50f), `eq_b\xbase_feret_p4d\` и отчёты `xbase_feret_p4d*.txt`,
+    `eq\final_a\` (контроль замораживания), `duplicates\`;
+  - таблица N → t на кадрах Б: `reports/faces/duel/thr_final_b/` (Ф4; векторы,
+    r10, r50f, подвыборки `f4_subs_*.tsv`); пересчёт по (37), (38):
+    `reports/faces/duel/thr_n37/` (таблица порогов – `duel_thr_N_thr_n37.tsv`,
+    `duel_thr_N.tsv`; новая общая W MUCT `muct_f*_n.tsv.gz`); только (37):
+    `reports/faces/duel/thr_t37/`. `reports/faces/duel/thr_n/` – прежняя таблица
+    Пети на кадрах «а»;
+  - модели p4d GT N = 10: `reports/faces/xbase/xbase_gt_p4d_final/` (и
+    `SVD-faces-data/reports/final_8d36075/p4d/`);
+  - копии отчётов и оценок не-FERET: `SVD-faces-data/reports/final_8d36075/`,
+    `final_n37_57eaec8/`, `duplicates_42ba276/`, `datasets_duplicates.tsv`;
+    кадры Б экспорта – `SVD-faces-data/a_b/`, опись `frames_b_manifest.tsv`;
+    FERET – `D:\data\Feret\derived\a_b\`, VidTIMIT – `D:\data\VidTIMIT\derived\a_b\`, `c\`;
+  - поиск дублей: `reports/faces/duplicates/` (списки, листы кадров).
+- Временные рабочие копии (`wt_final`, `wt_final2` в каталоге scratchpad прежней
+  сессии) больше не нужны: всё нужное перенесено; записи worktree в git можно снять
+  `git worktree prune` после очистки каталога.
+- Открытых вопросов нет. Дальше – задание нового Жорика (этап «к цели»), после
+  разбора Зануды (`D:\НТБВТ\Зануда_к_цели_04.11.md`).
