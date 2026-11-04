@@ -178,6 +178,7 @@ final class XBaseFinalReport {
         StringBuilder body = new StringBuilder();
         StringBuilder work = new StringBuilder("\n=== Рабочий порог (34): t(N) таблицы (Н), приведения по (Т2) своей галереи; s ≤ t – приём ===\nгруппа | строка | N (узел) | t | "
                 + "t выбран | " + SUM_HEAD + "\n");
+        StringBuilder sfaceWork = new StringBuilder();
         StringBuilder cmp = new StringBuilder("\n=== Сравнения разд. 3 (разделимость при FAR 1 % | EER | pAUC ≤ 10 %; п. п.) ===\nпара | FAR 1 % | EER | pAUC\n");
         StringBuilder meas = new StringBuilder("\n=== Меры разд. 3: разделимость при фактическом FAR контроля 1, 2, 5, 10 %, EER, pAUC ≤ 10 % (95 % интервал) ===\nгруппа | строка | 1 % | "
                 + "2 % | 5 % | 10 % | EER | pAUC\n");
@@ -239,6 +240,9 @@ final class XBaseFinalReport {
                             b.parts(), ls.get(i)).cfg.get(XBaseEval.V.SFACE));
                 }
                 ms.put(grp + " SFace", measure(cs, u.persons, w));
+                List<Out1> so = new ArrayList<>();
+                for (int i = 0; i < bs.size(); i++) so.addAll(sfaceAtT(ls.get(i), sfaceT(bs.get(i).g().own.size())));
+                sfaceWork.append(String.format(Locale.ROOT, "%s | SFace | %d | %.2f | решение (24) | %s%n", grp, bs.get(0).g().own.size(), sfaceT(bs.get(0).g().own.size()), summary(so)));
             }
             for (Map.Entry<String, M> e : ms.entrySet()) {
                 XBaseRule.Sep s = e.getValue().sep;
@@ -286,6 +290,7 @@ final class XBaseFinalReport {
                     z.paucRep))).append("\n");
         }
         if (base.equals("vt")) t.append(vtParts(r, u, table, tt));
+        if (sfaceWork.length() > 0) work.append("\n=== SFace при пороге таблицы (24): 1 − cos с лучшим шаблоном ≤ t, между узлами – меньший ===\nгруппа | строка | N | t | источник | ").append(SUM_HEAD).append("\n").append(sfaceWork);
         t.append(work).append(meas).append(cmp).append(body);
         t.append(String.format(Locale.ROOT, "%nВремя: %.0f с%n", (System.nanoTime() - t0) / 1e9));
         Path rf = r.dir().resolve("final_report_" + base + ".txt");
@@ -394,21 +399,146 @@ final class XBaseFinalReport {
         return p.getName(p.getNameCount() - 2) + "/" + p.getName(p.getNameCount() - 1);
     }
 
-    /** 1:1 – худший случай (XBaseAbl3.oneLines по строкам слияния) рядом с 1:N; случайно заявленный – разделимость по моделям. */
+    /**
+     * Строки 1:1 по сырым 1 − cos: у своего заявлен свой; у чужого (контроль, «чужие» порога) – seed &lt; 0: худший случай, заявлен ближайший
+     * человек галереи; иначе заявлен случайный – Random(seed + hashCode ключа снимка), один выбор на обе модели X и X+mirror. Остальные
+     * расстояния – XBaseAbl.ABS_C (решение – только по d₁ до заявленного).
+     */
+    static String claimLines(List<XBaseVec.Model> ms, long seed) {
+        StringBuilder b = new StringBuilder();
+        for (XBaseVec.Model m : ms) {
+            for (XBaseVec.Row r : m.rows()) {
+                int ng = r.dg().length;
+                int keep = r.trueIdx();
+                if (keep < 0 && seed >= 0) keep = new java.util.Random(seed + r.key().hashCode()).nextInt(ng);
+                if (keep < 0) {
+                    keep = 0;
+                    for (int g = 1; g < ng; g++) if (r.dg()[g] < r.dg()[keep]) keep = g;
+                }
+                double[] dg = new double[ng];
+                java.util.Arrays.fill(dg, XBaseAbl.ABS_C);
+                dg[keep] = r.dg()[keep];
+                b.append(XBaseVec.line(m.method(), m.s(), m.gallery(), new XBaseVec.Row(r.role(), r.person(), r.image(), r.key(), r.trueIdx(), dg, r.dci(), r.dco())));
+            }
+        }
+        return b.toString();
+    }
+
+    /** 1:1 (отдельная таблица, L1-tt-xs-F – у слияния оценки не расстояния): 1:N, 1:1 худший случай, 1:1 случайно заявленный. */
     static String oneToOne(XBaseFinal.Run r, List<XBaseVec.Blk> bs, XBaseFinal.Cfg tt, String grp, XBaseVec.Setup u, boolean t2) throws IOException {
-        List<List<XBaseThr.Unit>> us = List.of(new ArrayList<>(), new ArrayList<>());
+        String[] names = {"L1-tt-xs-F 1:N", "L1-tt-xs-F 1:1, заявлен ближайший (худший случай)", "L1-tt-xs-F 1:1, заявлен случайный"};
+        List<List<XBaseThr.Unit>> us = List.of(new ArrayList<>(), new ArrayList<>(), new ArrayList<>());
         int[] clamped = new int[2];
         for (XBaseVec.Blk b : bs) {
             List<XBaseVec.Model> mt = XBaseFinal.models(r, b, tt, false);
-            List<XBaseVec.Model> mx = XBaseFinal.models(r, b, XBaseFinal.XS, false);
-            String lines = XBaseVec.normLines(mt, null, clamped);
             XBaseEval.Gt g = XBaseAbl3.mirrorGt(b.g(), false);
-            us.get(0).add(new XBaseThr.Unit(g, b.gal(), b.pro(), b.parts(), lines, null, t2));
-            us.get(1).add(new XBaseThr.Unit(g, b.gal(), b.pro(), b.parts(), XBaseAbl3.oneLines(lines), null, t2));
+            String[] ls = {XBaseVec.normLines(mt, null, clamped), claimLines(mt, -1), claimLines(mt, u.tpl.seed + FeiBootstrap.SEED_OFFSET)};
+            for (int i = 0; i < ls.length; i++) us.get(i).add(new XBaseThr.Unit(g, b.gal(), b.pro(), b.parts(), ls[i], null, t2));
         }
+        Map<String, XBaseThr.Out> outs = new LinkedHashMap<>();
+        for (int i = 0; i < names.length; i++) outs.put(grp + " " + names[i], XBaseThr.evaluate(grp + " " + names[i], us.get(i), u.persons, u.tpl));
         StringBuilder body = new StringBuilder();
-        XBaseAbl3.own11(body, new StringBuilder(), "Режим 1:1 (отдельная таблица; L1-tt-xs-F, как ревизия 2.8 – оценки слияния не расстояния) – " + grp, grp + " ", us, u.persons, u.tpl, t2);
+        XBaseLbp.tables(body, "Режим 1:1 (отдельная таблица) – " + grp, outs, u.persons, u.tpl, List.of(), t2);
         return body.toString();
+    }
+
+    /** Порог SFace по решению (24): t*(N) = 0,53 / 0,46 / 0,41 / 0,35 при N = 10, 50, 100, 200; между узлами – меньший, N &lt; 10 – t(10), N &gt; 200 – t(200). */
+    static double sfaceT(int n) {
+        int[] nodes = {10, 50, 100, 200};
+        double[] t = {0.53, 0.46, 0.41, 0.35};
+        for (int i = 0; i < nodes.length; i++) if (n <= nodes[i]) return t[i];
+        return t[t.length - 1];
+    }
+
+    /** Исходы SFace при пороге t на 1 − cos с лучшим шаблоном: только основные пробы (свои и контроль). */
+    static List<Out1> sfaceAtT(String lines, double t) {
+        List<Out1> out = new ArrayList<>();
+        for (String l : lines.split("\n")) {
+            if (l.isEmpty()) continue;
+            String[] c = l.split("\t", -1);
+            boolean own = c[3].equals(FeiScores.OWN);
+            if (!own && !c[3].equals(FeiScores.CTRL)) continue;
+            out.add(new Out1(c[3], c[4], own, Double.parseDouble(c[8]) <= t, own && c[6].equals(c[7])));
+        }
+        return out;
+    }
+
+    /**
+     * final-cmp10 (сравнение 10 разд. 3): рабочий порог (34) − П3 по (Т2), ошибка своих, FERET межс., N = 50, галереи и модели feret-p4d (40
+     * галерей). Бутстреп по людям: одни веса на все галереи, B и seed – как в отчётах; пороги галерей в репликах не пересчитываются. Сверка
+     * точки с итогом feret-p4d – по печатаемым счётам.
+     */
+    static void cmp10(FarExport.Loaded export, Path dir, Map<String, Map<Integer, String>> feiKeys, List<String> selLines, SettingsStore settings, Path out)
+            throws IOException {
+        if (!FrameB.on()) throw new IllegalStateException("final-cmp10: FACES_FRAMES=b");
+        String tf = System.getenv("FACES_P4_TABLE");
+        if (tf == null) throw new IllegalStateException("final-cmp10: задайте FACES_P4_TABLE");
+        double t = XBasePart4.readTable(Paths.get(tf)).get(50).t();
+        XBaseVec.Setup u = XBaseVec.setup("feret", export, dir, feiKeys, selLines, settings, out, 0);
+        for (Mat m : u.fr.values()) m.release();
+        Path cd = u.out.resolve("xbase_feret_p4d");
+        XBaseEval.Gt tpl0 = XBaseAbl.copy(u.tpl, u.tpl.cohort, u.tpl.rOf, u.tpl.r0);
+        tpl0.b = 0;
+        int[][] w = FeiBootstrap.weights(u.persons, u.tpl.b, u.tpl.seed + FeiBootstrap.SEED_OFFSET);
+        double[][] e = new double[2][w.length];
+        double[] n = new double[w.length];
+        long[] pe = new long[2];
+        long po = 0;
+        int row = 0;
+        for (XBaseVec.Blk b : u.blocks) {
+            if (!b.group().equals("межс.")) continue;
+            long seed = u.tpl.seed + XBasePart4.D_SEED_OFFSET + 100L * row + 50;
+            row++;
+            java.util.Random rnd = new java.util.Random(seed);
+            Map<String, List<XBaseVec.Model>> mt = XBaseVec.read(cd.resolve(b.name() + "_n50_f1.tsv.gz"));
+            Map<String, List<XBaseVec.Model>> mx = XBaseVec.read(cd.resolve(b.name() + "_n50_f0.tsv.gz"));
+            for (int k = 0; k < XBasePart4.GALLERIES; k++) {
+                List<String> perm = new ArrayList<>(b.g().own);
+                java.util.Collections.shuffle(perm, rnd);
+                List<String> own = new ArrayList<>(perm.subList(0, 50));
+                java.util.Collections.sort(own);
+                XBasePart4.DG d = XBasePart4.gallery(b, own, seed, k, true);
+                List<XBaseVec.Model> tt = mt.get("g" + k);
+                List<XBaseVec.Model> xs = mx.get("g" + k);
+                double[] st = XBaseVec.fuseStats(tt, false);
+                double[] sx = XBaseVec.fuseStats(xs, false);
+                String lines = XBaseVec.fuseLines(tt, xs, XBaseFeat2.W_FUSE, st, sx, d.g().rOf, d.g().r0, null);
+                FeiThreshold.Res r = XBaseThr.evaluate("g" + k, List.of(new XBaseThr.Unit(d.g(), d.gal(), d.pro(), d.parts(), lines, null, true)), u.persons, tpl0).res
+                        .get(XBaseThr.WAYS[2]);
+                FeiDecompose.Cfg c = r.cfgs.get(0);
+                double th = r.theta[3][0][0];
+                for (int i = 0; i < c.ownR.length; i++) {
+                    boolean err = !(c.ownOk[i] && c.ownR[i] <= th);
+                    if (err) pe[0]++;
+                    po++;
+                    for (int q = 0; q < w.length; q++) {
+                        int wt = w[q][c.ownP[i]];
+                        n[q] += wt;
+                        if (err) e[0][q] += wt;
+                    }
+                }
+                for (Out1 o : atT(tt, xs, st, sx, d.g().rOf, d.g().r0, t, ro -> ro.equals(FeiScores.OWN))) {
+                    boolean err = !(o.accepted() && o.right());
+                    if (!err) continue;
+                    pe[1]++;
+                    int p = d.g().pIdx.get(o.person());
+                    for (int q = 0; q < w.length; q++) e[1][q] += w[q][p];
+                }
+            }
+        }
+        double[] rep = new double[w.length];
+        for (int q = 0; q < w.length; q++) rep[q] = 100 * (e[1][q] - e[0][q]) / n[q];
+        double pa = 100.0 * pe[0] / po;
+        double pb = 100.0 * pe[1] / po;
+        StringBuilder s = new StringBuilder("Итоговый прогон, сравнение 10 разд. 3 (XBaseEval final-cmp10)\nКод: коммит " + FarMethods.commit() + "; модели – " + cd + "; t(50) = " + t + "\n");
+        s.append("FERET межс., N = 50, 40 галерей; бутстреп по людям B = ").append(u.tpl.b).append(", seed ").append(u.tpl.seed + FeiBootstrap.SEED_OFFSET)
+                .append("; пороги галерей в репликах не пересчитываются (интервал – по составу людей при данных порогах).\n");
+        s.append(String.format(Locale.ROOT, "П3 по (Т2): %d/%d = %.1f %%; рабочий порог (34): %d/%d = %.1f %%%n", pe[0], po, pa, pe[1], po, pb));
+        s.append("рабочий порог − П3, ошибка своих, п. п.: ").append(ci(pb - pa, rep)).append('\n');
+        Path f = u.out.resolve("final").resolve("final_cmp10.txt");
+        FarMethods.write(f, s);
+        System.out.print(s);
+        System.out.println("DONE");
     }
 
     /** Ф3: строки «фразы», «поворот» и вместе при рабочем пороге N = 22; M = 2 − M = 1 (слияние) – по ротациям вместе. */
