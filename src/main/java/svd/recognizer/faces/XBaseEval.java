@@ -607,6 +607,12 @@ public final class XBaseEval {
             } catch (Exception e) {
                 throw new IllegalStateException(e);
             }
+        } else if (a[0].equals("gt-varsel")) {
+            try {
+                XBaseVarSel.run(export, dir, feiKeys, selLines, settings, out);
+            } catch (Exception e) {
+                throw new IllegalStateException(e);
+            }
         } else if (a[0].equals("gt-esrc-check")) {
             try {
                 XBaseEsrc.check(export, dir, feiKeys, selLines, settings, out);
