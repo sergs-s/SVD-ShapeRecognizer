@@ -424,7 +424,9 @@ mvn compile exec:java@faces-fei-scores  # разбор файла оценок F
     640×480 (`originalimages`, №11 — «a» нейтральный, №12 — «b» улыбка,
     проверено глазами на 12 людях) и справочные наборы по 400 снимков;
     цитировать Thomaz и Giraldi (2010), Image and Vision Computing 28(6),
-    902–913; хранится в приватном `SVD-faces-data`;
+    902–913; хранится в приватном `SVD-faces-data`; люди 002 и 071 – один человек в
+    двух сессиях (опись дублей – `reports/faces/datasets_duplicates.tsv`, копия –
+    `SVD-faces-data/reports/`; `fei_selection.tsv` не менять);
   - Essex (`D:\data\Essex`) — не скачана: сайт недоступен (503).
   - Color FERET (`D:\data\Feret`, папки `dvd1`, `dvd2`; архив
     `colorferet.tar` и его хеш не трогать; *.ppm.bz2 на диск не
