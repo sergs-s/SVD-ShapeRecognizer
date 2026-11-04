@@ -70,17 +70,18 @@ final class EsrcSolver {
             int enter = -1;
             int leave = -1;
             for (int j = 0; j < p; j++) {
-                if (in[j] || blocked[j] || j == dropped) continue;
+                if (in[j] || blocked[j]) continue;
                 double d1 = 1 - a[j];
                 double d2 = 1 + a[j];
-                if (d1 > TINY) {
+                // только что вышедший столбец с прежним знаком сразу не возвращается; с обратным знаком – может в этом же отрезке
+                if (d1 > TINY && !(j == dropped && sign[j] > 0)) {
                     double t = (lambda - c[j]) / d1;
                     if (t > TINY && t < gamma) {
                         gamma = t;
                         enter = j;
                     }
                 }
-                if (d2 > TINY) {
+                if (d2 > TINY && !(j == dropped && sign[j] < 0)) {
                     double t = (lambda + c[j]) / d2;
                     if (t > TINY && t < gamma) {
                         gamma = t;
