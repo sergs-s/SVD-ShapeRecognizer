@@ -144,4 +144,12 @@ public class EsrcSolverTest {
         EsrcSolver.Result s = EsrcSolver.solve(gram(phi), atPhi(phi, phi[0]), 1, 1.5, 10);
         assertEquals(0, s.steps());
     }
+
+    @Test
+    public void sciFormula() {
+        assertEquals(1.0, XBaseEsrc.sci(new double[] {0, 0.3, 0, 0}, 4), 1e-12);
+        assertEquals(0.0, XBaseEsrc.sci(new double[] {0.5, -0.5, 0.5, 0.5}, 4), 1e-12);
+        assertEquals(0.0, XBaseEsrc.sci(new double[4], 4), 0);
+        assertEquals((4 * 0.6 - 1) / 3.0, XBaseEsrc.sci(new double[] {0.6, -0.2, 0.2, 0}, 4), 1e-12);
+    }
 }

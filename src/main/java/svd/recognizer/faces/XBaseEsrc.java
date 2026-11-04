@@ -189,6 +189,22 @@ final class XBaseEsrc {
         return s;
     }
 
+    /**
+     * SCI (Wright и др., TPAMI 2009): (k · max_g ‖α_g‖₁ / ‖α‖₁ − 1) / (k − 1), только по коэффициентам галереи; у нас один столбец на человека,
+     * k – число людей галереи; ‖α‖₁ = 0 – 0 (худшая оценка).
+     */
+    static double sci(double[] alpha, int k) {
+        double sum = 0;
+        double max = 0;
+        for (double a : alpha) {
+            double v = Math.abs(a);
+            sum += v;
+            max = Math.max(max, v);
+        }
+        if (sum == 0) return 0;
+        return (k * max / sum - 1) / (k - 1);
+    }
+
     /** Сведения о решении основной модели. */
     static final class Stat {
         long[] n = new long[2];
@@ -272,7 +288,16 @@ final class XBaseEsrc {
             }
             XBaseVec.Row o = fin.rows().get(i);
             if (!o.key().equals(e.keys().get(i))) throw new IllegalStateException("esrc: пробы разошлись: " + o.key());
-            rows[i] = new XBaseVec.Row(o.role(), o.person(), o.image(), o.key(), o.trueIdx(), dg, new double[0], new double[0]);
+            // Поле dci: SCI и ‖Aα‖² (‖y‖ = 1) – оценка отказа по концентрации коэффициентов галереи
+            double[] alpha = new double[nA];
+            double[] aa = new double[d];
+            for (int j = 0; j < nA; j++) {
+                alpha[j] = x[j];
+                if (x[j] == 0) continue;
+                double[] col = phi[j];
+                for (int q = 0; q < d; q++) aa[q] += x[j] * col[q];
+            }
+            rows[i] = new XBaseVec.Row(o.role(), o.person(), o.image(), o.key(), o.trueIdx(), dg, new double[] {sci(alpha, ng), dot(aa, aa)}, new double[0]);
             info[i] = new double[] {nzAtoms, nzCols, r.steps(), r.capped() ? 1 : 0, System.nanoTime() - t0};
         })).get();
         if (st != null) {
@@ -348,9 +373,10 @@ final class XBaseEsrc {
         }
     }
 
-    static void run(String base, FarExport.Loaded export, Path dir, Map<String, Map<Integer, String>> feiKeys, List<String> selLines, SettingsStore settings, Path out)
+    static void run(String base, boolean sci, FarExport.Loaded export, Path dir, Map<String, Map<Integer, String>> feiKeys, List<String> selLines, SettingsStore settings, Path out)
             throws Exception {
         if (!FrameB.on()) throw new IllegalStateException("esrc: FACES_FRAMES=b");
+        double[] worstDg = {0};
         boolean smoke = "1".equals(System.getenv("FACES_ESRC_SMOKE"));
         long t0 = System.nanoTime();
         XBaseFinal.Run r = XBaseFinal.setup(base, false, export, dir, feiKeys, selLines, settings, out);
@@ -415,7 +441,7 @@ final class XBaseEsrc {
                         poolCls.stream().mapToInt(List::size).sum(), bp.rank(), bp.rows().length));
                 Map<String, double[]> pc = new java.util.concurrent.ConcurrentHashMap<>();
                 for (String space : List.of("W", "PCA")) {
-                    Path sd = root.resolve(space);
+                    Path sd = (sci ? root.resolve("sci") : root).resolve(space);
                     Files.createDirectories(sd.resolve("vec"));
                     XBaseFinal.Run rs = new XBaseFinal.Run(u, r.k2(), Map.of(), sd, false, 0);
                     Path vf = XBaseFinal.vfile(rs, b, c);
@@ -438,7 +464,18 @@ final class XBaseEsrc {
                             e = embP(x, t, bp, poolCls, pc);
                         }
                         Stat st = new Stat();
-                        ms.add(solve(e, t, fin, pool, st));
+                        XBaseVec.Model sm = solve(e, t, fin, pool, st);
+                        if (sci) {
+                            // те же решения: невязки = файл прогона 72d1799
+                            XBaseFinal.Run ro = new XBaseFinal.Run(u, r.k2(), Map.of(), root.resolve(space), false, 0);
+                            XBaseVec.Model om = XBaseVec.find(XBaseFinal.models(ro, b, c, false), t.name(), t.mirror());
+                            for (int i = 0; i < om.rows().size(); i++) {
+                                double[] a = om.rows().get(i).dg();
+                                double[] z = sm.rows().get(i).dg();
+                                for (int g = 0; g < a.length; g++) if (!Double.isInfinite(a[g])) worstDg[0] = Math.max(worstDg[0], Math.abs(a[g] - z[g]));
+                            }
+                        }
+                        ms.add(sm);
                         if (t.name().equals("main")) sb.append(statLine(space + ", " + b.name() + ", " + c.id() + ", " + (t.mirror() ? "X+mirror" : "X"), st));
                     }
                     sec.merge("решатель " + space, (System.nanoTime() - ts0) / 1e9, Double::sum);
@@ -462,11 +499,17 @@ final class XBaseEsrc {
                 + "; ε = " + EPS + "; бутстреп по людям B = " + u.tpl.b + ", seed " + (u.tpl.seed + FeiBootstrap.SEED_OFFSET) + "; людей " + u.persons + "\n");
         t.append("\n=== Объём словаря и PCA ===\n").append(vol);
         t.append("\n=== Сведения о решении, основная модель ===\n").append(stats);
-        if (!smoke) t.append(report(base, r, root, bs, groups, u));
+        if (sci) {
+            if (worstDg[0] > 1e-12) throw new IllegalStateException("esrc: невязки ≠ прогон 72d1799: " + worstDg[0]);
+            t.append(String.format(Locale.ROOT, "%nСверка: те же решения – наибольшее |Δr_g| с файлами прогона 72d1799 = %.2e%n", worstDg[0]));
+            t.append(reportSci(base, r, root, bs, groups, u));
+        } else if (!smoke) {
+            t.append(report(base, r, root, bs, groups, u));
+        }
         t.append("\n=== Время ===\n");
         sec.forEach((k, v) -> t.append(String.format(Locale.ROOT, "%s: %.0f с%n", k, v)));
         t.append(String.format(Locale.ROOT, "%nВсего: %.0f с%n", (System.nanoTime() - t0) / 1e9));
-        FarMethods.write(root.resolve("xbase_" + base + "_esrc" + (smoke ? "_smoke" : "") + ".txt"), t);
+        FarMethods.write(root.resolve("xbase_" + base + "_esrc" + (smoke ? "_smoke" : "") + (sci ? "_sci" : "") + ".txt"), t);
         System.out.print(t);
         System.out.println("DONE");
     }
@@ -629,6 +672,124 @@ final class XBaseEsrc {
     private static String level(String lab, XBaseFinalReport.M m) {
         return lab + String.format(Locale.ROOT, " | %s | %s | %s | %s%n", XBaseSepLtp.cell(m.pauc, m.paucRep), XBaseSepLtp.cell(m.sep.eer[3], m.sep.eerRep), XBaseSepLtp.cell(m.sep.err[2], m.sep.errRep[2]),
                 XBaseSepLtp.cell(m.sep.err[0], m.sep.errRep[0]));
+    }
+
+    /** Поле строки: 0 – −SCI, 1 – −‖Aα‖². */
+    private static double field(XBaseVec.Row q, int f) {
+        return -q.dci()[f];
+    }
+
+    /** μ, σ поля у «чужих» (Т2) всех моделей признака – роли cv q, od q (как XBaseVec.fuseStats). */
+    private static double[] fieldStats(List<XBaseVec.Model> ms, int f) {
+        double s = 0;
+        double ss = 0;
+        long n = 0;
+        for (XBaseVec.Model m : ms) {
+            for (XBaseVec.Row q : m.rows()) {
+                if (q.trueIdx() >= 0 || !(q.role().startsWith(FeiMethods.CV_ROLE) || q.role().startsWith("od"))) continue;
+                double v = field(q, f);
+                s += v;
+                ss += v * v;
+                n++;
+            }
+        }
+        if (n < 2) throw new IllegalStateException("esrc: мало «чужих» (Т2)");
+        double m = s / n;
+        double v = Math.sqrt(Math.max(0, (ss - n * m * m) / (n - 1)));
+        if (v == 0) throw new IllegalStateException("esrc: разброс оценки у «чужих» (Т2) равен нулю");
+        return new double[] {m, v};
+    }
+
+    /**
+     * Конфигурация с оценкой вместо d₁/d₂: опознание (ownOk) – прежнее, по невязкам строки lines. kind: 0 – слияние 0,75 · tt + 0,25 · xs после приведения по (Т2); 1 – L1-tt-xs-F
+     * (модель по позе); 2 – L1-xs-F (X+mirror).
+     */
+    private static FeiDecompose.Cfg scored(XBaseVec.Blk b, XBaseFinal.Run rs, int f, int kind) throws IOException {
+        List<XBaseVec.Model> mt = XBaseFinal.models(rs, b, XBaseFinal.TT1, false);
+        List<XBaseVec.Model> mx = XBaseFinal.models(rs, b, XBaseFinal.XS, false);
+        double[] st = fieldStats(mt, f);
+        double[] sx = fieldStats(mx, f);
+        XBaseVec.Model tX = XBaseVec.find(mt, "main", false);
+        XBaseVec.Model tM = XBaseVec.find(mt, "main", true);
+        XBaseVec.Model xM = XBaseVec.find(mx, "main", true);
+        Map<String, Double> score = new HashMap<>();
+        for (int i = 0; i < tX.rows().size(); i++) {
+            XBaseVec.Row q0 = tX.rows().get(i);
+            XBaseVec.Row rt = b.g().rOf.get(q0.key()) <= b.g().r0 ? q0 : tM.rows().get(i);
+            XBaseVec.Row rx = xM.rows().get(i);
+            if (!rx.key().equals(q0.key())) throw new IllegalStateException("esrc: пробы кандидатов разошлись");
+            double v = kind == 1 ? field(rt, f) : kind == 2 ? field(rx, f)
+                    : XBaseFeat2.W_FUSE * (field(rt, f) - st[0]) / st[1] + (1 - XBaseFeat2.W_FUSE) * (field(rx, f) - sx[0]) / sx[1];
+            score.put(q0.key(), v);
+        }
+        FeiDecompose.Cfg c = kind == 0 ? XBaseGoalPrep.cfg(b, b.g(), XBaseGoalPrep.fused(rs, b, XBaseFinal.TT1, b.g().rOf, b.g().r0))
+                : kind == 1 ? XBaseGoalPrep.cfg(b, b.g(), XBaseVec.normLines(mt, null, new int[2]))
+                : XBaseGoalPrep.cfg(b, XBaseAbl3.mirrorGt(b.g(), true), XBaseVec.normLines(mx, null, new int[2]));
+        int io = 0;
+        int ic = 0;
+        for (Probe p : XBaseEval.probes(b.g(), b.pro())) {
+            if (p.role().equals(FeiScores.OWN)) c.ownR[io++] = score.get(p.key());
+            else c.ctrlR[ic++] = score.get(p.key());
+        }
+        if (io != c.ownR.length || ic != c.ctrlR.length) throw new IllegalStateException("esrc: число проб разошлось");
+        return c;
+    }
+
+    private static String quart(List<Double> l) {
+        double[] v = l.stream().mapToDouble(Double::doubleValue).sorted().toArray();
+        return String.format(Locale.ROOT, "%.3f / %.3f / %.3f", v[v.length / 4], v[v.length / 2], v[3 * v.length / 4]);
+    }
+
+    private static String reportSci(String base, XBaseFinal.Run r, Path root, List<XBaseVec.Blk> bs, List<String> groups, XBaseVec.Setup u) throws IOException {
+        int[][] w = FeiBootstrap.weights(u.persons, u.tpl.b, u.tpl.seed + FeiBootstrap.SEED_OFFSET);
+        Map<String, XBaseFinal.Run> runs = new LinkedHashMap<>();
+        Path sr = root.resolve("sci");
+        runs.put("ESRC-SCI (W)", new XBaseFinal.Run(u, r.k2(), Map.of(), sr.resolve("W"), false, 0));
+        runs.put(base.equals("feret") ? "ESRC-SCI (PCA, вся оболочка половины пула)" : "ESRC-SCI (PCA 500)", new XBaseFinal.Run(u, r.k2(), Map.of(), sr.resolve("PCA"), false, 0));
+        StringBuilder t = new StringBuilder("\n=== ESRC-SCI − (32): оценка −SCI, опознание – по наименьшей невязке; запись: разность [95 %] {97,5 % – Бонферрони, k = 2}; «*» – 95 % без нуля, «**» – 97,5 % без нуля; у pAUC больше – лучше, у прочих меньше – лучше ===\n");
+        StringBuilder diag = new StringBuilder("\n=== Диагностика, не для выбора: квартили по пробам (25 / 50 / 75 %); модель L1-tt-xs-F – по позе, L1-xs-F – X+mirror ===\nгруппа, пространство, признак, величина | свои | контрольные\n");
+        StringBuilder eer = new StringBuilder("\n=== Диагностика, не для выбора: одна ‖Aα‖² как оценка (опознание по невязке) ===\nгруппа, строка | pAUC ≤ 10 % | EER | FAR 5 % | FAR 1 %\n");
+        for (String grp : groups) {
+            List<XBaseVec.Blk> gb = bs.stream().filter(b -> b.group().equals(grp)).toList();
+            List<FeiDecompose.Cfg> csB = new ArrayList<>();
+            for (XBaseVec.Blk b : gb) csB.add(XBaseGoalPrep.cfg(b, b.g(), XBaseGoalPrep.fused(r, b, XBaseFinal.TT1, b.g().rOf, b.g().r0)));
+            XBaseFinalReport.M mB = XBaseFinalReport.measure(csB, u.persons, w);
+            t.append("\n").append(grp).append(": строка | pAUC ≤ 10 % | EER | FAR 5 % | FAR 1 %\n").append(level("(32) слияние", mB));
+            StringBuilder dif = new StringBuilder("пара | pAUC ≤ 10 % | EER | FAR 5 % | FAR 1 %\n");
+            for (Map.Entry<String, XBaseFinal.Run> e : runs.entrySet()) {
+                String[] names = {"слияние", "L1-tt-xs-F", "L1-xs-F"};
+                for (int kind = 0; kind < 3; kind++) {
+                    List<FeiDecompose.Cfg> cs = new ArrayList<>();
+                    for (XBaseVec.Blk b : gb) cs.add(scored(b, e.getValue(), 0, kind));
+                    XBaseFinalReport.M m = XBaseFinalReport.measure(cs, u.persons, w);
+                    t.append(level(e.getKey() + " " + names[kind], m));
+                    if (kind == 0) dif.append(row(e.getKey() + " − (32), слияние", m, mB));
+                }
+                List<FeiDecompose.Cfg> ca = new ArrayList<>();
+                for (XBaseVec.Blk b : gb) ca.add(scored(b, e.getValue(), 1, 0));
+                eer.append(level(grp + ", " + e.getKey() + ", слияние по ‖Aα‖²", XBaseFinalReport.measure(ca, u.persons, w)));
+                String[] fn = {"SCI", "‖Aα‖²"};
+                for (int f = 0; f < 2; f++) {
+                    for (XBaseFinal.Cfg c : List.of(XBaseFinal.TT1, XBaseFinal.XS)) {
+                        List<Double> own = new ArrayList<>();
+                        List<Double> ctl = new ArrayList<>();
+                        for (XBaseVec.Blk b : gb) {
+                            List<XBaseVec.Model> ms = XBaseFinal.models(e.getValue(), b, c, false);
+                            XBaseVec.Model mX = XBaseVec.find(ms, "main", false);
+                            XBaseVec.Model mM = XBaseVec.find(ms, "main", true);
+                            for (int i = 0; i < mM.rows().size(); i++) {
+                                XBaseVec.Row q = c == XBaseFinal.TT1 && b.g().rOf.get(mX.rows().get(i).key()) <= b.g().r0 ? mX.rows().get(i) : mM.rows().get(i);
+                                if (q.role().equals(FeiScores.OWN)) own.add(q.dci()[f]);
+                                else if (q.role().equals(FeiScores.CTRL)) ctl.add(q.dci()[f]);
+                            }
+                        }
+                        diag.append(String.format(Locale.ROOT, "%s, %s, %s, %s | %s | %s%n", grp, e.getKey(), c.id(), fn[f], quart(own), quart(ctl)));
+                    }
+                }
+            }
+            t.append(dif);
+        }
+        return t.append(diag).append(eer).toString();
     }
 
     private static String report(String base, XBaseFinal.Run r, Path root, List<XBaseVec.Blk> bs, List<String> groups, XBaseVec.Setup u) throws IOException {

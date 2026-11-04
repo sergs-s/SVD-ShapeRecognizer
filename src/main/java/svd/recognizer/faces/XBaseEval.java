@@ -595,9 +595,9 @@ public final class XBaseEval {
             } catch (Exception e) {
                 throw new IllegalStateException(e);
             }
-        } else if (a[0].equals("gt-esrc") || a[0].equals("feret-esrc")) {
+        } else if (a[0].equals("gt-esrc") || a[0].equals("feret-esrc") || a[0].equals("gt-esrc-sci") || a[0].equals("feret-esrc-sci")) {
             try {
-                XBaseEsrc.run(a[0].substring(0, a[0].indexOf('-')), export, dir, feiKeys, selLines, settings, out);
+                XBaseEsrc.run(a[0].substring(0, a[0].indexOf('-')), a[0].endsWith("-sci"), export, dir, feiKeys, selLines, settings, out);
             } catch (Exception e) {
                 throw new IllegalStateException(e);
             }
