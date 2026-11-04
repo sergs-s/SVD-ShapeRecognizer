@@ -332,7 +332,7 @@ final class XBaseEsrcLam {
     }
 
     /** μ, σ −SCI у «чужих»: пул – контрольные блока, иначе – роли cv q, od q; σ = 0 (все одинаковы) – 1, число случаев считается. */
-    private static double[] stats(List<XBaseVec.Model> ms, boolean pool, int[] flat) {
+    static double[] stats(List<XBaseVec.Model> ms, boolean pool, int[] flat) {
         double s = 0;
         double ss = 0;
         long n = 0;
@@ -356,7 +356,7 @@ final class XBaseEsrcLam {
     }
 
     /** Конфигурация оценки блока: score – слияние по SCI, ratio – d₁/d₂ по невязкам (строки слияния). */
-    private static FeiDecompose.Cfg cfg(XBaseVec.Blk b, boolean pool, List<XBaseVec.Model> mt, List<XBaseVec.Model> mx, boolean sci, int[] flat) {
+    static FeiDecompose.Cfg cfg(XBaseVec.Blk b, boolean pool, List<XBaseVec.Model> mt, List<XBaseVec.Model> mx, boolean sci, int[] flat) {
         List<Probe> pr = pool ? b.probes() : b.probes().stream().filter(q -> !q.role().equals(XBaseFinal.CTRL_X)).toList();
         String lines = XBaseVec.fuseLines(mt, mx, XBaseFeat2.W_FUSE, XBaseVec.fuseStats(mt, pool), XBaseVec.fuseStats(mx, pool), b.g().rOf, b.g().r0, new int[2]);
         FeiDecompose.Cfg c = XBaseEval.parse(b.g(), java.util.EnumSet.of(V.L1), b.gal(), pr, XBaseFeat2.noParts(), lines).cfg.get(V.L1);
