@@ -1447,7 +1447,7 @@ mvn compile exec:java@faces-fei-scores  # разбор файла оценок F
     `duel_thr_N.tsv` каталога отчёта. GT на 12 потоках и -Xmx16g с пробами Ф2
     не помещается в память: 8 потоков, -Xmx24g; модели FEI – около 4,6 ч на
     вид кадров;
-  - `goal-prep` `<gt|feret>` (`XBaseGoalPrep`, `95567de`; этап «к цели», Жорик №12 от 04.11) – без обучения, по моделям итогового прогона: полуширина парных разностей, объём контроля, О-11, О-10; `FACES_FRAMES=b`, `FACES_FEI_BOOTSTRAP=2000`; 30–60 с; отчёты `reports/faces/xbase/final/goal_prep_gt.txt` (копия – `SVD-faces-data/reports/goal_prep_95567de/`), только `D:dataFereteportseq_binalgoal_prep_feret.txt`;
+  - `goal-prep` `<gt|feret>` (`XBaseGoalPrep`, `95567de`; этап «к цели», Жорик №12 от 04.11) – без обучения, по моделям итогового прогона: полуширина парных разностей, объём контроля, О-11, О-10; `FACES_FRAMES=b`, `FACES_FEI_BOOTSTRAP=2000`; 30–60 с; отчёты `reports/faces/xbase/final/goal_prep_gt.txt` (копия – `SVD-faces-data/reports/goal_prep_95567de/`), только `D:\data\Fereteports\eq_binal\goal_prep_feret.txt`;
   - контрольные точки feret-update (`derived\checkpoint_feret_update_eq`,
     после каждого прохода проекции и части К4) и gt-xs-f
     (`reports/faces/xbase/checkpoint_gt_xs_f`, после каждого варианта);
