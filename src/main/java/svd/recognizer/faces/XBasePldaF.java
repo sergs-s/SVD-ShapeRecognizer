@@ -335,14 +335,14 @@ final class XBasePldaF {
                     }
                 }
             }
-            int[] iters = rows.stream().mapToInt(p -> Integer.parseInt(p[5])).sorted().toArray();
-            int[] ranks = rows.stream().mapToInt(p -> Integer.parseInt(p[3])).sorted().toArray();
-            int[] axes = rows.stream().mapToInt(p -> Integer.parseInt(p[4])).sorted().toArray();
-            double[] ll = rows.stream().mapToDouble(p -> Double.parseDouble(p[6])).sorted().toArray();
+            int[] iters = rows.stream().mapToInt(p -> Integer.parseInt(p[6])).sorted().toArray();
+            int[] ranks = rows.stream().mapToInt(p -> Integer.parseInt(p[4])).sorted().toArray();
+            int[] axes = rows.stream().mapToInt(p -> Integer.parseInt(p[5])).sorted().toArray();
+            double[] ll = rows.stream().mapToDouble(p -> Double.parseDouble(p[7])).sorted().toArray();
             long atMax = Arrays.stream(iters).filter(i -> i >= MAX_ITER).count();
             t.append(String.format(Locale.ROOT, "%s | %d | %d–%d | %d–%d | %d / %d / %d | %d | %.1f / %.1f | %.1f | %.1f | %.2f%n", sizeId(s), rows.size(), ranks[0], ranks[ranks.length - 1], axes[0], axes[axes.length - 1], iters[0], iters[iters.length / 2],
-                    iters[iters.length - 1], atMax, ll[0], ll[ll.length - 1], rows.stream().mapToDouble(p -> Double.parseDouble(p[7])).average().orElse(0), rows.stream().mapToDouble(p -> Double.parseDouble(p[8])).average().orElse(0),
-                    rows.stream().mapToDouble(p -> Double.parseDouble(p[9])).average().orElse(0)));
+                    iters[iters.length - 1], atMax, ll[0], ll[ll.length - 1], rows.stream().mapToDouble(p -> Double.parseDouble(p[8])).average().orElse(0), rows.stream().mapToDouble(p -> Double.parseDouble(p[9])).average().orElse(0),
+                    rows.stream().mapToDouble(p -> Double.parseDouble(p[10])).average().orElse(0)));
         }
         return perModel ? t.append(all).toString() : t.toString();
     }
