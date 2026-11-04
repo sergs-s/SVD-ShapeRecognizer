@@ -792,7 +792,7 @@ final class XBasePart4 {
                 for (Map.Entry<Integer, List<DG>> e : gals.get(bi).entrySet()) {
                     Path p = cd.resolve(blocks.get(bi).name() + "_n" + e.getKey() + "_f" + f + ".tsv.gz");
                     if (Files.exists(p)) {
-                        if (!XBaseVec.readHead(p).contains(commit)) throw new IllegalStateException("p4d: " + p + " – другой коммит кода; удалите каталог " + cd);
+                        if (!XBaseVec.readHead(p).contains(commit) && XBaseFinal.acceptedCommit(XBaseVec.readHead(p)) == null) throw new IllegalStateException("p4d: " + p + " – другой коммит кода; удалите каталог " + cd);
                         continue;
                     }
                     if (x == null) {
@@ -888,7 +888,7 @@ final class XBasePart4 {
         }
         t.append(res).append(st2);
         t.append(String.format(Locale.ROOT, "%nВремя: %.0f с (потоков %d).%n", (System.nanoTime() - t0) / 1e9, u.tpl.threads));
-        FarMethods.write(u.out.resolve("xbase_" + base + "_p4d" + (sm == 0 ? "" : "_smoke" + sm) + ".txt"), t);
+        FarMethods.write(u.out.resolve("xbase_" + base + "_p4d" + (sm == 0 ? "" : "_smoke" + sm) + XBaseFinalReport.tag() + ".txt"), t);
         System.out.print(t);
         System.out.println("DONE");
     }

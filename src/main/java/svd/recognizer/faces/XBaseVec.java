@@ -249,6 +249,12 @@ final class XBaseVec {
     }
 
     /** Чтение: блок → модели (порядок записи: #M, #G, #Z, R). */
+    /** Исключённые люди (дубли; ключ FACES_EXCL_PERSONS, через запятую; решение (38)): строки их проб не читаются; без ключа – всё прежнее. */
+    static boolean excluded(String person) {
+        String s = System.getenv("FACES_EXCL_PERSONS");
+        return s != null && List.of(s.split(",")).contains(person);
+    }
+
     static Map<String, List<Model>> read(Path p) throws IOException {
         Map<String, List<Model>> out = new LinkedHashMap<>();
         try (BufferedReader in = new BufferedReader(new InputStreamReader(new GZIPInputStream(Files.newInputStream(p), 1 << 16), StandardCharsets.UTF_8))) {
@@ -284,7 +290,7 @@ final class XBaseVec {
                     for (int i = 0; i < ng; i++) dg[i] = Double.parseDouble(c[k++]);
                     for (int i = 0; i < ni; i++) di[i] = Double.parseDouble(c[k++]);
                     for (int i = 0; i < no; i++) dn[i] = Double.parseDouble(c[k++]);
-                    rows.add(new Row(c[1], c[2], Integer.parseInt(c[3]), c[4], Integer.parseInt(c[5]), dg, di, dn));
+                    if (!excluded(c[2])) rows.add(new Row(c[1], c[2], Integer.parseInt(c[3]), c[4], Integer.parseInt(c[5]), dg, di, dn));
                 }
             }
         }

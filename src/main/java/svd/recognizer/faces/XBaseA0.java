@@ -568,6 +568,9 @@ final class XBaseA0 {
             kept.computeIfAbsent(im.person(), p -> new TreeMap<>()).computeIfAbsent(im.date(), d -> new ArrayList<>()).add(im);
         }
         su.ro = XBaseFeret.roles(XBaseFeret.dates(su.imgs), kept, tpl.seed);
+        // Дубли (решение (38)): человек исключается после отбора ролей, состав прочих не меняется.
+        su.ro.ctrl = new ArrayList<>(su.ro.ctrl.stream().filter(p -> !XBaseVec.excluded(p)).toList());
+        su.ro.ctrlKeys.keySet().removeIf(XBaseVec::excluded);
         TreeSet<String> ps = new TreeSet<>(su.ro.own2);
         ps.addAll(su.ro.ctrl);
         su.base = XBaseFeret.gt(tpl, new ArrayList<>(ps), su.ro.ctrl, su.ro.ctrlKeys, new ArrayList<>(), su.rOf, su.imageNo);

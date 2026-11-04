@@ -1155,7 +1155,7 @@ final class XBaseFinal {
             for (String kind : kinds) {
                 Path p = cd.resolve("n100_" + (kind.equals("о") ? "hom" : "het") + "_f" + f + ".tsv.gz");
                 if (Files.exists(p)) {
-                    if (!XBaseVec.readHead(p).contains(commit)) throw new IllegalStateException("final-n100: " + p + " – другой коммит кода; удалите каталог " + cd);
+                    if (!XBaseVec.readHead(p).contains(commit) && XBaseFinal.acceptedCommit(XBaseVec.readHead(p)) == null) throw new IllegalStateException("final-n100: " + p + " – другой коммит кода; удалите каталог " + cd);
                     continue;
                 }
                 if (x == null) x = XBaseFeat2.vectors(u.fr, fs, f, XBasePart4.V8);
@@ -1222,7 +1222,7 @@ final class XBaseFinal {
             }
         }
         t.append(String.format(Locale.ROOT, "%nВремя: %.0f с (потоков %d).%n", (System.nanoTime() - t0) / 1e9, u.tpl.threads));
-        FarMethods.write(cd.resolve("final_n100.txt"), t);
+        FarMethods.write(cd.resolve("final_n100" + XBaseFinalReport.tag() + ".txt"), t);
         System.out.print(t);
         System.out.println("DONE");
     }

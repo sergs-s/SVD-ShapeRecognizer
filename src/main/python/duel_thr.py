@@ -25,6 +25,11 @@ sys.stdout.reconfigure(encoding="utf-8")
 
 SEED_HALF = 17100
 DROP = {"fei": {"071"}, "muct": {"429"}, "orl": set()}
+# Пересчёт по решениям (37), (38): DUEL_EXCL – люди вне всех ролей (строки не читаются); DUEL_EXCL_R – вне файлов переобучения (перешли в W: подвыборки
+# прежние); DUEL_KEEP_OLD – новые люди W, не участвующие в розыгрыше подвыборок (прочие подвыборки – прежние); DUEL_RULE37 – выбор t только по межсессионным строкам.
+N_EXCL = set(filter(None, os.environ.get("DUEL_EXCL", "").split(",")))
+N_EXCL_R = set(filter(None, os.environ.get("DUEL_EXCL_R", "").split(",")))
+N_KEEP_OLD = set(filter(None, os.environ.get("DUEL_KEEP_OLD", "").split(",")))
 BASES = ("fei", "muct", "orl")
 
 
@@ -542,7 +547,7 @@ W_FUSE = 0.75
 N_GRID = np.round(np.arange(-12.0, 4.00001, 0.01), 2)
 N_GRID_D1 = np.round(np.arange(-8.0, 4.00001, 0.01), 2)
 # Строки (Н): имя, файлы, в выборе t (без GT; ORL – справочно), номер строки.
-N_ROWS = (("FERET межс.", ("feret_x_p0", "feret_x_p1"), True, 0), ("FERET внутри", ("feret_i_p0", "feret_i_p1"), True, 1),
+N_ROWS = (("FERET межс.", ("feret_x_p0", "feret_x_p1"), True, 0), ("FERET внутри", ("feret_i_p0", "feret_i_p1"), not os.environ.get("DUEL_RULE37"), 1),
           ("GT межс.", ("gt_x",), False, 2), ("GT внутри", ("gt_i",), False, 3),
           ("FEI", ("fei",), True, 4), ("MUCT", ("muct",), True, 5), ("ORL", ("orl",), False, 6))
 
@@ -550,7 +555,7 @@ N_ROWS = (("FERET межс.", ("feret_x_p0", "feret_x_p1"), True, 0), ("FERET в
 class NPass:
     """Проход (Н): галерея (W), строки own / P / Z по кандидату; (Т2), если есть."""
 
-    def __init__(self, path):
+    def __init__(self, path, drop=frozenset()):
         self.t2 = None
         gal, rows = None, []
         with gzip.open(path, "rt", encoding="utf-8") as f:
@@ -561,7 +566,8 @@ class NPass:
                 elif c[0] == "#T2":
                     self.t2 = (float(c[1]), float(c[2]))
                 elif c[0] == "R":
-                    rows.append(c)
+                    if c[2] not in N_EXCL and c[2] not in drop:
+                        rows.append(c)
         self.P = gal
         idx = {p: i for i, p in enumerate(gal)}
         self.role = np.array([r[1] for r in rows])
@@ -614,6 +620,12 @@ def n_run(tt, xs, G):
 # Переобучение W (решение основного Жорика №10, 30.10): N = 10 – FERET межс., FEI, MUCT; N = 50 – проверка на FERET межс. (проход 1) и FEI (в GT межс. 30 человек в W – 50 не выбрать).
 R_ROWS = {10: ("FERET межс.", "FEI", "MUCT"), 50: ("FERET межс.", "FEI")}
 R_FULL = ("FERET межс.", "FEI", "MUCT")  # строки переобучения в таблице (N = 10 и, если проверка N = 50 не прошла, N = 50 – файлы r50f)
+
+
+def n_draw(rng, tt, N):
+    """Подвыборка индексов галереи: новые люди W (N_KEEP_OLD) в розыгрыше не участвуют – прежние подвыборки не меняются."""
+    idx = [i for i, p in enumerate(tt.P) if p not in N_KEEP_OLD]
+    return np.array(idx)[np.sort(rng.choice(len(idx), size=N, replace=False))]
 
 
 def n_rng(rn, N, pi):
@@ -788,7 +800,7 @@ def ntable(vec_dir, feret_dir, out_tsv, out_txt):
                         rng = n_rng(rn, N, pi)
                         reps = 1 if N == len(tt.P) else REPS // len(data[name])
                         for _ in range(reps):
-                            G = np.sort(rng.choice(len(tt.P), size=N, replace=False))
+                            G = n_draw(rng, tt, N)
                             zs, zs0, zp, os_, os0, wr, st = n_run(tt, xs, G)
                             a, b = (zs, os_) if sk == "s" else (zs0, os0)
                             acc.append(curves(a, zp, b, wr, grid))
@@ -1040,7 +1052,7 @@ def n_split_blocks(path):
         tmp = path + ".part.gz"
         with gzip.open(tmp, "wt", encoding="utf-8") as fo:
             fo.writelines(blk)
-        res.append((blk[0].rstrip("\n"), NPass(tmp)))
+        res.append((blk[0].rstrip("\n"), NPass(tmp, N_EXCL_R)))
         os.remove(tmp)
     return res
 

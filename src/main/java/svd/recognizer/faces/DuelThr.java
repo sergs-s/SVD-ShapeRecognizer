@@ -792,6 +792,15 @@ final class DuelThr {
             seed = u.seed;
             Blk b = u.blocks.get(0);
             List<List<String>> wpz = splitPersons(b.own(), seed + N_SPLIT_OFFSET + sp[0], sp[1], sp[2]);
+            // Похожие люди (решение (38)): FACES_DUELTHR_TOGETHER = «кого:к кому» – первый переходит в роль второго, состав прочих не меняется.
+            String tg = System.getenv("FACES_DUELTHR_TOGETHER");
+            if (tg != null && base.equals("muct")) {
+                String[] q2 = tg.split(":");
+                List<String> to = wpz.stream().filter(l -> l.contains(q2[1])).findFirst().orElseThrow();
+                for (List<String> l : wpz) l.remove(q2[0]);
+                to.add(q2[0]);
+                Collections.sort(to);
+            }
             List<String> own = wpz.get(0);
             Map<String, Integer> idx = new HashMap<>();
             for (int i = 0; i < own.size(); i++) idx.put(own.get(i), i);

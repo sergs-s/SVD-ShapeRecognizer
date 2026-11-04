@@ -118,6 +118,12 @@ final class XBaseFinalReport {
         return out;
     }
 
+    /** Суффикс отчётов пересчёта (FACES_RUN_TAG): прежние отчёты не переписываются. */
+    static String tag() {
+        String s = System.getenv("FACES_RUN_TAG");
+        return s == null ? "" : s;
+    }
+
     /** Сводка исходов: ошибка своих, «чужое имя», FAR по попыткам и по людям с КП ↑95. */
     static String summary(List<Out1> l) {
         long own = 0, err = 0, wrong = 0, ca = 0, cn = 0;
@@ -135,7 +141,7 @@ final class XBaseFinalReport {
         }
         long pa = per.values().stream().filter(x -> x).count();
         return String.format(Locale.ROOT, "%s | %s | %d/%d = %.2f %%, КП ↑%.2f %% | %d/%d = %.1f %%, КП ↑%.1f %% | %s", own == 0 ? "–" : String.format(Locale.ROOT,
-                "%d/%d = %.1f %%", err, own, 100.0 * err / own), own == 0 ? "–" : String.format(Locale.ROOT, "%d (%.1f %%)", wrong, 100.0 * wrong / own), ca, cn,
+                "%d/%d = %.1f %%", err, own, 100.0 * err / own) + (tag().isEmpty() ? "" : String.format(Locale.ROOT, ", КП ↑%.1f %%", 100 * FaceEvaluation.binomialUpperBound((int) err, (int) own, 0.95))), own == 0 ? "–" : String.format(Locale.ROOT, "%d (%.1f %%)", wrong, 100.0 * wrong / own), ca, cn,
                 cn == 0 ? 0 : 100.0 * ca / cn, cn == 0 ? 0 : 100 * FaceEvaluation.binomialUpperBound((int) ca, (int) cn, 0.95), pa, per.size(), per.isEmpty() ? 0
                         : 100.0 * pa / per.size(), per.isEmpty() ? 0 : 100 * FaceEvaluation.binomialUpperBound((int) pa, per.size(), 0.95), cn == 0 ? "–"
                         : 100 * FaceEvaluation.binomialUpperBound((int) ca, (int) cn, 0.95) <= 1.1 ? "держит (КП ≤ 1,1 %)" : "не держит");
@@ -291,7 +297,7 @@ final class XBaseFinalReport {
         if (base.equals("vt")) t.append(vtParts(r, u, table, tt));
         t.append(work).append(meas).append(cmp).append(body);
         t.append(String.format(Locale.ROOT, "%nВремя: %.0f с%n", (System.nanoTime() - t0) / 1e9));
-        Path rf = r.dir().resolve("final_report_" + base + ".txt");
+        Path rf = r.dir().resolve("final_report_" + base + tag() + ".txt");
         FarMethods.write(rf, t);
         System.out.print(t);
         System.out.println("DONE");
