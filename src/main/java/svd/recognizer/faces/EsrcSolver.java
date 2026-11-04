@@ -24,6 +24,26 @@ final class EsrcSolver {
     record Result(double[] x, int steps, double rr, boolean capped) {}
 
     static Result solve(double[][] g, double[] c0, double yy, double eps, int maxSteps) {
+        return core(g, c0, yy, eps, maxSteps, null, null);
+    }
+
+    /** Точки одного пути при λ = q · λ_max, λ_max = ‖c‖∞ (Жорик №16); qs – по убыванию; xs[i] – решение при qs[i]; capped – путь оборван до последнего q. */
+    record Path(double[][] xs, int steps, boolean capped) {}
+
+    static Path path(double[][] g, double[] c0, double yy, double[] qs, int maxSteps) {
+        double[][] xs = new double[qs.length][];
+        Result r = core(g, c0, yy, 0, maxSteps, qs, xs);
+        boolean short0 = false;
+        for (int i = 0; i < qs.length; i++) {
+            if (xs[i] == null) {
+                xs[i] = r.x().clone();
+                short0 = r.capped();
+            }
+        }
+        return new Path(xs, r.steps(), short0);
+    }
+
+    private static Result core(double[][] g, double[] c0, double yy, double eps, int maxSteps, double[] qs, double[][] snaps) {
         int p = c0.length;
         double[] x = new double[p];
         double rr = yy;
@@ -39,6 +59,8 @@ final class EsrcSolver {
             }
         }
         if (first < 0) return new Result(x, 0, rr, false);
+        double lambdaMax = lambda;
+        int nextQ = 0;
         List<Integer> act = new ArrayList<>();
         boolean[] in = new boolean[p];
         boolean[] blocked = new boolean[p];
@@ -105,6 +127,15 @@ final class EsrcSolver {
                 double disc = lambda * lambda - (rr - target) / q;
                 gamma = Math.min(gamma, lambda - Math.sqrt(Math.max(disc, 0)));
                 after = target;
+            }
+            if (qs != null) {
+                while (nextQ < qs.length && lambda - gamma <= qs[nextQ] * lambdaMax) {
+                    double t = lambda - qs[nextQ] * lambdaMax;
+                    double[] snap = x.clone();
+                    for (int i = 0; i < k; i++) snap[ai[i]] += t * w[i];
+                    snaps[nextQ++] = snap;
+                }
+                if (nextQ == qs.length) return new Result(x, step, rr, false);
             }
             for (int i = 0; i < k; i++) x[ai[i]] += gamma * w[i];
             for (int j = 0; j < p; j++) c[j] -= gamma * a[j];

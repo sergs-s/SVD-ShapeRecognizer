@@ -174,6 +174,57 @@ public class EsrcSolverTest {
         for (double[] col : phi) assertEquals(0, dot(col, r), 1e-6);
     }
 
+    /** Точки одного пути: при λ = q · λ_max – условия оптимальности с этим λ, при q ближе к 1 активных меньше. */
+    @Test
+    public void pathPointsAreOptimalAtTheirLambda() {
+        double[] qs = {0.3, 0.1, 0.03, 0.01};
+        for (int seed = 0; seed < 20; seed++) {
+            Random rnd = new Random(100 + seed);
+            int d = seed % 2 == 0 ? 40 : 200;
+            int p = seed % 2 == 0 ? 120 : 60;
+            double[][] phi = columns(rnd, d, p);
+            double[] y = columns(rnd, d, 1)[0];
+            double[] c0 = atPhi(phi, y);
+            double lmax = 0;
+            for (double v : c0) lmax = Math.max(lmax, Math.abs(v));
+            EsrcSolver.Path r = EsrcSolver.path(gram(phi), c0, 1, qs, 5000);
+            assertFalse(r.capped());
+            int prev = 0;
+            for (int i = 0; i < qs.length; i++) {
+                double[] x = r.xs()[i];
+                double[] res = residual(phi, x, y);
+                double lam = qs[i] * lmax;
+                int nz = 0;
+                for (int j = 0; j < p; j++) {
+                    double cj = dot(phi[j], res);
+                    if (x[j] != 0) {
+                        nz++;
+                        assertEquals("q " + qs[i] + ", активный " + j, lam * Math.signum(x[j]), cj, 1e-9);
+                    } else {
+                        assertTrue("q " + qs[i] + ", вне активных " + j, Math.abs(cj) <= lam + 1e-9);
+                    }
+                }
+                assertTrue(nz >= prev - 3);
+                prev = nz;
+            }
+        }
+    }
+
+    /** Совпадение с ISTA при том же λ. */
+    @Test
+    public void pathMatchesIsta() {
+        Random rnd = new Random(77);
+        double[][] phi = columns(rnd, 30, 50);
+        double[] y = columns(rnd, 30, 1)[0];
+        double[] c0 = atPhi(phi, y);
+        double lmax = 0;
+        for (double v : c0) lmax = Math.max(lmax, Math.abs(v));
+        EsrcSolver.Path r = EsrcSolver.path(gram(phi), c0, 1, new double[] {0.3}, 5000);
+        double lam = 0.3 * lmax;
+        double[] x = ista(phi, y, lam, 40000);
+        assertEquals(objective(phi, x, y, lam), objective(phi, r.xs()[0], y, lam), 1e-6);
+    }
+
     @Test
     public void sciFormula() {
         assertEquals(1.0, XBaseEsrc.sci(new double[] {0, 0.3, 0, 0}, 4), 1e-12);

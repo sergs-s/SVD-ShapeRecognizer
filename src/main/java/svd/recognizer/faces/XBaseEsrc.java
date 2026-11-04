@@ -96,7 +96,7 @@ final class XBaseEsrc {
         return r;
     }
 
-    private static double[][] atoms(List<List<String>> pool, java.util.function.Function<String, double[]> f) {
+    static double[][] atoms(List<List<String>> pool, java.util.function.Function<String, double[]> f) {
         List<double[]> out = new ArrayList<>();
         for (List<String> cls : pool) {
             List<double[]> ys = cls.stream().map(f).toList();
@@ -174,7 +174,7 @@ final class XBaseEsrc {
     }
 
     /** Исходное признаковое пространство (Жорик №15): центр людей галереи как в модели, пробы и атомы – сами признаки; без вычитания общего среднего. */
-    private static Emb embRaw(XBaseEval x, Task t, double[][] atoms) {
+    static Emb embRaw(XBaseEval x, Task t, double[][] atoms) {
         Map<String, double[]> v = x.vec.get(V.L1);
         Map<String, double[]> w = x.mir.get(V.L1);
         int n0 = v.values().iterator().next().length;
@@ -204,7 +204,7 @@ final class XBaseEsrc {
         return new Emb(c, atoms, keys, ys);
     }
 
-    private static double[] unit(double[] a) {
+    static double[] unit(double[] a) {
         double s = 0;
         for (double v : a) s += v * v;
         s = Math.sqrt(s);
@@ -214,7 +214,7 @@ final class XBaseEsrc {
         return r;
     }
 
-    private static double dot(double[] a, double[] b) {
+    static double dot(double[] a, double[] b) {
         double s = 0;
         for (int i = 0; i < a.length; i++) s += a[i] * b[i];
         return s;
@@ -389,6 +389,10 @@ final class XBaseEsrc {
 
     /** Сверка: 1 − cos по вложениям = векторы итогового прогона. */
     private static void check(Emb e, XBaseVec.Model fin, String lab) {
+        checkDiff(e, fin, lab);
+    }
+
+    static double checkDiff(Emb e, XBaseVec.Model fin, String lab) {
         if (fin.rows().size() != e.probes().length) throw new IllegalStateException("esrc: число проб ≠ итоговый прогон: " + lab);
         double worst = 0;
         for (int i = 0; i < e.probes().length; i++) {
@@ -400,6 +404,7 @@ final class XBaseEsrc {
             }
         }
         if (worst > 1e-12) throw new IllegalStateException("esrc: вложения ≠ векторы итогового прогона, " + lab + ": " + worst);
+        return worst;
     }
 
     private static String treeOfSrc() {
@@ -696,7 +701,7 @@ final class XBaseEsrc {
         return v.length == 0 ? Double.NaN : v[v.length / 2];
     }
 
-    private static String row(String lab, XBaseFinalReport.M a, XBaseFinalReport.M z) {
+    static String row(String lab, XBaseFinalReport.M a, XBaseFinalReport.M z) {
         StringBuilder b = new StringBuilder(lab);
         double[][] ds = {FeiNorm.diff(a.paucRep, z.paucRep), FeiNorm.diff(a.sep.eerRep, z.sep.eerRep), FeiNorm.diff(a.sep.errRep[2], z.sep.errRep[2]), FeiNorm.diff(a.sep.errRep[0], z.sep.errRep[0])};
         double[] ps = {a.pauc - z.pauc, a.sep.eer[3] - z.sep.eer[3], a.sep.err[2] - z.sep.err[2], a.sep.err[0] - z.sep.err[0]};
@@ -712,7 +717,7 @@ final class XBaseEsrc {
         return b.append('\n').toString();
     }
 
-    private static String level(String lab, XBaseFinalReport.M m) {
+    static String level(String lab, XBaseFinalReport.M m) {
         return lab + String.format(Locale.ROOT, " | %s | %s | %s | %s%n", XBaseSepLtp.cell(m.pauc, m.paucRep), XBaseSepLtp.cell(m.sep.eer[3], m.sep.eerRep), XBaseSepLtp.cell(m.sep.err[2], m.sep.errRep[2]),
                 XBaseSepLtp.cell(m.sep.err[0], m.sep.errRep[0]));
     }

@@ -589,6 +589,12 @@ public final class XBaseEval {
             XBaseFinal.n100(export, dir, feiKeys, selLines, settings, out);
         } else if (a[0].equals("dup-scan")) {
             XBaseDup.scan(export, dir, selLines, settings, out);
+        } else if (a[0].equals("pool-esrc-lam") || a[0].equals("gt-esrc-lam") || a[0].equals("feret-esrc-lam")) {
+            try {
+                XBaseEsrcLam.run(a[0].substring(0, a[0].indexOf('-')), export, dir, feiKeys, selLines, settings, out);
+            } catch (Exception e) {
+                throw new IllegalStateException(e);
+            }
         } else if (a[0].equals("gt-esrc-check")) {
             try {
                 XBaseEsrc.check(export, dir, feiKeys, selLines, settings, out);
