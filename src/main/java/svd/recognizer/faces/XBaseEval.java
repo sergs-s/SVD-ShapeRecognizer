@@ -587,6 +587,8 @@ public final class XBaseEval {
             XBaseFinal.v8(a[1], Paths.get(System.getenv("FACES_FERET_DIR")), out);
         } else if (a[0].equals("final-n100")) {
             XBaseFinal.n100(export, dir, feiKeys, selLines, settings, out);
+        } else if (a[0].equals("dup-scan")) {
+            XBaseDup.scan(export, settings, out);
         } else if (a[0].equals("final-cmp10")) {
             XBaseFinalReport.cmp10(export, dir, feiKeys, selLines, settings, out);
         } else if (a[0].equals("final-addon")) {
