@@ -102,16 +102,11 @@ final class PldaEm {
 
     /** Столбцы – k главных собственных векторов, умноженных на √(собственное значение). */
     private static double[][] topScaled(double[][] s, int k) {
-        org.apache.commons.math3.linear.EigenDecomposition e = new org.apache.commons.math3.linear.EigenDecomposition(new org.apache.commons.math3.linear.Array2DRowRealMatrix(s, false));
-        double[] v = e.getRealEigenvalues();
-        Integer[] idx = new Integer[v.length];
-        for (int i = 0; i < idx.length; i++) idx[i] = i;
-        java.util.Arrays.sort(idx, (a, b) -> Double.compare(v[b], v[a]));
+        LdaMath.Eigen e = MldaFast.eigen(s);
         double[][] out = new double[s.length][k];
-        for (int j = 0; j < k && j < v.length; j++) {
-            double l = Math.sqrt(Math.max(v[idx[j]], 0));
-            double[] u = e.getEigenvector(idx[j]).toArray();
-            for (int i = 0; i < s.length; i++) out[i][j] = l * u[i];
+        for (int j = 0; j < k && j < s.length; j++) {
+            double l = Math.sqrt(Math.max(e.values()[j], 0));
+            for (int i = 0; i < s.length; i++) out[i][j] = l * e.vectors()[i][j];
         }
         return out;
     }
