@@ -130,6 +130,8 @@ final class XBaseVarSel {
         Files.createDirectories(root.resolve("vec"));
         XBaseFinal.Run rs = new XBaseFinal.Run(u, r.k2(), Map.of(), root, false, 0);
         Set<String> need = new HashSet<>();
+        u.cin.forEach(need::addAll);
+        u.cout.forEach(need::addAll);
         for (XBaseVec.Blk b : news) {
             b.gal().values().forEach(need::addAll);
             b.g().cohort.forEach(need::addAll);
