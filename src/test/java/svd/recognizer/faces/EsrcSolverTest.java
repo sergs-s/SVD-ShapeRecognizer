@@ -145,6 +145,35 @@ public class EsrcSolverTest {
         assertEquals(0, s.steps());
     }
 
+    /** Как словарь ESRC: разности от центра дают зависимые столбцы; размерность больше числа столбцов, ε недостижимо. */
+    @Test
+    public void dependentColumnsUnreachableEpsilon() {
+        Random rnd = new Random(21);
+        int d = 200;
+        double[][] raw = columns(rnd, d, 30);
+        double[][] phi = new double[30][d];
+        for (int c = 0; c < 10; c++) {
+            double[] m = new double[d];
+            for (int i = 0; i < 3; i++) for (int q = 0; q < d; q++) m[q] += raw[3 * c + i][q] / 3;
+            for (int i = 0; i < 3; i++) {
+                double n = 0;
+                for (int q = 0; q < d; q++) {
+                    phi[3 * c + i][q] = raw[3 * c + i][q] - m[q];
+                    n += phi[3 * c + i][q] * phi[3 * c + i][q];
+                }
+                n = Math.sqrt(n);
+                for (int q = 0; q < d; q++) phi[3 * c + i][q] /= n;
+            }
+        }
+        double[] y = columns(rnd, d, 1)[0];
+        EsrcSolver.Result s = EsrcSolver.solve(gram(phi), atPhi(phi, y), 1, 0.05, 2000);
+        assertFalse(s.capped());
+        double[] r = residual(phi, s.x(), y);
+        assertEquals(s.rr(), dot(r, r), 1e-8);
+        assertTrue(s.rr() > 0.05 * 0.05);
+        for (double[] col : phi) assertEquals(0, dot(col, r), 1e-6);
+    }
+
     @Test
     public void sciFormula() {
         assertEquals(1.0, XBaseEsrc.sci(new double[] {0, 0.3, 0, 0}, 4), 1e-12);

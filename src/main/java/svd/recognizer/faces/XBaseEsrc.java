@@ -173,6 +173,37 @@ final class XBaseEsrc {
         return new Emb(c, atoms(pool, k -> cache.computeIfAbsent(k, q -> b.project(v.get(q)))), keys, ys);
     }
 
+    /** Исходное признаковое пространство (Жорик №15): центр людей галереи как в модели, пробы и атомы – сами признаки; без вычитания общего среднего. */
+    private static Emb embRaw(XBaseEval x, Task t, double[][] atoms) {
+        Map<String, double[]> v = x.vec.get(V.L1);
+        Map<String, double[]> w = x.mir.get(V.L1);
+        int n0 = v.values().iterator().next().length;
+        double[][] c = new double[t.gallery().size()][];
+        for (int g = 0; g < c.length; g++) {
+            double[] m = new double[n0];
+            int n = 0;
+            for (String k : t.gallery().get(g)) {
+                double[] a = v.get(k);
+                for (int i = 0; i < n0; i++) m[i] += a[i];
+                n++;
+                if (t.mirror()) {
+                    double[] z = w.get(k);
+                    for (int i = 0; i < n0; i++) m[i] += z[i];
+                    n++;
+                }
+            }
+            for (int i = 0; i < n0; i++) m[i] /= n;
+            c[g] = m;
+        }
+        double[][] ys = new double[t.probes().size()][];
+        List<String> keys = new ArrayList<>();
+        for (int i = 0; i < ys.length; i++) {
+            keys.add(t.probes().get(i).key());
+            ys[i] = v.get(keys.get(i));
+        }
+        return new Emb(c, atoms, keys, ys);
+    }
+
     private static double[] unit(double[] a) {
         double s = 0;
         for (double v : a) s += v * v;
@@ -216,6 +247,9 @@ final class XBaseEsrc {
         double nanos;
         long solves;
         long capped;
+        long reached;
+        double rEndSum;
+        double rEndMax;
         int d;
         int p;
     }
@@ -246,7 +280,7 @@ final class XBaseEsrc {
         int maxSteps = 20 * Math.max(1, Math.min(p, d));
         int nr = e.probes().length;
         XBaseVec.Row[] rows = new XBaseVec.Row[nr];
-        double[][] info = new double[nr][5];
+        double[][] info = new double[nr][6];
         pool.submit(() -> IntStream.range(0, nr).parallel().forEach(i -> {
             long t0 = System.nanoTime();
             double[] y = unit(e.probes()[i]);
@@ -298,7 +332,7 @@ final class XBaseEsrc {
                 for (int q = 0; q < d; q++) aa[q] += x[j] * col[q];
             }
             rows[i] = new XBaseVec.Row(o.role(), o.person(), o.image(), o.key(), o.trueIdx(), dg, new double[] {sci(alpha, ng), dot(aa, aa)}, new double[0]);
-            info[i] = new double[] {nzAtoms, nzCols, r.steps(), r.capped() ? 1 : 0, System.nanoTime() - t0};
+            info[i] = new double[] {nzAtoms, nzCols, r.steps(), r.capped() ? 1 : 0, System.nanoTime() - t0, Math.sqrt(Math.max(r.rr(), 0))};
         })).get();
         if (st != null) {
             st.d = d;
@@ -307,6 +341,9 @@ final class XBaseEsrc {
                 st.nanos += info[i][4];
                 st.solves++;
                 st.capped += (long) info[i][3];
+                if (info[i][5] <= EPS + 1e-9) st.reached++;
+                st.rEndSum += info[i][5];
+                st.rEndMax = Math.max(st.rEndMax, info[i][5]);
                 XBaseVec.Row o = rows[i];
                 boolean own = o.role().equals(FeiScores.OWN);
                 if (!own && !o.role().equals(FeiScores.CTRL)) continue;
@@ -325,14 +362,14 @@ final class XBaseEsrc {
     }
 
     private static String statLine(String lab, Stat s) {
-        return String.format(Locale.ROOT, "%s | %d × %d | %.2f %% (%d/%d) | %.2f %% (%d/%d) | %.2f %% / %.2f %% | %.1f / %.1f | %.2f / %.2f | %.1f / %.1f | %.1f | %d%n", lab, s.d, s.p,
+        return String.format(Locale.ROOT, "%s | %d × %d | %.2f %% (%d/%d) | %.2f %% (%d/%d) | %.2f %% / %.2f %% | %.1f / %.1f | %.2f / %.2f | %.1f / %.1f | %.1f | %d | %.1f %% | %.4f / %.4f%n", lab, s.d, s.p,
                 100.0 * s.ties[0] / Math.max(1, s.n[0]), s.ties[0], s.n[0], 100.0 * s.ties[1] / Math.max(1, s.n[1]), s.ties[1], s.n[1], 100.0 * s.noA[0] / Math.max(1, s.n[0]),
                 100.0 * s.noA[1] / Math.max(1, s.n[1]), s.atoms[0] / Math.max(1, s.n[0]), s.atoms[1] / Math.max(1, s.n[1]), s.cols[0] / Math.max(1, s.n[0]), s.cols[1] / Math.max(1, s.n[1]),
-                s.steps[0] / Math.max(1, s.n[0]), s.steps[1] / Math.max(1, s.n[1]), s.nanos / Math.max(1, s.solves) / 1e6, s.capped);
+                s.steps[0] / Math.max(1, s.n[0]), s.steps[1] / Math.max(1, s.n[1]), s.nanos / Math.max(1, s.solves) / 1e6, s.capped, 100.0 * s.reached / Math.max(1, s.solves), s.rEndSum / Math.max(1, s.solves), s.rEndMax);
     }
 
     static final String STAT_HEAD = "пространство, блок, признак, модель | d × p | r₁ = r₂, свои | r₁ = r₂, контрольные | без столбцов A, свои / контр. | атомов D, свои / контр. | столбцов A, свои / контр. "
-            + "| шагов, свои / контр. | мс на решение (один поток) | оборвано по пределу\n";
+            + "| шагов, свои / контр. | мс на решение (один поток) | оборвано по пределу | ε достигнуто | невязка в конце, среднее / макс.\n";
 
     private static void writeEmb(Path f, Emb e) throws IOException {
         Path tmp = f.resolveSibling(f.getFileName() + ".tmp");
@@ -373,7 +410,7 @@ final class XBaseEsrc {
         }
     }
 
-    static void run(String base, boolean sci, FarExport.Loaded export, Path dir, Map<String, Map<Integer, String>> feiKeys, List<String> selLines, SettingsStore settings, Path out)
+    static void run(String base, boolean sci, boolean raw, FarExport.Loaded export, Path dir, Map<String, Map<Integer, String>> feiKeys, List<String> selLines, SettingsStore settings, Path out)
             throws Exception {
         if (!FrameB.on()) throw new IllegalStateException("esrc: FACES_FRAMES=b");
         double[] worstDg = {0};
@@ -421,7 +458,7 @@ final class XBaseEsrc {
                 List<Callable<Void>> jobs = new ArrayList<>();
                 for (Task t : ts) {
                     Path f = embDir.resolve(t.file(b, c));
-                    if (Files.exists(f)) continue;
+                    if (raw || Files.exists(f)) continue;
                     jobs.add(() -> {
                         writeEmb(f, embW(x, t, b.g().cohort, poolCls));
                         System.out.printf(Locale.ROOT, "esrc %s: W %s готово%n", base, f.getFileName());
@@ -436,12 +473,14 @@ final class XBaseEsrc {
                     ex.shutdown();
                 }
                 sec.merge("W", (System.nanoTime() - tw) / 1e9, Double::sum);
-                Basis bp = pca(x, poolCls);
-                vol.append(String.format(Locale.ROOT, "%s %s: классов пула %d, снимков %d, ранг PCA %d, взято осей %d%n", b.name(), c.id(), poolCls.size(),
+                Basis bp = raw ? null : pca(x, poolCls);
+                double[][] rawAtoms = raw ? atoms(poolCls, x.vec.get(V.L1)::get) : null;
+                vol.append(raw ? String.format(Locale.ROOT, "%s %s: классов пула %d, снимков %d, исходное пространство%n", b.name(), c.id(), poolCls.size(), poolCls.stream().mapToInt(List::size).sum())
+                        : String.format(Locale.ROOT, "%s %s: классов пула %d, снимков %d, ранг PCA %d, взято осей %d%n", b.name(), c.id(), poolCls.size(),
                         poolCls.stream().mapToInt(List::size).sum(), bp.rank(), bp.rows().length));
                 Map<String, double[]> pc = new java.util.concurrent.ConcurrentHashMap<>();
-                for (String space : List.of("W", "PCA")) {
-                    Path sd = (sci ? root.resolve("sci") : root).resolve(space);
+                for (String space : raw ? List.of("RAW") : List.of("W", "PCA")) {
+                    Path sd = (raw ? root.resolve("raw") : sci ? root.resolve("sci") : root).resolve(space);
                     Files.createDirectories(sd.resolve("vec"));
                     XBaseFinal.Run rs = new XBaseFinal.Run(u, r.k2(), Map.of(), sd, false, 0);
                     Path vf = XBaseFinal.vfile(rs, b, c);
@@ -457,7 +496,9 @@ final class XBaseEsrc {
                     for (Task t : ts) {
                         XBaseVec.Model fin = XBaseVec.find(fins, t.name(), t.mirror());
                         Emb e;
-                        if (space.equals("W")) {
+                        if (raw) {
+                            e = embRaw(x, t, rawAtoms);
+                        } else if (space.equals("W")) {
                             e = readEmb(embDir.resolve(t.file(b, c)));
                             check(e, fin, t.file(b, c));
                         } else {
@@ -465,7 +506,7 @@ final class XBaseEsrc {
                         }
                         Stat st = new Stat();
                         XBaseVec.Model sm = solve(e, t, fin, pool, st);
-                        if (sci) {
+                        if (sci && !raw) {
                             // те же решения: невязки = файл прогона 72d1799
                             XBaseFinal.Run ro = new XBaseFinal.Run(u, r.k2(), Map.of(), root.resolve(space), false, 0);
                             XBaseVec.Model om = XBaseVec.find(XBaseFinal.models(ro, b, c, false), t.name(), t.mirror());
@@ -499,7 +540,9 @@ final class XBaseEsrc {
                 + "; ε = " + EPS + "; бутстреп по людям B = " + u.tpl.b + ", seed " + (u.tpl.seed + FeiBootstrap.SEED_OFFSET) + "; людей " + u.persons + "\n");
         t.append("\n=== Объём словаря и PCA ===\n").append(vol);
         t.append("\n=== Сведения о решении, основная модель ===\n").append(stats);
-        if (sci) {
+        if (raw) {
+            if (!smoke) t.append(reportRaw(base, r, root, bs, groups, u));
+        } else if (sci) {
             if (worstDg[0] > 1e-12) throw new IllegalStateException("esrc: невязки ≠ прогон 72d1799: " + worstDg[0]);
             t.append(String.format(Locale.ROOT, "%nСверка: те же решения – наибольшее |Δr_g| с файлами прогона 72d1799 = %.2e%n", worstDg[0]));
             t.append(reportSci(base, r, root, bs, groups, u));
@@ -509,7 +552,7 @@ final class XBaseEsrc {
         t.append("\n=== Время ===\n");
         sec.forEach((k, v) -> t.append(String.format(Locale.ROOT, "%s: %.0f с%n", k, v)));
         t.append(String.format(Locale.ROOT, "%nВсего: %.0f с%n", (System.nanoTime() - t0) / 1e9));
-        FarMethods.write(root.resolve("xbase_" + base + "_esrc" + (smoke ? "_smoke" : "") + (sci ? "_sci" : "") + ".txt"), t);
+        FarMethods.write(root.resolve("xbase_" + base + "_esrc" + (smoke ? "_smoke" : "") + (raw ? "_raw" : sci ? "_sci" : "") + ".txt"), t);
         System.out.print(t);
         System.out.println("DONE");
     }
@@ -741,11 +784,22 @@ final class XBaseEsrc {
     }
 
     private static String reportSci(String base, XBaseFinal.Run r, Path root, List<XBaseVec.Blk> bs, List<String> groups, XBaseVec.Setup u) throws IOException {
-        int[][] w = FeiBootstrap.weights(u.persons, u.tpl.b, u.tpl.seed + FeiBootstrap.SEED_OFFSET);
         Map<String, XBaseFinal.Run> runs = new LinkedHashMap<>();
         Path sr = root.resolve("sci");
         runs.put("ESRC-SCI (W)", new XBaseFinal.Run(u, r.k2(), Map.of(), sr.resolve("W"), false, 0));
         runs.put(base.equals("feret") ? "ESRC-SCI (PCA, вся оболочка половины пула)" : "ESRC-SCI (PCA 500)", new XBaseFinal.Run(u, r.k2(), Map.of(), sr.resolve("PCA"), false, 0));
+        return scoreTables(r, bs, groups, u, runs, false);
+    }
+
+    /** Жорик №15: исходное пространство, одна строка (95 %), d₁/d₂ по невязкам – справочно. */
+    private static String reportRaw(String base, XBaseFinal.Run r, Path root, List<XBaseVec.Blk> bs, List<String> groups, XBaseVec.Setup u) throws IOException {
+        Map<String, XBaseFinal.Run> runs = new LinkedHashMap<>();
+        runs.put("ESRC-SCI (исходное пространство)", new XBaseFinal.Run(u, r.k2(), Map.of(), root.resolve("raw").resolve("RAW"), false, 0));
+        return "\nОдна строка: поправки на множественность нет, основной интервал – 95 % (квадратные скобки); столбцы A и y без вычитания общего среднего.\n" + scoreTables(r, bs, groups, u, runs, true);
+    }
+
+    private static String scoreTables(XBaseFinal.Run r, List<XBaseVec.Blk> bs, List<String> groups, XBaseVec.Setup u, Map<String, XBaseFinal.Run> runs, boolean withRatio) throws IOException {
+        int[][] w = FeiBootstrap.weights(u.persons, u.tpl.b, u.tpl.seed + FeiBootstrap.SEED_OFFSET);
         StringBuilder t = new StringBuilder("\n=== ESRC-SCI − (32): оценка −SCI, опознание – по наименьшей невязке; запись: разность [95 %] {97,5 % – Бонферрони, k = 2}; «*» – 95 % без нуля, «**» – 97,5 % без нуля; у pAUC больше – лучше, у прочих меньше – лучше ===\n");
         StringBuilder diag = new StringBuilder("\n=== Диагностика, не для выбора: квартили по пробам (25 / 50 / 75 %); модель L1-tt-xs-F – по позе, L1-xs-F – X+mirror ===\nгруппа, пространство, признак, величина | свои | контрольные\n");
         StringBuilder eer = new StringBuilder("\n=== Диагностика, не для выбора: одна ‖Aα‖² как оценка (опознание по невязке) ===\nгруппа, строка | pAUC ≤ 10 % | EER | FAR 5 % | FAR 1 %\n");
@@ -764,6 +818,13 @@ final class XBaseEsrc {
                     XBaseFinalReport.M m = XBaseFinalReport.measure(cs, u.persons, w);
                     t.append(level(e.getKey() + " " + names[kind], m));
                     if (kind == 0) dif.append(row(e.getKey() + " − (32), слияние", m, mB));
+                }
+                if (withRatio) {
+                    List<FeiDecompose.Cfg> cr = new ArrayList<>();
+                    for (XBaseVec.Blk b : gb) cr.add(XBaseGoalPrep.cfg(b, b.g(), XBaseGoalPrep.fused(e.getValue(), b, XBaseFinal.TT1, b.g().rOf, b.g().r0)));
+                    XBaseFinalReport.M mr = XBaseFinalReport.measure(cr, u.persons, w);
+                    t.append(level("справочно: d₁/d₂ по невязкам, слияние", mr));
+                    dif.append(row("справочно: d₁/d₂ по невязкам − (32), слияние", mr, mB));
                 }
                 List<FeiDecompose.Cfg> ca = new ArrayList<>();
                 for (XBaseVec.Blk b : gb) ca.add(scored(b, e.getValue(), 1, 0));
