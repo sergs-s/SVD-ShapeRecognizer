@@ -213,7 +213,8 @@ final class XBaseGlasses {
         for (String l : Files.readAllLines(exportDir.resolve("reports").resolve("gt_sessions.tsv"), StandardCharsets.UTF_8)) {
             if (l.startsWith("#") || l.startsWith("person")) continue;
             String[] c = l.split("\t");
-            dates.put(c[0] + "/" + c[1], c[2].substring(0, 10).replace(':', '-'));
+            // В описи есть снимок без EXIF (s37, 15: NONE)
+            dates.put(c[0] + "/" + c[1], c[2].length() < 10 ? "no-date" : c[2].substring(0, 10).replace(':', '-'));
         }
         StringBuilder sb = new StringBuilder("человек\tфайл\tдата_exif\tочки\n");
         int noDet = 0;
