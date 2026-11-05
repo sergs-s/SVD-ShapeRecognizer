@@ -85,9 +85,18 @@ final class XBaseGlasses {
     }
 
     /** Итог строки: группы проб своих по конфигурациям. */
-    private record Line(String name, List<FeiDecompose.Cfg> cfgs, List<int[]> groups) {}
+    private record Line(String name, List<FeiDecompose.Cfg> cfgs, List<int[]> groups, List<int[]> days) {}
+
+    /** Слой промежутка: 0 – все пробы, 1 – ≤ 30 дней, 2 – > 30 дней; неизвестный промежуток (−1) входит только в слой 0. */
+    static boolean inLayer(int days, int layer) {
+        return layer == 0 || (days >= 0 && (layer == 1 ? days <= 30 : days > 30));
+    }
 
     private static double[] ownErr(Line l, int[] w, double far, int grp) {
+        return ownErr(l, w, far, grp, 0);
+    }
+
+    private static double[] ownErr(Line l, int[] w, double far, int grp, int layer) {
         double e = 0;
         double n = 0;
         double ok = 0;
@@ -97,8 +106,9 @@ final class XBaseGlasses {
             double th = XBaseSepLtp.ctrlThreshold(d, w, far);
             if (Double.isNaN(th)) return new double[] {Double.NaN, Double.NaN};
             int[] g = l.groups().get(c);
+            int[] dd = l.days().get(c);
             for (int i = 0; i < k.ownR.length; i++) {
-                if (g[i] != grp) continue;
+                if (g[i] != grp || !inLayer(dd[i], layer)) continue;
                 int wt = w[k.ownP[i]];
                 n += wt;
                 if (k.ownOk[i]) ok += wt;
@@ -132,19 +142,48 @@ final class XBaseGlasses {
         Set<String> pMatch = new HashSet<>();
         Set<String> pChange = new HashSet<>();
         int[] counts = new int[3];
+        Map<String, String> gtDates = feret ? null : exifDates(dir);
+        List<int[]> daysAll = new ArrayList<>();
+        Map<String, String> galType = new HashMap<>();
+        // Слой → группа → люди; группа → промежутки
+        List<List<Set<String>>> layerPeople = new ArrayList<>();
+        for (int a = 0; a < 3; a++) layerPeople.add(List.of(new HashSet<>(), new HashSet<>()));
+        List<List<Integer>> gaps = List.of(new ArrayList<>(), new ArrayList<>());
+        int[] noDate = new int[2];
         for (XBaseVec.Blk b : bs) {
             List<Probe> own = XBaseEval.probes(b.g(), b.pro()).stream().filter(q -> q.role().equals(FeiScores.OWN)).toList();
+            for (String p : b.g().own) {
+                List<String> st = new ArrayList<>();
+                for (String k : b.gal().get(p)) st.add(state(feret, u.su.dir, gtLabels, cache, k));
+                galType.put(p, galleryType(st));
+            }
             int[] g = new int[own.size()];
+            int[] dd = new int[own.size()];
             for (int i = 0; i < g.length; i++) {
                 Probe q = own.get(i);
                 List<String> gal = new ArrayList<>();
-                for (String k : b.gal().get(q.person())) gal.add(state(feret, u.su.dir, gtLabels, cache, k));
+                List<java.time.LocalDate> galDates = new ArrayList<>();
+                for (String k : b.gal().get(q.person())) {
+                    gal.add(state(feret, u.su.dir, gtLabels, cache, k));
+                    java.time.LocalDate d = date(feret, k, gtDates);
+                    if (d != null) galDates.add(d);
+                }
                 g[i] = group(state(feret, u.su.dir, gtLabels, cache, q.key()), gal);
+                dd[i] = gap(date(feret, q.key(), gtDates), galDates);
                 counts[g[i] == EXCLUDED ? 2 : g[i]]++;
                 if (g[i] == MATCH) pMatch.add(q.person());
                 if (g[i] == CHANGE) pChange.add(q.person());
+                if (g[i] != EXCLUDED) {
+                    if (dd[i] < 0) {
+                        noDate[g[i]]++;
+                    } else {
+                        gaps.get(g[i]).add(dd[i]);
+                    }
+                    for (int a = 0; a < 3; a++) if (inLayer(dd[i], a)) layerPeople.get(a).get(g[i]).add(q.person());
+                }
             }
             groups.add(g);
+            daysAll.add(dd);
         }
         Map<String, List<FeiDecompose.Cfg>> rows = new LinkedHashMap<>();
         rows.put("слияние (32)", new ArrayList<>());
@@ -160,10 +199,34 @@ final class XBaseGlasses {
         StringBuilder t = new StringBuilder("О-8: мешает ли смена очков – " + base + " межс. (XBaseEval " + base + "-glasses; Жорик №4 от 05.11)\nКод: коммит " + FarMethods.commit() + "; модели – " + r.dir().resolve("vec")
                 + "\nРазметка: " + (feret ? "поле glasses, ground_truths/name_value" : gtFile + ", SHA-256 " + FrameB.sha256(gtFile)) + String.format(Locale.ROOT, "; бутстреп по людям B = %d, seed %d%n", u.tpl.b, u.tpl.seed + FeiBootstrap.SEED_OFFSET));
         t.append(String.format(Locale.ROOT, "%nГруппы проб своих: совпадение – %d проб, %d людей; смена – %d проб, %d людей; исключено (нет состояния) – %d проб. Человек может быть в обеих группах.%n", counts[MATCH], pMatch.size(), counts[CHANGE], pChange.size(), counts[2]));
+        t.append("\nСостав галерей по очкам (людей: только без очков | только в очках | смешанная | нет известных):\n");
+        t.append("все люди галереи | ").append(typeCells(galType, galType.keySet())).append('\n');
+        t.append("люди с пробами «совпадение» | ").append(typeCells(galType, pMatch)).append('\n');
+        t.append("люди с пробами «смена» | ").append(typeCells(galType, pChange)).append('\n');
+        t.append("\nПромежуток «проба − галерея», дней (ближайшая дата галереи): группа | проб | 25 / 50 / 75 % | доля > 30 дней | нет даты\n");
+        String[] gName = {"совпадение", "смена"};
+        for (int g = 0; g < 2; g++) t.append(gapRow(gName[g], gaps.get(g), noDate[g]));
+        t.append("\nГруппа | людей в слое ≤ 30 дней | людей в слое > 30 дней\n");
+        for (int g = 0; g < 2; g++) t.append(String.format(Locale.ROOT, "%s | %d | %d%n", gName[g], layerPeople.get(1).get(g).size(), layerPeople.get(2).get(g).size()));
         t.append("\nстрока | FAR (факт., %) | ошибка своих: совпадение | смена | смена − совпадение [95 %] | проверка: все вместе (при нуле исключённых = итоговый прогон)\n");
         StringBuilder rank = new StringBuilder("\nстрока | верный лучший: совпадение | смена | смена − совпадение [95 %]\n");
+        StringBuilder layers = new StringBuilder("\nОшибка своих при FAR 1 % (порог общий, по всей строке) внутри слоя промежутка; считается, если в слое у обеих групп не меньше 5 людей:\nстрока | слой | совпадение | смена | смена − совпадение [95 %]\n");
         for (Map.Entry<String, List<FeiDecompose.Cfg>> e : rows.entrySet()) {
-            Line l = new Line(e.getKey(), e.getValue(), groups);
+            Line l = new Line(e.getKey(), e.getValue(), groups, daysAll);
+            for (int a = 1; a <= 2; a++) {
+                String nm = a == 1 ? "≤ 30 дней" : "> 30 дней";
+                int n0 = layerPeople.get(a).get(MATCH).size();
+                int n1 = layerPeople.get(a).get(CHANGE).size();
+                if (n0 < 5 || n1 < 5) {
+                    layers.append(String.format(Locale.ROOT, "%s | %s | не считается: людей %d и %d%n", e.getKey(), nm, n0, n1));
+                    continue;
+                }
+                double m0 = ownErr(l, unit, 0.01, MATCH, a)[0];
+                double c0 = ownErr(l, unit, 0.01, CHANGE, a)[0];
+                double[] rl = new double[w.length];
+                for (int q = 0; q < w.length; q++) rl[q] = ownErr(l, w[q], 0.01, CHANGE, a)[0] - ownErr(l, w[q], 0.01, MATCH, a)[0];
+                layers.append(String.format(Locale.ROOT, "%s | %s | %.1f %% | %.1f %% | %s%n", e.getKey(), nm, m0, c0, interval(c0 - m0, rl)));
+            }
             for (double far : new double[] {0.01, 0.05}) {
                 double[] m = ownErr(l, unit, far, MATCH);
                 double[] c = ownErr(l, unit, far, CHANGE);
@@ -178,12 +241,67 @@ final class XBaseGlasses {
             for (int q = 0; q < w.length; q++) rep[q] = ownErr(l, w[q], 0.01, CHANGE)[1] - ownErr(l, w[q], 0.01, MATCH)[1];
             rank.append(String.format(Locale.ROOT, "%s | %.1f %% | %.1f %% | %s%n", e.getKey(), m[1], c[1], interval(c[1] - m[1], rep)));
         }
-        t.append(rank);
+        t.append(rank).append(layers);
         t.append(String.format(Locale.ROOT, "%nВремя: %.0f с%n", (System.nanoTime() - t0) / 1e9));
         Path rf = (feret ? r.dir().getParent() : out).resolve("xbase_" + base + "_glasses.txt");
         FarMethods.write(rf, t);
         System.out.print(t);
         System.out.println("DONE");
+    }
+
+    /** Тип галереи по состояниям снимков: без очков, в очках, смешанная, неизвестно. */
+    static String galleryType(List<String> states) {
+        Set<String> s = new HashSet<>(states);
+        s.remove(UNKNOWN);
+        if (s.isEmpty()) return "нет";
+        if (s.size() == 2) return "смеш";
+        return s.contains("1") ? "очки" : "без";
+    }
+
+    private static String typeCells(Map<String, String> type, Set<String> people) {
+        int[] c = new int[4];
+        for (String p : people) {
+            String t = type.get(p);
+            c[t.equals("без") ? 0 : t.equals("очки") ? 1 : t.equals("смеш") ? 2 : 3]++;
+        }
+        return c[0] + " | " + c[1] + " | " + c[2] + " | " + c[3];
+    }
+
+    /** Промежуток в днях до ближайшей даты галереи; нет даты – −1. */
+    static int gap(java.time.LocalDate probe, List<java.time.LocalDate> gallery) {
+        if (probe == null || gallery.isEmpty()) return -1;
+        long best = Long.MAX_VALUE;
+        for (java.time.LocalDate d : gallery) best = Math.min(best, Math.abs(java.time.temporal.ChronoUnit.DAYS.between(d, probe)));
+        return (int) best;
+    }
+
+    /** Дата снимка: FERET – из имени (ГГММДД, годы 19xx), GT – дата EXIF. */
+    static java.time.LocalDate date(boolean feret, String key, Map<String, String> gtDates) {
+        if (feret) {
+            String[] c = key.split("_");
+            return java.time.LocalDate.of(1900 + Integer.parseInt(c[1].substring(0, 2)), Integer.parseInt(c[1].substring(2, 4)), Integer.parseInt(c[1].substring(4, 6)));
+        }
+        Path p = Paths.get(key);
+        String d = gtDates.get(p.getName(1) + "/" + p.getName(2));
+        if (d == null) throw new IllegalStateException("glasses: нет строки описи дат: " + key);
+        return d.equals("no-date") ? null : java.time.LocalDate.parse(d);
+    }
+
+    private static Map<String, String> exifDates(Path exportDir) throws IOException {
+        Map<String, String> dates = new HashMap<>();
+        for (String l : Files.readAllLines(exportDir.resolve("reports").resolve("gt_sessions.tsv"), StandardCharsets.UTF_8)) {
+            if (l.startsWith("#") || l.startsWith("person")) continue;
+            String[] c = l.split("\t");
+            dates.put(c[0] + "/" + c[1], c[2].length() < 10 ? "no-date" : c[2].substring(0, 10).replace(':', '-'));
+        }
+        return dates;
+    }
+
+    private static String gapRow(String name, List<Integer> v, int noDate) {
+        if (v.isEmpty()) return name + " | 0 | – | – | " + noDate + "\n";
+        int[] s = v.stream().mapToInt(Integer::intValue).sorted().toArray();
+        long over = java.util.Arrays.stream(s).filter(x -> x > 30).count();
+        return String.format(Locale.ROOT, "%s | %d | %d / %d / %d | %.1f %% | %d%n", name, s.length, s[s.length / 4], s[s.length / 2], s[3 * s.length / 4], 100.0 * over / s.length, noDate);
     }
 
     private static String state(boolean feret, Path dir, Map<String, String> gt, Map<String, String> cache, String key) throws IOException {
