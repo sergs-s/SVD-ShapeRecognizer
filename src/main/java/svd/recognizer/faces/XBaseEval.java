@@ -613,6 +613,14 @@ public final class XBaseEval {
             } catch (Exception e) {
                 throw new IllegalStateException(e);
             }
+        } else if (a[0].equals("gt-glasses-sheets")) {
+            XBaseGlasses.sheets(dir, settings);
+        } else if (a[0].equals("feret-glasses") || a[0].equals("gt-glasses")) {
+            try {
+                XBaseGlasses.run(a[0].substring(0, a[0].indexOf('-')), export, dir, feiKeys, selLines, settings, out);
+            } catch (Exception e) {
+                throw new IllegalStateException(e);
+            }
         } else if (a[0].equals("gt-esrc-check")) {
             try {
                 XBaseEsrc.check(export, dir, feiKeys, selLines, settings, out);
