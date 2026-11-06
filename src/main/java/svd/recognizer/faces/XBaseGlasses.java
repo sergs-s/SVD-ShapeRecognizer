@@ -85,14 +85,14 @@ final class XBaseGlasses {
     }
 
     /** Итог строки: группы проб своих по конфигурациям. */
-    private record Line(String name, List<FeiDecompose.Cfg> cfgs, List<int[]> groups, List<int[]> days) {}
+    record Line(String name, List<FeiDecompose.Cfg> cfgs, List<int[]> groups, List<int[]> days) {}
 
     /** Слой промежутка: 0 – все пробы, 1 – ≤ 30 дней, 2 – > 30 дней; неизвестный промежуток (−1) входит только в слой 0. */
     static boolean inLayer(int days, int layer) {
         return layer == 0 || (days >= 0 && (layer == 1 ? days <= 30 : days > 30));
     }
 
-    private static double[] ownErr(Line l, int[] w, double far, int grp) {
+    static double[] ownErr(Line l, int[] w, double far, int grp) {
         return ownErr(l, w, far, grp, 0);
     }
 
@@ -118,7 +118,7 @@ final class XBaseGlasses {
         return n == 0 ? new double[] {Double.NaN, Double.NaN} : new double[] {100 * e / n, 100 * ok / n};
     }
 
-    private static String interval(double point, double[] reps) {
+    static String interval(double point, double[] reps) {
         double[] ok = Arrays.stream(reps).filter(v -> !Double.isNaN(v)).toArray();
         double[] s = FeiBootstrap.sorted(ok);
         double lo = FeiBootstrap.quantile(s, 0.025);
