@@ -621,6 +621,12 @@ public final class XBaseEval {
             } catch (Exception e) {
                 throw new IllegalStateException(e);
             }
+        } else if (a[0].equals("gt-glasssep")) {
+            try {
+                XBaseGlassSep.run(export, dir, feiKeys, selLines, settings, out);
+            } catch (Exception e) {
+                throw new IllegalStateException("gt-glasssep: " + e, e);
+            }
         } else if (a[0].equals("gt-glassgal")) {
             try {
                 XBaseGlassGal.run(export, dir, feiKeys, selLines, settings, out);

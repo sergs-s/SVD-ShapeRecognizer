@@ -75,49 +75,14 @@ final class XBaseGlassGal {
         Path gtFile = Paths.get(settings.loadFacesGtDir()).getParent().resolve(XBaseGlasses.GT_FILE);
         Map<String, String> labels = XBaseGlasses.readGt(gtFile);
         XBaseVec.Blk b0 = u.blocks.stream().filter(b -> b.group().equals("межс.")).findFirst().orElseThrow();
-        Map<String, List<String>> all = tpl.galleryAll;
-        // Люди, носившие очки: любой снимок человека в разметке = «1»
-        Set<String> wearers = new HashSet<>();
-        for (Map.Entry<String, String> e : labels.entrySet()) {
-            if (e.getValue().equals("1")) wearers.add(Paths.get(e.getKey()).getName(1).toString());
-        }
-        Map<String, List<String>> ones = new HashMap<>();
-        Map<String, List<String>> zeros = new HashMap<>();
-        List<String> own14 = new ArrayList<>();
-        int minDate = Integer.MAX_VALUE;
-        for (String p : tpl.own) {
-            List<String> y = new ArrayList<>();
-            List<String> n = new ArrayList<>();
-            for (String k : all.get(p)) {
-                String s = labels.get(k);
-                if (s == null) throw new IllegalStateException("glassgal: нет снимка в разметке " + k);
-                if (s.equals("1")) y.add(k);
-                else if (s.equals("0")) n.add(k);
-                else throw new IllegalStateException("glassgal: «?» на дате галереи " + k);
-            }
-            ones.put(p, y);
-            zeros.put(p, n);
-            minDate = Math.min(minDate, all.get(p).size());
-            if (wearers.contains(p)) own14.add(p);
-        }
-        int[] nm = new int[own14.size()];
-        int[] no = new int[own14.size()];
-        StringBuilder tab = new StringBuilder("\n=== Свои, носившие очки: на дате галереи ===\nчеловек | в очках | без очков | преобладающее | n_осн | n_доп\n");
-        Map<String, Boolean> mainIsGlasses = new HashMap<>();
-        for (int i = 0; i < nm.length; i++) {
-            String p = own14.get(i);
-            int a = ones.get(p).size();
-            int c = zeros.get(p).size();
-            boolean mg = a > c; // при равенстве – без очков
-            mainIsGlasses.put(p, mg);
-            nm[i] = mg ? a : c;
-            no[i] = mg ? c : a;
-            tab.append(String.format(Locale.ROOT, "%s | %d | %d | %s | %d | %d%n", p, a, c, mg ? "в очках" : "без очков", nm[i], no[i]));
-        }
-        int n = chooseN(nm, no, MIN_PARTICIPANTS);
+        Sel sel = select(tpl, labels);
+        Set<String> part = sel.part();
+        Map<String, Boolean> mainIsGlasses = sel.mainIsGlasses();
+        int n = sel.n();
+        int minDate = sel.minDate();
         StringBuilder t = new StringBuilder("О-8: управляемая галерея – GT межс. (XBaseEval gt-glassgal; Жорик №2 от 06.11)\nКод: коммит " + FarMethods.commit() + "; разметка – " + gtFile + ", SHA-256 " + FrameB.sha256(gtFile)
                 + String.format(Locale.ROOT, "; бутстреп по людям B = %d, seed %d; выбор снимков – Random(faces.seed + %d + номер человека)%n", tpl.b, tpl.seed + FeiBootstrap.SEED_OFFSET, SEED_OFFSET));
-        t.append(tab);
+        t.append(sel.tab());
         Path root = r.dir().resolveSibling("glassgal");
         Files.createDirectories(root);
         Path rf = root.resolve("xbase_gt_glassgal.txt");
@@ -128,34 +93,10 @@ final class XBaseGlassGal {
             System.out.println("DONE");
             return;
         }
-        Set<String> part = new HashSet<>();
-        List<String> notPart = new ArrayList<>();
-        for (int i = 0; i < nm.length; i++) {
-            if (nm[i] >= n && no[i] >= 1) part.add(own14.get(i));
-            else notPart.add(own14.get(i));
-        }
-        t.append(String.format(Locale.ROOT, "%nВыбрано N = %d; участников %d из %d; не участвуют: %s%n", n, part.size(), own14.size(), notPart));
-        Map<String, List<String>> galA = new LinkedHashMap<>();
-        Map<String, List<String>> galB = new LinkedHashMap<>();
-        int otherInB = 0;
-        for (String p : tpl.own) {
-            Random rnd = new Random(tpl.seed + SEED_OFFSET + personNo(p));
-            if (part.contains(p)) {
-                boolean mg = mainIsGlasses.get(p);
-                List<String> main = shuffled(mg ? ones.get(p) : zeros.get(p), rnd);
-                List<String> other = shuffled(mg ? zeros.get(p) : ones.get(p), rnd);
-                galA.put(p, pick(main, other, n, false));
-                galB.put(p, pick(main, other, n, true));
-                otherInB += Math.min(n / 2, other.size());
-            } else {
-                List<String> s = shuffled(all.get(p), rnd);
-                List<String> g = new ArrayList<>(s.subList(0, n));
-                Collections.sort(g);
-                galA.put(p, g);
-                galB.put(p, g);
-            }
-        }
-        t.append(String.format(Locale.ROOT, "Снимков другого состояния в галереях (б): %d (на участника ⌊N/2⌋ = %d, сколько есть)%n", otherInB, n / 2));
+        t.append(String.format(Locale.ROOT, "%nВыбрано N = %d; участников %d из %d; не участвуют: %s%n", n, part.size(), part.size() + sel.notPart().size(), sel.notPart()));
+        Map<String, List<String>> galA = sel.galA();
+        Map<String, List<String>> galB = sel.galB();
+        t.append(String.format(Locale.ROOT, "Снимков другого состояния в галереях (б): %d (на участника ⌊N/2⌋ = %d, сколько есть)%n", sel.otherInB(), n / 2));
         List<Probe> probes = b0.probes().stream().filter(q -> !q.role().equals(XBaseFinal.CTRL_X)).toList();
         XBaseVec.Blk bA = new XBaseVec.Blk(b0.name(), b0.abl2(), b0.g(), galA, b0.pro(), b0.parts(), probes, b0.extra(), b0.s(), b0.group());
         XBaseVec.Blk bB = new XBaseVec.Blk(b0.name(), b0.abl2(), b0.g(), galB, b0.pro(), b0.parts(), probes, b0.extra(), b0.s(), b0.group());
@@ -200,22 +141,14 @@ final class XBaseGlassGal {
         }
         // Группы проб участников: 0 – преобладающее состояние, 1 – другое, −1 – не участник
         List<Probe> own = XBaseEval.probes(b0.g(), b0.pro()).stream().filter(q -> q.role().equals(FeiScores.OWN)).toList();
-        int[] groups = new int[own.size()];
+        int[] groups = groups(own, part, labels, mainIsGlasses);
         int[] counts = new int[2];
         Set<String> pMain = new HashSet<>();
         Set<String> pOther = new HashSet<>();
         for (int i = 0; i < groups.length; i++) {
-            Probe q = own.get(i);
-            if (!part.contains(q.person())) {
-                groups[i] = -1;
-                continue;
-            }
-            String s = labels.get(q.key());
-            if (s == null) throw new IllegalStateException("glassgal: нет пробы в разметке " + q.key());
-            boolean glasses = s.equals("1");
-            groups[i] = glasses == mainIsGlasses.get(q.person()) ? XBaseGlasses.MATCH : XBaseGlasses.CHANGE;
+            if (groups[i] < 0) continue;
             counts[groups[i]]++;
-            (groups[i] == XBaseGlasses.MATCH ? pMain : pOther).add(q.person());
+            (groups[i] == XBaseGlasses.MATCH ? pMain : pOther).add(own.get(i).person());
         }
         t.append(String.format(Locale.ROOT, "%nПробы участников: преобладающее – %d проб, %d людей; другое – %d проб, %d людей%n", counts[0], pMain.size(), counts[1], pOther.size()));
         int[] zeroDays = new int[groups.length];
@@ -253,5 +186,96 @@ final class XBaseGlassGal {
         FarMethods.write(rf, t);
         System.out.print(t);
         System.out.println("DONE");
+    }
+
+    /** Группы проб участников: 0 – преобладающее состояние, 1 – другое, −1 – не участник. */
+    static int[] groups(List<Probe> own, Set<String> part, Map<String, String> labels, Map<String, Boolean> mainIsGlasses) {
+        int[] groups = new int[own.size()];
+        for (int i = 0; i < groups.length; i++) {
+            Probe q = own.get(i);
+            if (!part.contains(q.person())) {
+                groups[i] = -1;
+                continue;
+            }
+            String s = labels.get(q.key());
+            if (s == null) throw new IllegalStateException("glassgal: нет пробы в разметке " + q.key());
+            boolean glasses = s.equals("1");
+            groups[i] = glasses == mainIsGlasses.get(q.person()) ? XBaseGlasses.MATCH : XBaseGlasses.CHANGE;
+        }
+        return groups;
+    }
+
+    /** Выбор опыта: таблица, N, участники, галереи (а) и (б); при N вне допустимого галереи пусты. */
+    record Sel(String tab, int n, int minDate, Set<String> part, List<String> notPart, Map<String, Boolean> mainIsGlasses, Map<String, List<String>> galA, Map<String, List<String>> galB, int otherInB) {}
+
+    static Sel select(XBaseEval.Gt tpl, Map<String, String> labels) {
+        Map<String, List<String>> all = tpl.galleryAll;
+        // Люди, носившие очки: любой снимок человека в разметке = «1»
+        Set<String> wearers = new HashSet<>();
+        for (Map.Entry<String, String> e : labels.entrySet()) {
+            if (e.getValue().equals("1")) wearers.add(Paths.get(e.getKey()).getName(1).toString());
+        }
+        Map<String, List<String>> ones = new HashMap<>();
+        Map<String, List<String>> zeros = new HashMap<>();
+        List<String> own14 = new ArrayList<>();
+        int minDate = Integer.MAX_VALUE;
+        for (String p : tpl.own) {
+            List<String> y = new ArrayList<>();
+            List<String> n = new ArrayList<>();
+            for (String k : all.get(p)) {
+                String s = labels.get(k);
+                if (s == null) throw new IllegalStateException("glassgal: нет снимка в разметке " + k);
+                if (s.equals("1")) y.add(k);
+                else if (s.equals("0")) n.add(k);
+                else throw new IllegalStateException("glassgal: «?» на дате галереи " + k);
+            }
+            ones.put(p, y);
+            zeros.put(p, n);
+            minDate = Math.min(minDate, all.get(p).size());
+            if (wearers.contains(p)) own14.add(p);
+        }
+        int[] nm = new int[own14.size()];
+        int[] no = new int[own14.size()];
+        StringBuilder tab = new StringBuilder("\n=== Свои, носившие очки: на дате галереи ===\nчеловек | в очках | без очков | преобладающее | n_осн | n_доп\n");
+        Map<String, Boolean> mainIsGlasses = new HashMap<>();
+        for (int i = 0; i < nm.length; i++) {
+            String p = own14.get(i);
+            int a = ones.get(p).size();
+            int c = zeros.get(p).size();
+            boolean mg = a > c; // при равенстве – без очков
+            mainIsGlasses.put(p, mg);
+            nm[i] = mg ? a : c;
+            no[i] = mg ? c : a;
+            tab.append(String.format(Locale.ROOT, "%s | %d | %d | %s | %d | %d%n", p, a, c, mg ? "в очках" : "без очков", nm[i], no[i]));
+        }
+        int n = chooseN(nm, no, MIN_PARTICIPANTS);
+        if (n < 0 || n > minDate) return new Sel(tab.toString(), n, minDate, Set.of(), List.of(), mainIsGlasses, Map.of(), Map.of(), 0);
+        Set<String> part = new HashSet<>();
+        List<String> notPart = new ArrayList<>();
+        for (int i = 0; i < nm.length; i++) {
+            if (nm[i] >= n && no[i] >= 1) part.add(own14.get(i));
+            else notPart.add(own14.get(i));
+        }
+        Map<String, List<String>> galA = new LinkedHashMap<>();
+        Map<String, List<String>> galB = new LinkedHashMap<>();
+        int otherInB = 0;
+        for (String p : tpl.own) {
+            Random rnd = new Random(tpl.seed + SEED_OFFSET + personNo(p));
+            if (part.contains(p)) {
+                boolean mg = mainIsGlasses.get(p);
+                List<String> main = shuffled(mg ? ones.get(p) : zeros.get(p), rnd);
+                List<String> other = shuffled(mg ? zeros.get(p) : ones.get(p), rnd);
+                galA.put(p, pick(main, other, n, false));
+                galB.put(p, pick(main, other, n, true));
+                otherInB += Math.min(n / 2, other.size());
+            } else {
+                List<String> s = shuffled(all.get(p), rnd);
+                List<String> g = new ArrayList<>(s.subList(0, n));
+                Collections.sort(g);
+                galA.put(p, g);
+                galB.put(p, g);
+            }
+        }
+        return new Sel(tab.toString(), n, minDate, part, notPart, mainIsGlasses, galA, galB, otherInB);
     }
 }
