@@ -345,6 +345,10 @@ public final class XBaseEval {
         String[] a = args.length == 1 ? args[0].trim().split("\\s+") : args;
         if (a.length < 1) throw new IllegalArgumentException("XBaseEval: gt | fei-check <файл оценок FEI>");
         SettingsStore settings = new SettingsStore();
+        if (a[0].equals("cp-inventory")) {
+            XBaseChoke.inventory(settings);
+            return;
+        }
         String exportDir = settings.loadFacesExportDir();
         if (exportDir == null) throw new IllegalStateException("XBaseEval: не задан faces.export.dir / FACES_EXPORT_DIR");
         Path dir = Paths.get(exportDir);
