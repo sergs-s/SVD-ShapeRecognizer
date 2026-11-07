@@ -8,17 +8,21 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Random;
 import java.util.Set;
 import java.util.TreeMap;
+import java.util.TreeSet;
 import org.opencv.core.Mat;
 import org.opencv.imgcodecs.Imgcodecs;
+import org.opencv.imgproc.Imgproc;
 import org.opencv.objdetect.FaceDetectorYN;
 import svd.recognizer.storage.SettingsStore;
 
@@ -168,14 +172,29 @@ final class XBaseBioId {
         return s.toString();
     }
 
-    static void inventory(SettingsStore settings) throws IOException {
-        String d = System.getenv("FACES_BIOID_DIR");
-        String t37 = System.getenv("FACES_P4_TABLE");
-        if (d == null || t37 == null) throw new IllegalStateException("bioid-inventory: задайте FACES_BIOID_DIR, FACES_P4_TABLE");
-        Path root = Paths.get(d);
-        Path der = root.resolve("derived");
-        Path rep = root.resolve("reports");
-        Files.createDirectories(der);
+    /** Роли по постановке: группы, отрезки, годность снимков, свои и только чужие, галерея, пробы, деление. */
+    static final class Roles {
+        int[] grp;
+        Map<String, List<Run>> runs;
+        Set<String> multi;
+        Map<String, double[]> det;
+        Set<Integer> valid;
+        int noFace;
+        int bigR;
+        int noAlign;
+        StringBuilder bad;
+        List<String> own;
+        List<String> only;
+        Map<String, Integer> reg;
+        Map<String, List<Integer>> gal;
+        Map<String, List<Integer>> probes;
+        Map<String, Integer> laterRaw;
+        Map<String, List<Integer>> allValid;
+        long seed;
+        List<List<String>> halves;
+    }
+
+    static Roles roles(Path root, Path rep, SettingsStore settings) throws IOException {
         int[] grp = groups(rep.resolve("bioid_groups.tsv"));
         Map<String, List<Run>> runs = runs(grp);
         Set<String> multi = new HashSet<>();
@@ -236,6 +255,53 @@ final class XBaseBioId {
         }
         long seed = settings.loadFacesSeed() + SPLIT_SEED_OFFSET;
         List<List<String>> halves = split(own, seed);
+        Roles x = new Roles();
+        x.grp = grp;
+        x.runs = runs;
+        x.multi = multi;
+        x.det = det;
+        x.valid = valid;
+        x.noFace = noFace;
+        x.bigR = bigR;
+        x.noAlign = noAlign;
+        x.bad = bad;
+        x.own = own;
+        x.only = only;
+        x.reg = reg;
+        x.gal = gal;
+        x.probes = probes;
+        x.laterRaw = laterRaw;
+        x.allValid = allValid;
+        x.seed = seed;
+        x.halves = halves;
+        return x;
+    }
+
+    static void inventory(SettingsStore settings) throws IOException {
+        String d = System.getenv("FACES_BIOID_DIR");
+        String t37 = System.getenv("FACES_P4_TABLE");
+        if (d == null || t37 == null) throw new IllegalStateException("bioid-inventory: задайте FACES_BIOID_DIR, FACES_P4_TABLE");
+        Path root = Paths.get(d);
+        Path der = root.resolve("derived");
+        Path rep = root.resolve("reports");
+        Files.createDirectories(der);
+        Roles x = roles(root, rep, settings);
+        Map<String, List<Run>> runs = x.runs;
+        Set<String> multi = x.multi;
+        Set<Integer> valid = x.valid;
+        StringBuilder bad = x.bad;
+        List<String> own = x.own;
+        List<String> only = x.only;
+        Map<String, Integer> reg = x.reg;
+        Map<String, List<Integer>> gal = x.gal;
+        Map<String, List<Integer>> probes = x.probes;
+        Map<String, Integer> laterRaw = x.laterRaw;
+        Map<String, List<Integer>> allValid = x.allValid;
+        long seed = x.seed;
+        List<List<String>> halves = x.halves;
+        int noFace = x.noFace;
+        int bigR = x.bigR;
+        int noAlign = x.noAlign;
 
         // Таблица людей.
         StringBuilder pt = new StringBuilder("person\truns\timages\tvalid\treg_run\trole\thalf\tgallery\tgallery_replaced\tlater_images\tprobes\tprobes_excluded\n");
@@ -318,5 +384,263 @@ final class XBaseBioId {
         Files.createDirectories(rep);
         Files.write(rep.resolve("bioid_roles.txt"), r.toString().getBytes(StandardCharsets.UTF_8));
         System.out.print(r);
+    }
+
+    // ---------------------------------------------------------------- прогон (bioid-run)
+
+    static final double REF_X = 25.9;
+    static final double REF_IN = 3.6;
+
+    /** План прогона: план cp-run (для общих мер) плюс пробы своих, все снимки человека и номер отрезка снимка. */
+    static final class BPlan {
+        XBaseChokeRun.Plan p = new XBaseChokeRun.Plan();
+        final Map<String, List<String>> ownPro = new TreeMap<>();
+        final Map<String, List<String>> allImg = new TreeMap<>();
+        /** Отрезок снимка относительно регистрации: «до», «1» (регистрация), «2», «3+»; у людей без регистрации – «-». */
+        final Map<String, String> runOf = new HashMap<>();
+    }
+
+    static String runLabel(int j, int ri) {
+        return ri < 0 ? "-" : j < ri ? "до" : j == ri ? "1" : j == ri + 1 ? "2" : "3+";
+    }
+
+    /** Кадры Б, k = 2 и |r| годных снимков; файлы – derived\a_b, derived\c. */
+    static void frames(Roles x, Path root, XBaseChokeRun.Plan p, StringBuilder pts) throws IOException {
+        Path der = root.resolve("derived");
+        for (Path d : List.of(der.resolve(FrameB.DIR), der.resolve(FrameK2.DIR))) Files.createDirectories(d);
+        for (int i = 0; i < N; i++) {
+            if (!x.valid.contains(i)) continue;
+            String k = key(i);
+            double[] row = x.det.get(k);
+            Mat color = Imgcodecs.imread(image(root.resolve("images"), i).toString(), Imgcodecs.IMREAD_COLOR);
+            if (color.empty()) throw new IOException("BioID: нет снимка " + i);
+            String name = String.format(Locale.ROOT, "bioid_%04d.png", i);
+            Mat b = FrameB.frame(color, row, true);
+            Mat gray = new Mat();
+            Imgproc.cvtColor(color, gray, Imgproc.COLOR_BGR2GRAY);
+            FrameK2.F f = FrameK2.fromFull(gray, FrameK2.lm(row));
+            FeretData.writePng(der.resolve(FrameB.DIR).resolve(name), b);
+            FeretData.writePng(der.resolve(FrameK2.DIR).resolve(name), f.frame());
+            pts.append(FrameK2.pointsLine(k, f.pts()));
+            p.fr.put(k, b);
+            p.k2.put(k, f);
+            p.rOf.put(k, Math.abs(FeiDataset.pose(row)));
+            gray.release();
+            color.release();
+        }
+    }
+
+    static BPlan realPlan(Path root, SettingsStore settings) throws IOException {
+        Path rep = root.resolve("reports");
+        Roles x = roles(root, rep, settings);
+        BPlan bp = new BPlan();
+        XBaseChokeRun.Plan p = bp.p;
+        p.dir = rep.resolve("bioid");
+        p.halves = x.halves;
+        p.only2 = new ArrayList<>(x.only);
+        p.all.addAll(x.runs.keySet());
+        StringBuilder pts = new StringBuilder();
+        frames(x, root, p, pts);
+        for (Map.Entry<String, List<Run>> e : x.runs.entrySet()) {
+            String q = e.getKey();
+            List<Run> rs = e.getValue();
+            int ri = x.reg.get(q);
+            List<String> all = new ArrayList<>();
+            for (int j = 0; j < rs.size(); j++)
+                for (int i = rs.get(j).from(); i <= rs.get(j).to(); i++) {
+                    if (!x.valid.contains(i)) continue;
+                    String k = key(i);
+                    all.add(k);
+                    bp.runOf.put(k, runLabel(j, ri));
+                    p.atts.add(new XBaseChokeRun.Att(q, runLabel(j, ri), "-", 0, "", k, XBaseChokeRun.iod(x.det.get(k))));
+                }
+            bp.allImg.put(q, all);
+            if (x.own.contains(q)) {
+                p.gal.put(q, x.gal.get(q).stream().map(XBaseBioId::key).toList());
+                bp.ownPro.put(q, x.probes.get(q).stream().map(XBaseBioId::key).toList());
+            }
+        }
+        int ex = 0;
+        for (String q : x.own) ex += x.laterRaw.get(q) - x.probes.get(q).size();
+        p.stats.append(String.format(Locale.ROOT, "%nОбработка: снимков %d, годных %d; нет лица %d, |r| > R %d, не выравнивается %d; несколько лиц в первом проходе %d.%n", N, x.valid.size(), x.noFace, x.bigR, x.noAlign, x.multi.size()));
+        p.stats.append("Негодные: ").append(x.bad.length() == 0 ? "нет" : x.bad.substring(0, x.bad.length() - 2)).append('\n');
+        p.stats.append(String.format(Locale.ROOT, "Свои %d %s, только чужие %d %s; половина 1 %s, половина 2 %s (seed %d); исключено из проб своих %d.%n",
+                x.own.size(), x.own, x.only.size(), x.only, x.halves.get(0), x.halves.get(1), x.seed, ex));
+        Files.writeString(root.resolve("derived").resolve("bioid_c_points.tsv"), pts.toString(), StandardCharsets.UTF_8);
+        return bp;
+    }
+
+    /** Сухой прогон пути на GT по плану cp-run (BioID не читается): пробы своих – все попытки, номер отрезка – первые 4 попытки «2», остальные «3+». */
+    static BPlan dryPlan(FarExport.Loaded export, Path dir, Map<String, Map<Integer, String>> feiKeys, List<String> selLines, SettingsStore settings, Path out, XBaseA0.FeretSetup su) throws IOException {
+        BPlan bp = new BPlan();
+        bp.p = XBaseChokeRun.dryPlan(export, dir, feiKeys, selLines, settings, out, su);
+        XBaseChokeRun.Plan p = bp.p;
+        p.dir = out.resolve("bioid_dry");
+        p.still.clear();
+        Map<String, Integer> seen = new HashMap<>();
+        for (XBaseChokeRun.Att a : p.atts) {
+            if (a.key() == null) continue;
+            int n = seen.merge(a.person(), 1, Integer::sum);
+            bp.runOf.put(a.key(), n <= 4 ? "2" : "3+");
+            bp.allImg.computeIfAbsent(a.person(), k -> new ArrayList<>()).add(a.key());
+            if (p.gal.containsKey(a.person())) bp.ownPro.computeIfAbsent(a.person(), k -> new ArrayList<>()).add(a.key());
+        }
+        p.gal.forEach((q, ks) -> bp.allImg.computeIfAbsent(q, k -> new ArrayList<>()).addAll(ks));
+        return bp;
+    }
+
+    /** Два прохода основной галереи; W и модели частей заново; части (Т2) – Random(faces.seed + 13010 + проход). */
+    static XBaseFinal.Run setup(BPlan bp, XBaseA0.FeretSetup su, List<List<String>> train, SettingsStore settings, double r0, double rLimit) {
+        XBaseChokeRun.Plan p = bp.p;
+        long seed = settings.loadFacesSeed();
+        Map<String, Integer> pIdx = new HashMap<>();
+        for (int i = 0; i < p.all.size(); i++) pIdx.put(p.all.get(i), i);
+        Map<String, Integer> numOf = new HashMap<>();
+        for (String k : new TreeSet<>(p.rOf.keySet())) numOf.put(k, numOf.size());
+        XBaseVec.Setup u = new XBaseVec.Setup();
+        u.base = "bioid";
+        u.su = su;
+        u.persons = p.all.size();
+        u.fr = p.fr;
+        XBaseEval.Gt tpl = new XBaseEval.Gt();
+        tpl.seed = seed;
+        tpl.b = settings.loadFacesFeiBootstrap();
+        tpl.threads = settings.loadFacesFeiCvThreads();
+        tpl.params = IlluminationNorm.NormParams.of(settings);
+        tpl.r0 = r0;
+        tpl.rLimit = rLimit;
+        tpl.persons = p.all;
+        tpl.pIdx = pIdx;
+        tpl.imageNo = numOf;
+        tpl.rOf = p.rOf;
+        for (String q : p.all) tpl.byPerson.put(q, new TreeMap<>(Map.of(1, bp.allImg.getOrDefault(q, List.of()))));
+        u.tpl = tpl;
+        u.groups.add("основная");
+        for (int pass = 0; pass < 2; pass++) {
+            List<String> own = new ArrayList<>(p.halves.get(pass));
+            List<String> ctrl = new ArrayList<>(p.halves.get(1 - pass));
+            ctrl.addAll(p.only2);
+            Map<String, List<String>> gal = new LinkedHashMap<>();
+            Map<String, List<String>> pro = new LinkedHashMap<>();
+            for (String q : own) {
+                gal.put(q, p.gal.get(q));
+                pro.put(q, bp.ownPro.getOrDefault(q, List.of()));
+            }
+            XBaseEval.Gt g = XBaseAbl.copy(tpl, train, p.rOf, r0);
+            g.own = own;
+            g.ctrl = ctrl;
+            g.persons = p.all;
+            g.pIdx = pIdx;
+            g.imageNo = numOf;
+            List<List<String>> ps = parts(own, seed, pass + 1);
+            List<XBaseEval.Probe> probes = XBaseEval.probes(g, pro);
+            u.blocks.add(new XBaseVec.Blk("p" + pass, "основная, %s, проход " + (pass + 1) + ", ", g, gal, pro, ps, probes, XBaseThr.extra(g, pro, ps), pass + 1, "основная"));
+        }
+        return new XBaseFinal.Run(u, p.k2, Map.of(), p.dir, false, 0);
+    }
+
+    static List<List<String>> parts(List<String> own, long seed, int pass) {
+        return XBaseOther.cvParts(own, seed + 13010 + pass - FeiMethods.CV_SEED_OFFSET, 0);
+    }
+
+    /**
+     * Итог разд. 4: интервал ошибки своих по людям против GT межс. 25,9 % и внутри сессии 3,6 %. «Содержит 25,9 % или выше» – верхняя граница
+     * ≥ 25,9; «содержит 3,6 % или ниже» – нижняя граница ≤ 3,6; оба условия сразу – выводится как есть, без выбора слова.
+     */
+    static String verdict(double point, double lo, double hi) {
+        boolean a = hi >= REF_X;
+        boolean b = lo <= REF_IN;
+        String word = a && !b ? "ближе к межсессионному" : b && !a ? "ближе к внутрисессионному" : !a ? "между" : "выполнены оба условия – правилом разд. 4 не различается";
+        return String.format(Locale.ROOT, "ошибка своих по людям %.1f %% [%.1f; %.1f]; содержит %.1f %% или выше – %s; содержит %.1f %% или ниже – %s: %s", point, lo, hi, REF_X, a ? "да" : "нет", REF_IN, b ? "да" : "нет", word);
+    }
+
+    static void evaluate(BPlan bp, XBaseFinal.Run r, Map<Integer, XBasePart4.TRow> tb37, String head, String scoresName, String reportName) throws IOException {
+        long t0 = System.nanoTime();
+        XBaseChokeRun.Plan p = bp.p;
+        XBaseVec.Setup u = r.u();
+        Map<String, Double> sec = XBaseFinal.compute(r);
+        for (Mat m : p.fr.values()) m.release();
+        for (FrameK2.F k : p.k2.values()) k.frame().release();
+        Map<String, Integer> pIdx = u.tpl.pIdx;
+        int persons = u.persons;
+        int[] unit = FeiBootstrap.unit(persons);
+        int[][] w = u.tpl.b > 0 ? FeiBootstrap.weights(persons, u.tpl.b, u.tpl.seed + FeiBootstrap.SEED_OFFSET) : new int[0][];
+        int[] clamped = new int[2];
+        StringBuilder sc = new StringBuilder("# Файл оценок BioID (XBaseBioId); строки – формат FeiScores\n# Код: коммит " + FarMethods.commit() + "\n");
+        StringBuilder t = new StringBuilder(head);
+        t.append("Код: коммит ").append(FarMethods.commit()).append("; модели – ").append(r.dir().resolve("vec")).append(String.format(Locale.ROOT, "; бутстреп по людям B = %d, seed %d; людей %d%n", u.tpl.b, u.tpl.seed + FeiBootstrap.SEED_OFFSET, persons));
+        t.append(p.stats);
+        List<XBaseChokeRun.Res> r37 = new ArrayList<>();
+        StringBuilder nodes = new StringBuilder();
+        List<XBaseThr.Unit> uFus = new ArrayList<>();
+        List<XBaseVec.Blk> main = u.blocks;
+        for (int i = 0; i < 2; i++) {
+            XBaseVec.Blk b = main.get(i);
+            int n = b.g().own.size();
+            double[] a = XBaseFinalReport.tOf(tb37, n);
+            nodes.append(String.format(Locale.ROOT, "Проход %d: N = %d; t (37) %.2f (узел %d)%n", i + 1, n, a[0], (int) a[1]));
+            r37.addAll(XBaseChokeRun.atT(b, i, r, a[0], p, false));
+            List<XBaseVec.Model> mt = XBaseFinal.models(r, b, XBaseFinal.TT1, false);
+            List<XBaseVec.Model> mx = XBaseFinal.models(r, b, XBaseFinal.XS, false);
+            String fl = XBaseVec.fuseLines(mt, mx, XBaseFeat2.W_FUSE, XBaseVec.fuseStats(mt, false), XBaseVec.fuseStats(mx, false), b.g().rOf, b.g().r0, clamped);
+            sc.append("# слияние | ").append(b.name()).append('\n').append(fl);
+            uFus.add(new XBaseThr.Unit(b.g(), b.gal(), b.pro(), b.parts(), fl, null, true));
+        }
+        Files.createDirectories(r.dir());
+        Path scf = r.dir().resolve(scoresName);
+        Writer sw = XBaseVec.writer(scf, sc.toString());
+        XBaseVec.finish(sw, scf);
+        t.append("\n=== Пороги ===\n").append(nodes);
+        t.append("\n=== Главные меры при рабочем пороге ===\nстрока | ошибка своих | «чужое имя» | FAR по попыткам | FAR по людям | свои по людям и по попыткам, 95 % интервал | FAR | верный лучший\n");
+        t.append(XBaseChokeRun.mainRow("слияние (32), t по (37)", r37, pIdx, w, persons));
+        t.append("\n=== Итог по разд. 4 постановки ===\n");
+        double far = XBaseChokeRun.farAtt(r37, pIdx, unit);
+        t.append(String.format(Locale.ROOT, "FAR по попыткам %.2f %%: %s (держит при ≤ 1 %% в точке).%n", far, far <= 1 ? "держит" : "не держит"));
+        if (w.length > 0) {
+            double[] d = FeiBootstrap.sorted(Arrays.stream(XBaseChokeRun.reps(a -> XBaseChokeRun.errPersons(r37, pIdx, a), w)).filter(v -> !Double.isNaN(v)).toArray());
+            t.append(verdict(XBaseChokeRun.errPersons(r37, pIdx, unit), FeiBootstrap.quantile(d, 0.025), FeiBootstrap.quantile(d, 0.975))).append('\n');
+        }
+        t.append("\n=== Разбивка по номеру отрезка пробы (справочно) ===\n");
+        t.append(XBaseChokeRun.mainRow("свои: второй отрезок; все чужие", r37.stream().filter(v -> !v.own() || "2".equals(bp.runOf.get(v.att().key()))).toList(), pIdx, w, persons));
+        t.append(XBaseChokeRun.mainRow("свои: третий и далее; все чужие", r37.stream().filter(v -> !v.own() || "3+".equals(bp.runOf.get(v.att().key()))).toList(), pIdx, w, persons));
+        t.append("\n=== Меры без порога (справочно; бутстреп по людям) ===\n");
+        XBaseThr.Out oFus = XBaseThr.evaluate("слияние", uFus, persons, u.tpl);
+        XBaseFinalReport.M mFus = XBaseFinalReport.measure(XBaseChokeRun.withFails(oFus.res.get(XBaseThr.WAYS[0]).cfgs, main, p, false, pIdx), persons, w);
+        t.append(XBaseChokeRun.sepRow("слияние (32)", mFus));
+        t.append("\n=== Время, с ===\n");
+        sec.forEach((k, v) -> t.append(String.format(Locale.ROOT, "%s: %.0f%n", k, v)));
+        t.append(String.format(Locale.ROOT, "модели, оценка и отчёт: %.0f%n", (System.nanoTime() - t0) / 1e9));
+        FarMethods.write(r.dir().resolve(reportName), t);
+        System.out.print(t);
+    }
+
+    /** bioid-run: FACES_BIOID_DRY=1 – сухой прогон пути на GT; иначе однократный прогон. */
+    static void run(FarExport.Loaded export, Path dir, Map<String, Map<Integer, String>> feiKeys, List<String> selLines, SettingsStore settings, Path out) throws IOException {
+        if (!FrameB.on()) throw new IllegalStateException("bioid-run: FACES_FRAMES=b");
+        String rawR0 = settings.loadFacesFeiPoseR0();
+        if (rawR0 == null) throw new IllegalStateException("bioid-run: задайте FACES_FEI_POSE_R0");
+        double r0 = FeiPose.r0(rawR0, "+pose");
+        double rLimit = XBaseEval.poseLimit(selLines);
+        if (r0 != 0.12 || Math.abs(rLimit - R) > 5e-4) throw new IllegalStateException("bioid-run: r0 = " + r0 + ", R = " + rLimit + " не совпали с постановкой");
+        long seed = settings.loadFacesSeed();
+        long t0 = System.nanoTime();
+        Map<Integer, XBasePart4.TRow> tb37 = XBasePart4.readTable(Paths.get(System.getenv("FACES_P4_TABLE")));
+        XBaseA0.FeretSetup su = XBaseA0.feretSetup(dir, selLines, settings);
+        if ("1".equals(System.getenv("FACES_BIOID_DRY"))) {
+            BPlan bp = dryPlan(export, dir, feiKeys, selLines, settings, out, su);
+            List<List<String>> train = XBaseChokeRun.train(bp.p, su, export, dir, feiKeys, settings, seed, 15);
+            evaluate(bp, setup(bp, su, train, settings, r0, rLimit), tb37, "BioID – СУХОЙ ПРОГОН НА GT (числа смысла не имеют)\n", "bioid_dry_scores.tsv.gz", "bioid_dry_report.txt");
+            System.out.println("DONE");
+            return;
+        }
+        String root = System.getenv("FACES_BIOID_DIR");
+        if (root == null) throw new IllegalStateException("bioid-run: задайте FACES_BIOID_DIR");
+        BPlan bp = realPlan(Paths.get(root), settings);
+        System.out.printf(Locale.ROOT, "bioid: кадры за %.0f с%n", (System.nanoTime() - t0) / 1e9);
+        List<List<String>> train = XBaseChokeRun.train(bp.p, su, export, dir, feiKeys, settings, seed, 0);
+        String head = "BioID – справочная проверка «другая серия» (постановка 07.11, SHA-256 0ef9a14e…0d90a; XBaseEval bioid-run); кадры изменены: выровнены\nДанные: BioID Face Database V1.2 (BioID AG); люди – группы (а) по SFace, проверены Хозяином\n";
+        evaluate(bp, setup(bp, su, train, settings, r0, rLimit), tb37, head, "bioid_scores.tsv.gz", "bioid_report.txt");
+        System.out.printf(Locale.ROOT, "Всего: %.0f с%n", (System.nanoTime() - t0) / 1e9);
+        System.out.println("DONE");
     }
 }

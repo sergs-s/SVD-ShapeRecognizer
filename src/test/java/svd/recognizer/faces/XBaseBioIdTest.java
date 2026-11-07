@@ -50,4 +50,33 @@ public class XBaseBioIdTest {
         assertEquals(new TreeSet<>(p.subList(0, 8)), new TreeSet<>(h.get(0)));
         assertEquals(new TreeSet<>(p.subList(8, 15)), new TreeSet<>(h.get(1)));
     }
+
+    @Test
+    public void runLabelIsRelativeToRegistration() {
+        assertEquals("до", XBaseBioId.runLabel(0, 1));
+        assertEquals("1", XBaseBioId.runLabel(1, 1));
+        assertEquals("2", XBaseBioId.runLabel(2, 1));
+        assertEquals("3+", XBaseBioId.runLabel(4, 1));
+        assertEquals("-", XBaseBioId.runLabel(0, -1));
+    }
+
+    @Test
+    public void verdictFollowsSectionFour() {
+        assertEquals(true, XBaseBioId.verdict(30, 20, 40).endsWith(": ближе к межсессионному"));
+        assertEquals(true, XBaseBioId.verdict(3, 1, 8).endsWith(": ближе к внутрисессионному"));
+        assertEquals(true, XBaseBioId.verdict(12, 6, 20).endsWith(": между"));
+        assertEquals(true, XBaseBioId.verdict(15, 2, 30).endsWith("не различается"));
+        assertEquals(true, XBaseBioId.verdict(30, 26, 40).endsWith(": ближе к межсессионному"));
+    }
+
+    @Test
+    public void partsUseSeedOfSection1() {
+        List<String> own = new ArrayList<>();
+        for (int i = 0; i < 8; i++) own.add(XBaseBioId.person(i + 1));
+        List<String> perm = new ArrayList<>(own);
+        Collections.shuffle(perm, new Random(42 + 13010 + 2));
+        List<List<String>> p = XBaseBioId.parts(own, 42, 2);
+        assertEquals(5, p.size());
+        assertEquals(perm.subList(0, 2), p.get(0));
+    }
 }
