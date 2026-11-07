@@ -349,6 +349,10 @@ public final class XBaseEval {
             XBaseChoke.inventory(settings);
             return;
         }
+        if (a[0].equals("bioid-inventory")) {
+            XBaseBioId.inventory(settings);
+            return;
+        }
         String exportDir = settings.loadFacesExportDir();
         if (exportDir == null) throw new IllegalStateException("XBaseEval: не задан faces.export.dir / FACES_EXPORT_DIR");
         Path dir = Paths.get(exportDir);
