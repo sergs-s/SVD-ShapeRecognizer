@@ -1134,8 +1134,161 @@ def duel(thr_tsv, plain_tsv, face_tsv, out):
     print("\n".join(L))
 
 
+# ---------------------------------------------------------------- малая галерея: узлы N = 3, 5 (постановка 07.11, Жорик №8–№9)
+
+S_ROWS = (("FERET межс.", ("feret_x_p0", "feret_x_p1"), True, 0), ("GT межс.", ("gt_x",), False, 2))
+S_NS = (3, 5)
+
+
+def nsubs_small(vec_dir, feret_dir, out, N, reps):
+    """Подвыборки малой галереи: строки FERET межс. (reps/2 на проход) и GT межс. (reps); seed – n_rng, как nsubs и ntable."""
+    N, reps = int(N), int(reps)
+    L = ["# duel_thr.py nsubs-small N = %d, подвыборок %d на строку; seed – как ntable: default_rng(%d + 1000·номер строки + N + 500·проход + 50000)" % (N, reps, SEED_G)]
+    for name, fs, main, rn in S_ROWS:
+        for pi, fn in enumerate(fs):
+            tt, xs, _ = n_load(vec_dir, feret_dir, fn)
+            rng = n_rng(rn, N, pi)
+            for k in range(reps // len(fs)):
+                G = np.sort(rng.choice(len(tt.P), size=N, replace=False))
+                L.append("%s\t%d\t%s" % (fn, k, ",".join(tt.P[g] for g in G)))
+    with open(out, "w", encoding="utf-8", newline="\n") as fo:
+        fo.write("\n".join(L) + "\n")
+    print("подвыборок:", len(L) - 1, "SHA-256", sha(out))
+
+
+def nsmall(vec_dir, feret_dir, base_table, out_tsv, out_txt):
+    """Узлы t(3), t(5) правилом ntable (приведение по (П), W заново на подвыборке – файлы r3, r5); выбор t – только FERET межс.; GT межс. –
+    справочно; рядом – t(10) таблицы base_table на тех же подвыборках. Таблица out_tsv – строки base_table и новые узлы."""
+    base = {}
+    with open(base_table, encoding="utf-8") as f:
+        for line in f:
+            c = line.rstrip("\n").split("\t")
+            if line.startswith("#") or c[0] == "N" or not line.strip():
+                continue
+            base[int(c[0])] = line.rstrip("\n")
+    t10 = float(base[10].split("\t")[1])
+    L = ["Малая галерея: узлы таблицы N → t для N = 3 и 5 – duel_thr.py nsmall (постановка 07.11, SHA-256 56e5aa91…; уточнения Жорика №9)", ""]
+    L.append("Правило – ntable (37) без изменений: слияние (32), s = 2ℓ₁ − ℓ₂, приведение ℓ по людям (П) (μ, σ по расстояниям «проба (П) – человек "
+             "подвыборки»), W заново на каждой подвыборке (MldaFast; файлы r3_*, r5_*), FAR – попытки людей (З); t(N) – наибольший t сетки (шаг 0,01), при котором "
+             "медиана ↑95 КП FAR попыток (З) ≤ 1 %% (при < 299 попыток – ни одного принятого). Выбор t – только FERET межс.; GT межс. – справочно. "
+             "Подвыборки – default_rng(%d + 1000·номер строки + N + 500·проход + 50000); деление (П)/(З) – прежнее (faces.seed + 10710 + строка)." % SEED_G)
+    L.append("Таблица (37): %s, SHA-256 %s; t(10) = %.2f." % (base_table, sha(base_table), t10))
+    L.append("")
+    res, accs, owns, consts, files = {}, {}, {}, {}, []
+    for N in S_NS:
+        for name, fs, main, rn in S_ROWS:
+            blocks = []
+            for fn in fs:
+                d = feret_dir if fn.startswith("feret") else vec_dir
+                b, h = r_load(d, "r%d" % N, fn)
+                if b is None:
+                    raise SystemExit("нет файлов r%d для %s" % (N, fn))
+                blocks += b
+                files += h
+            acc, nown, cs = [], [], []
+            for tt, xs in blocks:
+                if len(tt.P) != N:
+                    raise SystemExit("в подвыборке %s людей %d вместо %d" % (name, len(tt.P), N))
+                zs, zs0, zp, os_, os0, wr, st = n_run(tt, xs, np.arange(len(tt.P)))
+                acc.append(curves(zs, zp, os_, wr, N_GRID))
+                nown.append(len(os_))
+                cs.append([st[0][0], st[0][1], st[1][0], st[1][1]])
+            accs[(name, N)] = acc
+            owns[(name, N)] = nown
+            n = int(np.median([x[1] for x in acc]))
+            cpc = {}
+            far = np.median([x[0] / x[1] for x in acc], axis=0)
+            cp = np.median([[cpc.setdefault((int(v), x[1]), cp_upper(int(v), x[1])) for v in x[0]] for x in acc], axis=0)
+            fp = np.median([x[2] / x[3] for x in acc], axis=0)
+            cpp = np.median([[cpc.setdefault((int(v), x[3]), cp_upper(int(v), x[3])) for v in x[2]] for x in acc], axis=0)
+            err = np.median([x[4] for x in acc], axis=0)
+            wn = np.median([x[5] for x in acc], axis=0)
+            res[(name, N)] = (far, cp, fp, cpp, err, wn, n)
+            cs = np.array(cs)
+            consts[(name, N)] = (np.median(cs, axis=0), np.quantile(cs, 0.05, axis=0), np.quantile(cs, 0.95, axis=0))
+    L.append("Файлы векторов (SHA-256):")
+    L += ["  %s  %s" % x for x in files]
+    L.append("")
+
+    def limit(key):
+        far, cp, fp, cpp, err, wn, n = res[key]
+        ok = (far * n < 0.5) if n < 299 else (cp <= TARGET + 1e-12)
+        j = -1
+        for i in range(len(N_GRID)):
+            if ok[i]:
+                j = i
+            else:
+                break
+        return j
+
+    sel = {}
+    L.append("=== t(N) по s (β = 1, слияние): наибольший t, при котором ↑95 FAR попыток (З) ≤ 1 % ===")
+    L.append("  %-14s" % "строка" + "".join("%11s" % ("N = %d" % N) for N in S_NS))
+    for name, fs, main, rn in S_ROWS:
+        L.append("  %-14s" % (name + ("" if main else " *")) + "".join("%11s" % ("< сетки" if limit((name, N)) < 0 else "%.2f" % N_GRID[limit((name, N))]) for N in S_NS))
+    for N in S_NS:
+        j = limit(("FERET межс.", N))
+        sel[N] = N_GRID[j] if j >= 0 else float("nan")
+    L.append("  %-14s" % "t(N)" + "".join("%11s" % ("%.2f" % sel[N]) for N in S_NS))
+    L.append("  (* – справочно, в выборе не участвует); t(10) таблицы (37) = %.2f" % t10)
+    L.append("")
+    L.append("=== Подвыборок, своих и (З) попыток на подвыборку (медиана) ===")
+    for N in S_NS:
+        for name, fs, main, rn in S_ROWS:
+            acc = accs[(name, N)]
+            L.append("  N = %d %-13s подвыборок %d; своих %d; (З) людей %d, попыток %d" % (N, name, len(acc), int(np.median(owns[(name, N)])), int(np.median([x[3] for x in acc])),
+                                                                                    int(np.median([x[1] for x in acc]))))
+    L.append("")
+    for label, tf in (("t(N)", None), ("t(10) таблицы (37), справочно – насколько старый узел не держит", t10)):
+        L.append("=== При %s: FAR попыток (З) по сумме попыток (k/n) [медиана по подвыборкам; ↑95 медианы], FAR людей (медиана) [↑95], ошибка своих по сумме "
+                 "[медиана], чужое имя (медиана); разброс FAR по подвыборкам [2,5 %%; 97,5 %%] ===" % label)
+        for N in S_NS:
+            t = sel[N] if tf is None else tf
+            if np.isnan(t):
+                L.append("  N = %d: t не определён (< сетки)" % N)
+                continue
+            j = int(np.argmin(np.abs(N_GRID - t)))
+            for name, fs, main, rn in S_ROWS:
+                acc, no = accs[(name, N)], np.array(owns[(name, N)])
+                far, cp, fp, cpp, err, wn, n = res[(name, N)]
+                kk = np.array([x[0][j] for x in acc])
+                nn = np.array([x[1] for x in acc])
+                errs = np.array([x[4][j] for x in acc])
+                v = kk / nn
+                L.append("  N = %d, t = %.2f, %-13s FAR %d/%d = %.2f %% [%.2f; ↑95 %.2f]; FAR людей %.2f %% [↑95 %.2f]; ошибка своих %.1f %% [%.1f]; чужое имя %.2f %%; "
+                         "FAR по подвыборкам %.2f [%.2f; %.2f] %%%s" % (N, t, name, int(kk.sum()), int(nn.sum()), 100 * kk.sum() / nn.sum(), 100 * far[j], 100 * cp[j],
+                                                                         100 * fp[j], 100 * cpp[j], 100 * (errs * no).sum() / no.sum(), 100 * err[j], 100 * wn[j],
+                                                                         100 * np.median(v), 100 * np.quantile(v, 0.025), 100 * np.quantile(v, 0.975),
+                                                                         "" if main else " (справочно)"))
+        L.append("")
+    L.append("=== Постоянные приведения по (П) (медиана [5 %; 95 %] по подвыборкам): μ_tt, σ_tt, μ_xs, σ_xs ===")
+    for N in S_NS:
+        for name, fs, main, rn in S_ROWS:
+            m, lo, hi = consts[(name, N)]
+            L.append("  %-13s N = %d " % (name, N) + "; ".join("%.4f [%.4f; %.4f]" % (m[i], lo[i], hi[i]) for i in range(4)))
+    L.append("")
+    TL = ["# Пороги (Н) – таблица (37) и узлы малой галереи (duel_thr.py nsmall); s = 2ℓ₁ − ℓ₂ после слияния (w = 0,75), приведение по (П); постоянные – медианы по подвыборкам",
+          "N\tt\tdetermined_by\tmu_tt\tsigma_tt\tmu_xs\tsigma_xs"]
+    rows = dict(base)
+    for N in S_NS:
+        if not np.isnan(sel[N]):
+            m = consts[("FERET межс.", N)][0]
+            rows[N] = "%d\t%.2f\t%s\t%.6f\t%.6f\t%.6f\t%.6f" % (N, sel[N], "FERET межс.", m[0], m[1], m[2], m[3])
+    TL += [rows[k] for k in sorted(rows)]
+    with open(out_tsv, "w", encoding="utf-8", newline="\n") as fo:
+        fo.write("\n".join(TL) + "\n")
+    L.append("Таблица порогов с новыми узлами: %s, SHA-256 %s" % (out_tsv, sha(out_tsv)))
+    with open(out_txt, "w", encoding="utf-8", newline="\n") as fo:
+        fo.write("\n".join(L) + "\n")
+    print("\n".join(L))
+
+
 if __name__ == "__main__":
-    if sys.argv[1] == "ntable":
+    if sys.argv[1] == "nsubs-small":
+        nsubs_small(*sys.argv[2:7])
+    elif sys.argv[1] == "nsmall":
+        nsmall(*sys.argv[2:7])
+    elif sys.argv[1] == "ntable":
         ntable(*sys.argv[2:6])
     elif sys.argv[1] == "duel":
         duel(*sys.argv[2:6])

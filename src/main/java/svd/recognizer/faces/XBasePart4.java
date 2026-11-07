@@ -639,6 +639,19 @@ final class XBasePart4 {
     // ---------------------------------------------------------------- Г: порог при малой галерее – таблица N → t (Н) против П3
 
     static final int[] NS = {10, 50, 100, 200};
+
+    /** Узлы N проверки p4d: FACES_P4_NS (через запятую, малая галерея 07.11) или NS. */
+    static int[] dNs() {
+        String v = System.getenv("FACES_P4_NS");
+        return v == null || v.isBlank() ? NS : java.util.Arrays.stream(v.split(",")).mapToInt(s -> Integer.parseInt(s.trim())).toArray();
+    }
+
+    /** Узел таблицы для справочных строк на тех же галереях (FACES_P4_TREF, например 10) или null. */
+    static Integer dRef() {
+        String v = System.getenv("FACES_P4_TREF");
+        return v == null || v.isBlank() ? null : Integer.parseInt(v.trim());
+    }
+
     static final int GALLERIES = 20;
     /** Сдвиг seed галерей Г: faces.seed + 10800 + 100 · строка + N (строка: FERET проход 1 – 0, проход 2 – 1, GT – 2). */
     static final long D_SEED_OFFSET = 10800;
@@ -746,6 +759,10 @@ final class XBasePart4 {
         String tf = System.getenv("FACES_P4_TABLE");
         if (tf == null) throw new IllegalStateException("p4d: задайте FACES_P4_TABLE – таблица (Н) duel_thr_N.tsv");
         Map<Integer, TRow> table = readTable(Paths.get(tf));
+        int[] ns = dNs();
+        Integer ref = dRef();
+        TRow trRef = ref == null ? null : table.get(ref);
+        if (ref != null && trRef == null) throw new IllegalStateException("p4d: в таблице нет узла " + ref);
         List<XBaseVec.Blk> blocks = new ArrayList<>();
         for (XBaseVec.Blk b : u.blocks) if (b.group().equals("межс.") && (sm == 0 || blocks.isEmpty())) blocks.add(b);
         int nGal = sm == 0 ? GALLERIES : 2;
@@ -763,8 +780,8 @@ final class XBasePart4 {
             XBaseVec.Blk b = blocks.get(bi);
             int row = feret ? bi : 2;
             Map<Integer, List<DG>> m = new java.util.TreeMap<>();
-            for (int n : NS) {
-                if (n > b.g().own.size() || (sm != 0 && n != 10)) continue;
+            for (int n : ns) {
+                if (n > b.g().own.size() || (sm != 0 && n != ns[0])) continue;
                 long seed = u.tpl.seed + D_SEED_OFFSET + 100L * row + n;
                 java.util.Random rnd = new java.util.Random(seed);
                 List<DG> l = new ArrayList<>();
@@ -778,11 +795,12 @@ final class XBasePart4 {
                 m.put(n, l);
             }
             gals.add(m);
-            t.append(String.format(Locale.ROOT, "%s: своих %d; N = %s%s%n", b.name(), b.g().own.size(), m.keySet(), m.size() < NS.length && sm == 0
+            t.append(String.format(Locale.ROOT, "%s: своих %d; N = %s%s%n", b.name(), b.g().own.size(), m.keySet(), m.size() < ns.length && sm == 0
                     ? "; N больше числа своих – строки пропущены" : ""));
         }
         // Модели: по признаку, все галереи; контрольная точка – файл на (блок, N, признак).
-        Path cd = u.out.resolve("xbase_" + base + "_p4d" + (sm == 0 ? "" : "_smoke" + sm));
+        String nsTag = ns == NS ? "" : "_n" + java.util.Arrays.stream(ns).mapToObj(Integer::toString).collect(java.util.stream.Collectors.joining("_"));
+        Path cd = u.out.resolve("xbase_" + base + "_p4d" + nsTag + (sm == 0 ? "" : "_smoke" + sm));
         Files.createDirectories(cd);
         String commit = FarMethods.commit();
         XBaseFeat2.Feats fs = XBaseFeat2.feats(u, export, dir, settings, true);
@@ -820,10 +838,12 @@ final class XBasePart4 {
         StringBuilder res = new StringBuilder("\n=== По N и варианту: FAR контроля по сумме попыток (КП ↑95), 97,5 % по галереям, ошибка своих по сумме; держит FAR 1 % – КП ↑95 "
                 + "по сумме ≤ 1 % ===\nN | вариант | галерей | FAR контроля | 97,5 % по галереям | ошибка своих | держит FAR 1 % | t / приведения\n");
         StringBuilder st2 = new StringBuilder("\n=== Приведения по (Т2) галереи (медиана [2,5 %; 97,5 %] по галереям): μ_tt, σ_tt, μ_xs, σ_xs ===\n");
-        for (int n : NS) {
+        for (int n : ns) {
             List<double[]> va = new ArrayList<>();
             List<double[]> vb = new ArrayList<>();
             List<double[]> vc = new ArrayList<>();
+            List<double[]> vd = new ArrayList<>();
+            List<double[]> ve = new ArrayList<>();
             List<double[]> stats = new ArrayList<>();
             TRow tr = table.get(n);
             for (int bi = 0; bi < blocks.size(); bi++) {
@@ -851,17 +871,25 @@ final class XBasePart4 {
                         vb.add(new double[] {cb[0], cb[1], cb[2], cb[3]});
                         vc.add(new double[] {cc[0], cc[1], cc[2], cc[3]});
                     }
+                    if (trRef != null) {
+                        long[] cd2 = countT(tt, xs, trRef.st(), trRef.sx(), d.g().rOf, d.g().r0, trRef.t());
+                        long[] ce = countT(tt, xs, stt, sxs, d.g().rOf, d.g().r0, trRef.t());
+                        vd.add(new double[] {cd2[0], cd2[1], cd2[2], cd2[3]});
+                        ve.add(new double[] {ce[0], ce[1], ce[2], ce[3]});
+                    }
                 }
             }
             if (va.isEmpty()) {
                 res.append(String.format(Locale.ROOT, "%d | – | 0 | N больше числа своих – строка пропущена%n", n));
                 continue;
             }
-            String[] vn = {"(а) П3 по (Т2) галереи", "(б) t(N) таблицы, приведения таблицы", "(в) t(N) таблицы, приведения по (Т2) галереи"};
-            List<List<double[]>> all = List.of(va, vb, vc);
-            for (int v = 0; v < 3; v++) {
+            String[] vn = {"(а) П3 по (Т2) галереи", "(б) t(N) таблицы, приведения таблицы", "(в) t(N) таблицы, приведения по (Т2) галереи",
+                    "(г) t(" + ref + ") таблицы, приведения узла " + ref, "(д) t(" + ref + ") таблицы, приведения по (Т2) галереи"};
+            List<List<double[]>> all = List.of(va, vb, vc, vd, ve);
+            for (int v = 0; v < 5; v++) {
                 List<double[]> l = all.get(v);
                 if (l.isEmpty()) continue;
+                TRow trv = v >= 3 ? trRef : tr;
                 long e0 = 0, o0 = 0, a0 = 0, c0 = 0;
                 List<Double> fr = new ArrayList<>();
                 for (double[] a : l) {
@@ -872,8 +900,8 @@ final class XBasePart4 {
                     fr.add(100 * a[2] / a[3]);
                 }
                 double cp = 100 * FaceEvaluation.binomialUpperBound((int) a0, (int) c0, 0.95);
-                String extra = v == 0 ? "П3 FAR 1 %" : String.format(Locale.ROOT, "t = %.2f (%s)%s", tr.t(), tr.by(), v == 1 ? String.format(Locale.ROOT, "; μ_tt %.4f σ_tt %.4f "
-                        + "μ_xs %.4f σ_xs %.4f", tr.st()[0], tr.st()[1], tr.sx()[0], tr.sx()[1]) : "");
+                String extra = v == 0 ? "П3 FAR 1 %" : String.format(Locale.ROOT, "t = %.2f (%s)%s", trv.t(), trv.by(), v == 1 || v == 3 ? String.format(Locale.ROOT, "; μ_tt %.4f σ_tt %.4f "
+                        + "μ_xs %.4f σ_xs %.4f", trv.st()[0], trv.st()[1], trv.sx()[0], trv.sx()[1]) : "");
                 res.append(String.format(Locale.ROOT, "%d | %s | %d | %d/%d = %.2f %%, КП ↑%.2f %% | %.2f %% | %d/%d = %.1f %% | %s | %s%n", n, vn[v], l.size(), a0, c0,
                         100.0 * a0 / c0, cp, quantile(fr, 0.975), e0, o0, 100.0 * e0 / o0, cp <= 1 ? "да" : "нет", extra));
             }
@@ -888,7 +916,7 @@ final class XBasePart4 {
         }
         t.append(res).append(st2);
         t.append(String.format(Locale.ROOT, "%nВремя: %.0f с (потоков %d).%n", (System.nanoTime() - t0) / 1e9, u.tpl.threads));
-        FarMethods.write(u.out.resolve("xbase_" + base + "_p4d" + (sm == 0 ? "" : "_smoke" + sm) + XBaseFinalReport.tag() + ".txt"), t);
+        FarMethods.write(u.out.resolve("xbase_" + base + "_p4d" + nsTag + (sm == 0 ? "" : "_smoke" + sm) + XBaseFinalReport.tag() + ".txt"), t);
         System.out.print(t);
         System.out.println("DONE");
     }
