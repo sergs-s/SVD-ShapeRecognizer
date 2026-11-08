@@ -643,4 +643,309 @@ final class XBaseBioId {
         System.out.printf(Locale.ROOT, "Всего: %.0f с%n", (System.nanoTime() - t0) / 1e9);
         System.out.println("DONE");
     }
+
+    // ---------------------------------------------------------------- внешние чужие (bioid-ext, постановка 08.11)
+
+    /** Снимок внешнего чужого: база, человек, ключ, |r|. */
+    record Ext(String base, String person, String key, double r) {}
+
+    /** Опись E: отобранные снимки и исключения по базам. */
+    static final class ExtSet {
+        final List<Ext> list = new ArrayList<>();
+        final Map<String, int[]> count = new java.util.LinkedHashMap<>(); // база → {людей всего, людей исключено, снимков всего, нет лица, |r| > R, не выравнивается, отобрано}
+        final Map<String, java.util.TreeSet<String>> persons = new TreeMap<>();
+        final Map<String, String> excludedPersons = new java.util.LinkedHashMap<>();
+    }
+
+    static void addExt(ExtSet e, String base, String person, String key, double[] row) {
+        int[] c = e.count.computeIfAbsent(base, b -> new int[7]);
+        c[2]++;
+        if (row == null) {
+            c[3]++;
+            return;
+        }
+        double r = Math.abs(FeiDataset.pose(row));
+        if (r > R) {
+            c[4]++;
+            return;
+        }
+        if (!XBaseChokeRun.alignable(row)) {
+            c[5]++;
+            return;
+        }
+        c[6]++;
+        e.list.add(new Ext(base, person, key, r));
+        e.persons.computeIfAbsent(base, b -> new java.util.TreeSet<>()).add(person);
+    }
+
+    /** s = 2ℓ₁ − ℓ₂ слияния (32) по строкам моделей (как XBaseVec.fuseLines): {s, лучший}; второго нет – s = +∞. */
+    static double[] fuseS(XBaseVec.Row rt, XBaseVec.Row rx, double[] st, double[] sx) {
+        int ng = rt.dg().length;
+        int b = -1;
+        int c = -1;
+        double[] ln = new double[ng];
+        for (int g = 0; g < ng; g++) {
+            ln[g] = Double.isInfinite(rt.dg()[g]) || Double.isInfinite(rx.dg()[g]) ? Double.POSITIVE_INFINITY
+                    : XBaseFeat2.W_FUSE * (XBaseVec.ell(rt.dg()[g]) - st[0]) / st[1] + (1 - XBaseFeat2.W_FUSE) * (XBaseVec.ell(rx.dg()[g]) - sx[0]) / sx[1];
+            if (b < 0 || ln[g] < ln[b]) {
+                c = b;
+                b = g;
+            } else if (c < 0 || ln[g] < ln[c]) c = g;
+        }
+        if (c < 0 || Double.isInfinite(ln[b]) || Double.isInfinite(ln[c])) return new double[] {Double.POSITIVE_INFINITY, b};
+        return new double[] {2 * ln[b] - ln[c], b};
+    }
+
+    /** Наибольший t, при котором доля s ≤ t не больше far: следующее вниз от (⌊far·n⌋ + 1)-го наименьшего s. */
+    static double tAt(double[] s, double far) {
+        double[] v = s.clone();
+        java.util.Arrays.sort(v);
+        int k = (int) Math.floor(far * v.length + 1e-9);
+        return k >= v.length ? Double.POSITIVE_INFINITY : Math.nextDown(v[k]);
+    }
+
+    /** Попытка BioID или E: проход, роль (own / ctrl / ext), человек, база E, s, верный ли лучший. */
+    record Sc(int pass, String role, String person, String base, double s, boolean right) {}
+
+    static void ext(FarExport.Loaded export, Path dir, Map<String, Map<Integer, String>> feiKeys, List<String> selLines, SettingsStore settings, Path out) throws IOException {
+        if (!FrameB.on()) throw new IllegalStateException("bioid-ext: FACES_FRAMES=b");
+        double r0 = FeiPose.r0(settings.loadFacesFeiPoseR0(), "+pose");
+        double rLimit = XBaseEval.poseLimit(selLines);
+        if (r0 != 0.12 || Math.abs(rLimit - R) > 5e-4) throw new IllegalStateException("bioid-ext: r0 = " + r0 + ", R = " + rLimit);
+        long t0 = System.nanoTime();
+        long seed = settings.loadFacesSeed();
+        Path root = Paths.get(System.getenv("FACES_BIOID_DIR"));
+        Path od = root.resolve("reports").resolve("bioid").resolve("ext");
+        Files.createDirectories(od);
+        Path fd = Paths.get(System.getenv("FACES_FERET_DIR")).resolve("reports").resolve(XBaseEval.eqDir(0, true));
+        Map<Integer, XBasePart4.TRow> tb37 = XBasePart4.readTable(Paths.get(System.getenv("FACES_P4_TABLE")));
+        XBaseA0.FeretSetup su = XBaseA0.feretSetup(dir, selLines, settings);
+        BPlan bp = realPlan(root, settings);
+        List<List<String>> train = XBaseChokeRun.train(bp.p, su, export, dir, feiKeys, settings, seed, 0);
+        XBaseFinal.Run run = setup(bp, su, train, settings, r0, rLimit);
+        XBaseVec.Setup u = run.u();
+
+        // Опись E.
+        ExtSet e = new ExtSet();
+        Set<String> cohort = new java.util.HashSet<>(XBaseEval.cohortPersons(feiKeys, seed));
+        Set<String> pool = new java.util.HashSet<>(su.ro.own1);
+        Map<String, double[]> expRows = FrameK2.exportRows(dir);
+        Map<String, GalleryEvaluation.Sample> bySample = new HashMap<>();
+        for (String[] bs : new String[][] {{"GT", ""}, {"MUCT", "429"}, {"FEI", "071"}}) {
+            Map<String, List<GalleryEvaluation.Sample>> m = bs[0].equals("GT") ? export.data().gt() : bs[0].equals("MUCT") ? export.data().muct() : export.data().fei();
+            int[] c = e.count.computeIfAbsent(bs[0], b -> new int[7]);
+            for (Map.Entry<String, List<GalleryEvaluation.Sample>> en : new TreeMap<>(m).entrySet()) {
+                String q = en.getKey();
+                c[0]++;
+                String why = q.equals(bs[1]) || q.endsWith("/" + bs[1]) ? "дубль (38)" : bs[0].equals("FEI") && cohort.contains(q) ? "когорта прогона" : null;
+                if (why != null) {
+                    c[1]++;
+                    e.excludedPersons.put(bs[0] + " " + q, why);
+                    continue;
+                }
+                for (GalleryEvaluation.Sample s : en.getValue()) {
+                    String k = s.file().toString();
+                    bySample.put(k, s);
+                    addExt(e, bs[0], q, k, expRows.get(k));
+                }
+            }
+        }
+        Map<String, List<FeretData.Img>> fp = new TreeMap<>();
+        for (FeretData.Img im : su.imgs) fp.computeIfAbsent(im.person(), p -> new ArrayList<>()).add(im);
+        int[] cf = e.count.computeIfAbsent("FERET", b -> new int[7]);
+        for (Map.Entry<String, List<FeretData.Img>> en : fp.entrySet()) {
+            String q = en.getKey();
+            cf[0]++;
+            String why = q.equals("00700") ? "дубль (38)" : pool.contains(q) ? "пул прогона" : null;
+            if (why != null) {
+                cf[1]++;
+                if (!why.equals("пул прогона")) e.excludedPersons.put("FERET " + q, why);
+                continue;
+            }
+            for (FeretData.Img im : en.getValue()) if (im.frontal()) addExt(e, "FERET", q, im.key(), su.det.get(im.key()));
+        }
+
+        // Кадры Б и k = 2 для E (нет кадра – снимок исключается, числом).
+        Map<String, Integer> noFrame = new TreeMap<>();
+        List<Ext> use = new ArrayList<>();
+        List<String> feretK2 = new ArrayList<>();
+        List<String> expK2 = new ArrayList<>();
+        List<GalleryEvaluation.Sample> muctK2 = new ArrayList<>();
+        for (Ext x : e.list) {
+            Mat f;
+            try {
+                f = x.base().equals("FERET") ? FeretData.frame(su.dir, "a", x.key()) : export.frame(bySample.get(x.key()), GalleryEvaluation.Variant.A);
+            } catch (IOException ex) {
+                f = null;
+            }
+            if (f == null || f.empty()) {
+                noFrame.merge(x.base(), 1, Integer::sum);
+                continue;
+            }
+            bp.p.fr.put(x.key(), f);
+            use.add(x);
+            if (x.base().equals("FERET")) feretK2.add(x.key());
+            else if (x.base().equals("MUCT")) muctK2.add(bySample.get(x.key()));
+            else expK2.add(x.key());
+        }
+        List<String> fe = new ArrayList<>(feretK2);
+        fe.addAll(expK2);
+        bp.p.k2.putAll(FrameK2.load(fe, su, su.dir, export, dir, Paths.get(settings.loadFacesGtDir()), Paths.get(settings.loadFacesFeiDir())));
+        bp.p.k2.putAll(DuelThr.k2Raw("muct", muctK2, export, dir, Paths.get(settings.loadFacesMuctDir())));
+        int next = 100000;
+        for (Ext x : use) {
+            bp.p.rOf.put(x.key(), x.r());
+            u.tpl.imageNo.put(x.key(), next++);
+        }
+        System.out.printf(Locale.ROOT, "bioid-ext: E – %d снимков, кадры за %.0f с%n", use.size(), (System.nanoTime() - t0) / 1e9);
+
+        // Модели: W основной модели каждого прохода заново (XBaseVec.model, MldaScorer – как прогон), сверка строк BioID с файлами прогона.
+        List<Sc> sc = new ArrayList<>();
+        StringBuilder chk = new StringBuilder();
+        Map<String, Double> sec = new java.util.LinkedHashMap<>();
+        Map<XBaseFinal.Cfg, XBaseEval> xs = new java.util.LinkedHashMap<>();
+        for (XBaseFinal.Cfg c : List.of(XBaseFinal.TT1, XBaseFinal.XS)) {
+            long tv = System.nanoTime();
+            xs.put(c, XBasePart4.vectorsB(bp.p.fr, bp.p.k2, XBaseFinal.param(c, u.tpl.params), c.f(), u.tpl.threads));
+            sec.put(c.id() + " признаки", (System.nanoTime() - tv) / 1e9);
+        }
+        for (Mat m : bp.p.fr.values()) m.release();
+        for (int pass = 0; pass < 2; pass++) {
+            XBaseVec.Blk b = u.blocks.get(pass);
+            List<XBaseEval.Probe> probes = new ArrayList<>(b.probes());
+            for (Ext x : use) probes.add(new XBaseEval.Probe(FeiScores.CTRL, "ext:" + x.base() + ":" + x.person(), u.tpl.imageNo.get(x.key()), x.key(), -1));
+            List<List<String>> gallery = b.g().own.stream().map(b.gal()::get).toList();
+            List<java.util.concurrent.Callable<XBaseVec.Model>> jobs = new ArrayList<>();
+            XBaseEval xt = xs.get(XBaseFinal.TT1);
+            XBaseEval xx = xs.get(XBaseFinal.XS);
+            String mx = XBaseEval.V.L1.id;
+            String mm = mx + FeiMethods.MIRROR;
+            jobs.add(() -> XBaseVec.model(xt, false, mx, b.s(), b.g().own, gallery, b.g().cohort, u.cin, u.cout, probes, "main"));
+            jobs.add(() -> XBaseVec.model(xt, true, mm, b.s(), b.g().own, gallery, b.g().cohort, u.cin, u.cout, probes, "main"));
+            jobs.add(() -> XBaseVec.model(xx, true, mm, b.s(), b.g().own, gallery, b.g().cohort, u.cin, u.cout, probes, "main"));
+            long tm = System.nanoTime();
+            List<XBaseVec.Model> done = XBaseVec.run(List.of(jobs), u.tpl.threads).get(0);
+            sec.put("W прохода " + (pass + 1), (System.nanoTime() - tm) / 1e9);
+            List<XBaseVec.Model> ft = XBaseFinal.models(run, b, XBaseFinal.TT1, false);
+            List<XBaseVec.Model> fx = XBaseFinal.models(run, b, XBaseFinal.XS, false);
+            XBaseVec.Model[] file = {XBaseVec.find(ft, "main", false), XBaseVec.find(ft, "main", true), XBaseVec.find(fx, "main", true)};
+            String[] name = {"L1-tt-xs-F X", "L1-tt-xs-F X+mirror", "L1-xs-F X+mirror"};
+            for (int k = 0; k < 3; k++) {
+                List<XBaseVec.Row> mine = done.get(k).rows();
+                List<XBaseVec.Row> ref = file[k].rows();
+                int bad = 0;
+                if (!done.get(k).gallery().equals(file[k].gallery())) bad = -1;
+                for (int i = 0; i < ref.size() && bad >= 0; i++) {
+                    XBaseVec.Row a = mine.get(i);
+                    XBaseVec.Row r = ref.get(i);
+                    boolean eq = a.key().equals(r.key()) && a.role().equals(r.role()) && a.image() == r.image() && a.dg().length == r.dg().length;
+                    for (int g = 0; eq && g < r.dg().length; g++) eq = Double.doubleToLongBits(a.dg()[g]) == Double.doubleToLongBits(r.dg()[g]);
+                    if (!eq) bad++;
+                }
+                chk.append(String.format(Locale.ROOT, "Проход %d, %s: строк BioID %d, совпало побайтно %s%n", pass + 1, name[k], ref.size(), bad == 0 ? "все" : bad < 0 ? "НЕТ (галерея)" : "НЕТ у " + bad));
+                if (bad != 0) {
+                    FarMethods.write(od.resolve("bioid_ext_check.txt"), chk);
+                    throw new IllegalStateException("bioid-ext: сверка с прогоном не прошла – " + chk);
+                }
+            }
+            double[] st = XBaseVec.fuseStats(ft, false);
+            double[] sx = XBaseVec.fuseStats(fx, false);
+            List<XBaseVec.Row> rX = done.get(0).rows(), rM = done.get(1).rows(), rx = done.get(2).rows();
+            for (int i = 0; i < rX.size(); i++) {
+                XBaseVec.Row a = rX.get(i);
+                XBaseVec.Row rt = bp.p.rOf.get(a.key()) <= r0 ? a : rM.get(i);
+                double[] d = fuseS(rt, rx.get(i), st, sx);
+                boolean extRow = a.person().startsWith("ext:");
+                String base = extRow ? a.person().split(":")[1] : "";
+                String person = extRow ? a.person().substring(4) : a.person();
+                sc.add(new Sc(pass, extRow ? "ext" : a.role(), person, base, d[0], a.trueIdx() >= 0 && (int) d[1] == a.trueIdx()));
+            }
+        }
+
+        // Пороги и меры.
+        Map<String, Integer> pIdx = u.tpl.pIdx;
+        int persons = u.persons;
+        int[][] w = FeiBootstrap.weights(persons, u.tpl.b, u.tpl.seed + FeiBootstrap.SEED_OFFSET);
+        List<String> bases = new ArrayList<>(List.of("все"));
+        for (String b : e.count.keySet()) if (use.stream().anyMatch(x -> x.base().equals(b))) bases.add(b);
+        StringBuilder t = new StringBuilder("BioID – порог под свою галерею по внешним чужим (постановка 08.11, SHA-256 12680c83…; XBaseEval bioid-ext; уточнения Жорика №2 от 08.11)\n");
+        t.append("Код: коммит ").append(FarMethods.commit()).append("; модели прогона – ").append(run.dir().resolve("vec")).append(" (код 1f9990a); (Т2) – из файлов прогона; бутстреп по людям BioID B = ")
+                .append(u.tpl.b).append(", seed ").append(u.tpl.seed + FeiBootstrap.SEED_OFFSET).append("\n\n");
+        t.append("=== 1. Внешние чужие E (кадры Б; отбор как у проб (32): лицо, |r| ≤ 0,387, выравнивание) ===\n");
+        t.append("База | людей в базе | исключено людей | снимков у оставшихся | нет лица | |r| > R | не выравнивается | отобрано | нет кадра Б | в расчёте (снимков / людей)\n");
+        for (Map.Entry<String, int[]> en : e.count.entrySet()) {
+            int[] c = en.getValue();
+            int nf = noFrame.getOrDefault(en.getKey(), 0);
+            long nu = use.stream().filter(x -> x.base().equals(en.getKey())).count();
+            long np = use.stream().filter(x -> x.base().equals(en.getKey())).map(Ext::person).distinct().count();
+            t.append(String.format(Locale.ROOT, "%s | %d | %d | %d | %d | %d | %d | %d | %d | %d / %d%n", en.getKey(), c[0], c[1], c[2], c[3], c[4], c[5], c[6], nf, nu, np));
+        }
+        t.append("Исключённые люди (кроме пула FERET – ").append(pool.size()).append(" человек): ").append(e.excludedPersons).append('\n');
+        t.append("\n=== Сверка повторной W с прогоном (строки проб BioID, расстояния побайтно) ===\n").append(chk);
+        // Порог t_E по проходу и мерам.
+        Map<String, double[]> tE = new java.util.LinkedHashMap<>(); // ключ «база|far» → {t прохода 1, t прохода 2}
+        for (String b : bases)
+            for (double far : new double[] {0.01, 0.05}) {
+                double[] tt = new double[2];
+                for (int pass = 0; pass < 2; pass++) {
+                    int pp = pass;
+                    double[] s = sc.stream().filter(x -> x.pass() == pp && x.role().equals("ext") && (b.equals("все") || x.base().equals(b))).mapToDouble(Sc::s).toArray();
+                    tt[pass] = tAt(s, far);
+                }
+                tE.put(b + "|" + far, tt);
+            }
+        t.append("\n=== 2. Порог t_E (наибольший, при котором доля принятых снимков E ≤ FAR; по проходу) ===\n");
+        t.append("E | FAR E | t прохода 1 | t прохода 2 | принято E (по сумме проходов)\n");
+        for (Map.Entry<String, double[]> en : tE.entrySet()) {
+            String[] k = en.getKey().split("\\|");
+            long acc = 0, n = 0;
+            for (Sc x : sc) if (x.role().equals("ext") && (k[0].equals("все") || x.base().equals(k[0]))) {
+                n++;
+                if (x.s() <= en.getValue()[x.pass()]) acc++;
+            }
+            t.append(String.format(Locale.ROOT, "%s | %.0f %% | %.4f | %.4f | %d/%d = %.2f %%%n", k[0], 100 * Double.parseDouble(k[1]), en.getValue()[0], en.getValue()[1], acc, n, 100.0 * acc / n));
+        }
+        t.append("\n=== 3. Меры на BioID (настоящие чужие и свои – как в прогоне; бутстреп по людям BioID) ===\n");
+        t.append("порог | ошибка своих | «чужое имя» | FAR по попыткам | FAR по людям | свои по людям и по попыткам, 95 % интервал | FAR | верный лучший\n");
+        List<String[]> rows = new ArrayList<>();
+        double t10 = XBaseFinalReport.tOf(tb37, 8)[0];
+        rows.add(new String[] {String.format(Locale.ROOT, "рабочий t(10) = %.2f", t10), Double.toString(t10), Double.toString(t10)});
+        for (Map.Entry<String, double[]> en : tE.entrySet()) {
+            String[] k = en.getKey().split("\\|");
+            rows.add(new String[] {String.format(Locale.ROOT, "t_E %s, FAR E %.0f %%", k[0], 100 * Double.parseDouble(k[1])), Double.toString(en.getValue()[0]), Double.toString(en.getValue()[1])});
+        }
+        for (String[] rr : rows) {
+            double[] tt = {Double.parseDouble(rr[1]), Double.parseDouble(rr[2])};
+            List<XBaseChokeRun.Res> l = new ArrayList<>();
+            for (Sc x : sc) if (!x.role().equals("ext")) l.add(new XBaseChokeRun.Res(x.person(), x.pass(), x.role().equals("own"), x.s() <= tt[x.pass()], x.right(), null));
+            t.append(XBaseChokeRun.mainRow(rr[0], l, pIdx, w, persons));
+        }
+        long acc10 = sc.stream().filter(x -> x.role().equals("ctrl") && x.s() <= t10).count();
+        long err10 = sc.stream().filter(x -> x.role().equals("own") && !(x.s() <= t10 && x.right())).count();
+        t.append(String.format(Locale.ROOT, "Сверка с прогоном при t(10): принято чужих %d (прогон 46), ошибок своих %d (прогон 239).%n", acc10, err10));
+        t.append("Предел (прогон, те же модели): разделимость при фактическом FAR 1 % по настоящим чужим – 37,8 % [4,3; 60,4] (факт. 0,90 %).\n");
+        double far1 = Double.NaN;
+        {
+            double[] tt = tE.get("все|0.01");
+            long a = 0, n = 0;
+            for (Sc x : sc) if (x.role().equals("ctrl")) {
+                n++;
+                if (x.s() <= tt[x.pass()]) a++;
+            }
+            far1 = 100.0 * a / n;
+        }
+        t.append(String.format(Locale.ROOT, "%n=== 4. Итог по разд. 4 ===%nFAR настоящих чужих BioID при t_E (все внешние, FAR E 1 %%) по попыткам в точке %.2f %%: %s.%n", far1,
+                far1 <= 1 ? "способ годится на этой базе (≤ 1 %); цена – ошибка своих при t_E (строка выше) против разделимости 37,8 %" : "внешние чужие не заменяют местных на этой базе (> 1 %)"));
+        sec.forEach((k, v) -> t.append(String.format(Locale.ROOT, "%s: %.0f с%n", k, v)));
+        t.append(String.format(Locale.ROOT, "Всего: %.0f с%n", (System.nanoTime() - t0) / 1e9));
+        FarMethods.write(od.resolve("bioid_ext.txt"), t);
+        // Оценки: BioID и E не FERET – в ext\, E FERET – только в Feret\reports\eq_b\.
+        StringBuilder a = new StringBuilder("# проход\tроль\tчеловек\tбаза E\ts\tверный лучший\n# Код: коммит " + FarMethods.commit() + "\n");
+        StringBuilder bF = new StringBuilder(a);
+        for (Sc x : sc) (x.base().equals("FERET") ? bF : a).append(String.format(Locale.ROOT, "%d\t%s\t%s\t%s\t%.17g\t%b%n", x.pass() + 1, x.role(), x.person(), x.base(), x.s(), x.right()));
+        Files.writeString(od.resolve("bioid_ext_scores.tsv"), a, StandardCharsets.UTF_8);
+        Files.writeString(fd.resolve("bioid_ext_feret_scores.tsv"), bF, StandardCharsets.UTF_8);
+        System.out.print(t);
+        System.out.println("DONE");
+    }
 }

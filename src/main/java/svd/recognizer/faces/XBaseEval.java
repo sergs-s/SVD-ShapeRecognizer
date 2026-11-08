@@ -659,6 +659,8 @@ public final class XBaseEval {
             XBaseFinalReport.cmp10(export, dir, feiKeys, selLines, settings, out);
         } else if (a[0].equals("final-addon")) {
             XBaseFinalReport.addon(a[1], export, dir, feiKeys, selLines, settings, out);
+        } else if (a[0].equals("bioid-ext")) {
+            XBaseBioId.ext(export, dir, feiKeys, selLines, settings, out);
         } else if (a[0].equals("bioid-run")) {
             XBaseBioId.run(export, dir, feiKeys, selLines, settings, out);
         } else if (a[0].equals("cp-run")) {

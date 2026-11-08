@@ -79,4 +79,23 @@ public class XBaseBioIdTest {
         assertEquals(5, p.size());
         assertEquals(perm.subList(0, 2), p.get(0));
     }
+
+    @Test
+    public void thresholdAcceptsAtMostShare() {
+        double[] s = new double[200];
+        for (int i = 0; i < s.length; i++) s[i] = 200 - i;
+        double t = XBaseBioId.tAt(s, 0.01);
+        long acc = java.util.Arrays.stream(s).filter(v -> v <= t).count();
+        assertEquals(2, acc);
+        assertEquals(true, t < 3 && t > 2.999);
+        assertEquals(10, java.util.Arrays.stream(s).filter(v -> v <= XBaseBioId.tAt(s, 0.05)).count());
+    }
+
+    @Test
+    public void fuseScoreIsTwoBestMinusSecond() {
+        XBaseVec.Row a = new XBaseVec.Row("ctrl", "x", 1, "k", -1, new double[] {Math.exp(-1), Math.exp(-3), Math.exp(-2)}, new double[0], new double[0]);
+        double[] d = XBaseBioId.fuseS(a, a, new double[] {0, 1}, new double[] {0, 1});
+        assertEquals(1, (int) d[1]);
+        assertEquals(2 * -3 - -2, d[0], 1e-12);
+    }
 }
