@@ -361,7 +361,7 @@ final class XBaseFinal {
         List<String> vtk = u.fr.keySet().stream().filter(k -> k.startsWith(VidTimitData.KEY_PREFIX)).toList();
         if (!vtk.isEmpty()) k2.putAll(k2Vt(vtk, settings));
         Path fd = base.equals("feret") ? u.su.dir.resolve("reports").resolve(XBaseEval.eqDir(0, true)).resolve(freeze ? "final_a" : "final") : out.resolve(freeze
-                ? "final_a" : "final");
+                ? "final_a" : "final" + FrameB.tag());
         if (sm > 0) fd = fd.resolveSibling(fd.getFileName() + "_smoke" + sm);
         return new Run(u, k2, extra, fd, freeze, sm);
     }
@@ -369,6 +369,8 @@ final class XBaseFinal {
     /** FERET и GT (Ф1) – σ₀ = 1 и 0,5; кадры «а», FEI и своя база – σ₀ = 1 (σ₀ = 0,5 – при FACES_FINAL_TT05=1, досчёт после Ф1б). */
     static List<Cfg> cfgs(boolean freeze, String base) {
         if (freeze) return List.of(TT1, XS);
+        // Проба «подбородок» (FACES_CHIN): только σ₀ = 1 (выбрано Ф1б) и L1-xs-F.
+        if (FrameB.chin() != null) return List.of(base.equals("vt") && vtSigma != 1 ? TT05 : TT1, XS);
         if (base.equals("vt")) return List.of(vtSigma == 1 ? TT1 : TT05, XS);
         if (base.equals("feret") || base.equals("gt")) return List.of(TT1, TT05, XS);
         return "1".equals(System.getenv("FACES_FINAL_TT05")) ? List.of(TT1, TT05, XS) : List.of(TT1, XS);

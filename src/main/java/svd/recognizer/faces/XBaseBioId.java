@@ -407,7 +407,7 @@ final class XBaseBioId {
     /** Кадры Б, k = 2 и |r| годных снимков; файлы – derived\a_b, derived\c. */
     static void frames(Roles x, Path root, XBaseChokeRun.Plan p, StringBuilder pts) throws IOException {
         Path der = root.resolve("derived");
-        for (Path d : List.of(der.resolve(FrameB.DIR), der.resolve(FrameK2.DIR))) Files.createDirectories(d);
+        for (Path d : List.of(der.resolve(FrameB.dirName()), der.resolve(FrameK2.DIR))) Files.createDirectories(d);
         for (int i = 0; i < N; i++) {
             if (!x.valid.contains(i)) continue;
             String k = key(i);
@@ -419,7 +419,7 @@ final class XBaseBioId {
             Mat gray = new Mat();
             Imgproc.cvtColor(color, gray, Imgproc.COLOR_BGR2GRAY);
             FrameK2.F f = FrameK2.fromFull(gray, FrameK2.lm(row));
-            FeretData.writePng(der.resolve(FrameB.DIR).resolve(name), b);
+            FeretData.writePng(der.resolve(FrameB.dirName()).resolve(name), b);
             FeretData.writePng(der.resolve(FrameK2.DIR).resolve(name), f.frame());
             pts.append(FrameK2.pointsLine(k, f.pts()));
             p.fr.put(k, b);
@@ -435,7 +435,7 @@ final class XBaseBioId {
         Roles x = roles(root, rep, settings);
         BPlan bp = new BPlan();
         XBaseChokeRun.Plan p = bp.p;
-        p.dir = rep.resolve("bioid");
+        p.dir = rep.resolve("bioid" + FrameB.tag());
         p.halves = x.halves;
         p.only2 = new ArrayList<>(x.only);
         p.all.addAll(x.runs.keySet());

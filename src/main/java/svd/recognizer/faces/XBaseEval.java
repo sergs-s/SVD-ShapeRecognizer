@@ -659,6 +659,12 @@ public final class XBaseEval {
             XBaseFinalReport.cmp10(export, dir, feiKeys, selLines, settings, out);
         } else if (a[0].equals("final-addon")) {
             XBaseFinalReport.addon(a[1], export, dir, feiKeys, selLines, settings, out);
+        } else if (a[0].equals("pool-chin")) {
+            XBaseChin.pool(export, dir, feiKeys, selLines, settings, out);
+        } else if (a[0].equals("pool-chin-cmp")) {
+            XBaseChin.poolCmp(export, dir, feiKeys, selLines, settings, out);
+        } else if (a[0].equals("frames-chin")) {
+            XBaseChin.frames(export, dir, selLines, settings, out);
         } else if (a[0].equals("chin-sheet")) {
             XBaseChin.sheet(export, dir, feiKeys, selLines, settings);
         } else if (a[0].equals("bioid-ext")) {
@@ -1255,7 +1261,7 @@ public final class XBaseEval {
 
     /** Каталог отчётов №8 внутри каталога режима: eq&lt;seed offset + k&gt; (GT) или eq (FERET); null — прежний каталог. */
     static String eqDir(Integer eq, boolean feret) {
-        return eq == null ? null : feret ? (FrameB.on() ? "eq_b" : "eq") : "eq" + (EQ_SEED_OFFSET + eq);
+        return eq == null ? null : feret ? (FrameB.on() ? "eq_b" + FrameB.tag() : "eq") : "eq" + (EQ_SEED_OFFSET + eq);
     }
 
     static List<Map<String, List<String>>> withinSplit(List<String> own, Map<String, List<String>> dateKeys, long seed) {

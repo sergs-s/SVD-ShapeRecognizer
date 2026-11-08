@@ -81,6 +81,8 @@ final class FaceMirror {
 
     /** Отражённый и заново выровненный кадр (способ а) с шаблоном кадра «а» ({@link FaceAlignment#ownTemplate}). */
     static Mat mirror(Mat frame) {
+        // Кадр (Ч) 92×132 (FACES_CHIN): шаблон – кадра Б 92×112 (тот же масштаб и начало координат, кадр удлинён вниз).
+        if (FrameB.chin() != null && frame.cols() == FrameB.W && frame.rows() == XBaseChin.height()) return mirror(frame, FaceAlignment.ownTemplate(FrameB.W, FrameB.H));
         return mirror(frame, FaceAlignment.ownTemplate(frame.cols(), frame.rows()));
     }
 

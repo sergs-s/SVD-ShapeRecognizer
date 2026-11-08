@@ -137,6 +137,62 @@ final class FeatP4 {
 
     /** Гистограммы POEM (корня нет) по кадру img: блоки grid × grid, в блоке – ориентации подряд; длина grid²·m·59. */
     static double[] poem(double[] img, int w, int h, int grid, int orient, int cell, double radius) {
+        return poem(img, w, h, grid, orient, cell, radius, null);
+    }
+
+    /** Маска эллипса кадра w × h ((Ч+О)): XBaseChin.mask, true – внутри; кэш по размеру. */
+    private static final java.util.Map<Long, boolean[]> ELLIPSE = new java.util.concurrent.ConcurrentHashMap<>();
+
+    static boolean[] ellipse(int w, int h) {
+        return ELLIPSE.computeIfAbsent(((long) w << 32) | h, k -> {
+            Mat m = XBaseChin.mask(w, h);
+            byte[] b = new byte[w * h];
+            m.get(0, 0, b);
+            m.release();
+            boolean[] out = new boolean[w * h];
+            for (int i = 0; i < out.length; i++) out[i] = b[i] != 0;
+            return out;
+        });
+    }
+
+    /**
+     * LBP с маской: как LbpFeature.histogram(img, w, h, lp), но код учитывается, только если его центр (пиксель кадра (x + r, y + r)) внутри
+     * маски; доля – от числа учтённых кодов ячейки (ячейка без учтённых – нули).
+     */
+    static double[] lbpMasked(double[] img, int w, int h, LbpFeature.Params lp, boolean[] mask) {
+        int grid = lp.grid();
+        double[] v = new double[lp.length()];
+        for (int ri = 0; ri < lp.radii().length; ri++) {
+            int r = (int) lp.radii()[ri];
+            int cw = w - 2 * r;
+            int ch = h - 2 * r;
+            int[] codes = LbpFeature.codes(img, w, h, lp.radii()[ri]);
+            int base = ri * grid * grid * LbpFeature.BINS;
+            for (int by = 0; by < grid; by++) {
+                int y0 = by * ch / grid;
+                int y1 = (by + 1) * ch / grid;
+                for (int bx = 0; bx < grid; bx++) {
+                    int x0 = bx * cw / grid;
+                    int x1 = (bx + 1) * cw / grid;
+                    int off = base + (by * grid + bx) * LbpFeature.BINS;
+                    int n = 0;
+                    for (int y = y0; y < y1; y++) for (int x = x0; x < x1; x++) {
+                        if (!mask[(y + r) * w + x + r]) continue;
+                        v[off + LbpFeature.LABEL[codes[y * cw + x]]]++;
+                        n++;
+                    }
+                    if (n > 0) for (int k = 0; k < LbpFeature.BINS; k++) v[off + k] /= n;
+                }
+            }
+        }
+        return v;
+    }
+
+    /**
+     * POEM; mask != null – код учитывается, только если центр его окна ячейки (пиксель кадра (x + r + 1 + (cell − 1)/2, …)) внутри маски;
+     * доля – от числа учтённых кодов ячейки.
+     */
+    static double[] poem(double[] img, int w, int h, int grid, int orient, int cell, double radius, boolean[] mask) {
         int border = 1 + cell / 2 + reach(radius);
         if (w <= 2 * border || h <= 2 * border) throw new IllegalArgumentException("FeatP4: кадр меньше окрестности POEM");
         double[][] m = magnitudes(img, w, h, orient);
@@ -163,10 +219,20 @@ final class FeatP4 {
                 int x0 = bx * cw / grid;
                 int x1 = (bx + 1) * cw / grid;
                 double n = (double) (y1 - y0) * (x1 - x0);
+                if (mask != null) {
+                    int sh = reach(radius) + 1 + (cell - 1) / 2;
+                    n = 0;
+                    for (int y = y0; y < y1; y++) for (int x = x0; x < x1; x++) if (mask[(y + sh) * w + x + sh]) n++;
+                }
                 for (int o = 0; o < orient; o++) {
                     int offv = ((by * grid + bx) * orient + o) * bins;
-                    for (int y = y0; y < y1; y++) for (int x = x0; x < x1; x++) v[offv + LbpFeature.LABEL[codes[o][y * cw + x]]]++;
-                    for (int k = 0; k < bins; k++) v[offv + k] /= n;
+                    if (mask == null) {
+                        for (int y = y0; y < y1; y++) for (int x = x0; x < x1; x++) v[offv + LbpFeature.LABEL[codes[o][y * cw + x]]]++;
+                    } else {
+                        int sh = reach(radius) + 1 + (cell - 1) / 2;
+                        for (int y = y0; y < y1; y++) for (int x = x0; x < x1; x++) if (mask[(y + sh) * w + x + sh]) v[offv + LbpFeature.LABEL[codes[o][y * cw + x]]]++;
+                    }
+                    if (n > 0) for (int k = 0; k < bins; k++) v[offv + k] /= n;
                 }
             }
         }
@@ -243,8 +309,10 @@ final class FeatP4 {
         int w = a.cols();
         int h = a.rows();
         int grid = XBasePoem.grid(f);
-        double[] lbp = LbpFeature.sqrt(LbpFeature.histogram(img, w, h, XBaseDates.PARAMS[f]));
-        double[] poem = LbpFeature.sqrt(poem(img, w, h, grid, p.orient(), p.cell(), p.radius()));
+        // (Ч+О), FACES_CHIN = co: пиксели вне эллипса не входят в гистограммы LBP и POEM; Тан – Триггс – по всему кадру (выше).
+        boolean[] mk = "co".equals(FrameB.chin()) && w == FrameB.W && h == XBaseChin.height() ? ellipse(w, h) : null;
+        double[] lbp = LbpFeature.sqrt(mk == null ? LbpFeature.histogram(img, w, h, XBaseDates.PARAMS[f]) : lbpMasked(img, w, h, XBaseDates.PARAMS[f], mk));
+        double[] poem = LbpFeature.sqrt(poem(img, w, h, grid, p.orient(), p.cell(), p.radius(), mk));
         double js = p.orient() == PoemFeature.ORIENT ? PoemFeature.JOIN_SCALE : 1 / Math.sqrt(p.orient());
         double[] ck = input(c, in, p.tt(), FrameK2.K);
         double[] ms = msLbp(ck, c.cols(), c.rows(), pts, p.scales(), p.patch());

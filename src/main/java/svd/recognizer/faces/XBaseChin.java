@@ -45,8 +45,15 @@ final class XBaseChin {
 
     /** Маска (Ч+О): эллипс с центром посередине кадра, полуоси – половины ширины и высоты; 255 – внутри. */
     static Mat mask(int w, int h) {
-        Mat m = Mat.zeros(h, w, CvType.CV_8UC1);
-        Imgproc.ellipse(m, new Point((w - 1) / 2.0, (h - 1) / 2.0), new Size(w / 2.0, h / 2.0), 0, 0, 360, new Scalar(255), -1);
+        // Точно по формуле (центр пикселя внутри или на эллипсе): Imgproc.ellipse округляет центр до целого и даёт несимметричную маску.
+        double cx = (w - 1) / 2.0, cy = (h - 1) / 2.0, a = w / 2.0, b = h / 2.0;
+        byte[] v = new byte[w * h];
+        for (int y = 0; y < h; y++) for (int x = 0; x < w; x++) {
+            double u = (x - cx) / a, q = (y - cy) / b;
+            if (u * u + q * q <= 1) v[y * w + x] = (byte) 255;
+        }
+        Mat m = new Mat(h, w, CvType.CV_8UC1);
+        m.put(0, 0, v);
         return m;
     }
 
@@ -147,6 +154,217 @@ final class XBaseChin {
         r.append("SHA-256 листа: ").append(FrameB.sha256(od.resolve("chin_sheet.png"))).append('\n');
         Files.writeString(od.resolve("chin_geometry.txt"), r, StandardCharsets.UTF_8);
         System.out.print(r);
+    }
+
+    /** Кадр (Ч) по снимку: верх 92×112 обязан совпасть с готовым кадром Б b побайтно; запись через временный файл. */
+    static boolean make(Mat color, double[] row, Path bFile, Path out) throws IOException {
+        if (Files.exists(out)) return false;
+        Mat c = frame(color, row, height());
+        Mat b = Imgcodecs.imread(bFile.toString(), Imgcodecs.IMREAD_GRAYSCALE);
+        if (b.empty()) throw new IOException("frames-chin: нет кадра Б " + bFile);
+        Mat top = c.submat(new Rect(0, 0, FrameB.W, FrameB.H));
+        if (Core.countNonZero(diff(top, b)) != 0) throw new IllegalStateException("frames-chin: верх кадра (Ч) ≠ кадр Б " + bFile);
+        Files.createDirectories(out.getParent());
+        FeretData.writePng(out, c);
+        c.release();
+        b.release();
+        return true;
+    }
+
+    /**
+     * frames-chin: кадры (Ч) 92×132 для всех снимков с кадром Б – FERET (derived\a_b → derived\a_bc), экспорт (a_b → a_bc по базам),
+     * VidTIMIT (derived\a_b → derived\a_bc); сверка верха с кадром Б побайтно; готовые пропускаются (продолжение). BioID – строится в bioid-run.
+     */
+    static void frames(FarExport.Loaded export, Path dir, List<String> selLines, SettingsStore settings, Path out) throws IOException {
+        if (FrameB.chin() == null) throw new IllegalStateException("frames-chin: задайте FACES_CHIN=c");
+        long t0 = System.nanoTime();
+        StringBuilder rep = new StringBuilder("Кадры (Ч) 92×" + height() + " (XBaseEval frames-chin)\nКод: коммит " + FarMethods.commit() + "\n");
+        XBaseA0.FeretSetup su = XBaseA0.feretSetup(dir, selLines, settings);
+        Path der = su.dir.resolve(FeretData.DERIVED);
+        int nf = 0, mf = 0;
+        for (String k : new java.util.TreeSet<>(su.det.keySet())) {
+            Path b = der.resolve(FrameB.DIR).resolve(k + ".png");
+            if (!Files.exists(b)) continue;
+            nf++;
+            Path o = der.resolve(FrameB.dirName()).resolve(k + ".png");
+            if (Files.exists(o)) continue;
+            Mat color = FeretData.decode(su.byKey.get(k).file());
+            if (make(color, su.det.get(k), b, o)) mf++;
+            color.release();
+            if (mf % 250 == 1) System.out.println("frames-chin: FERET " + mf);
+        }
+        rep.append(String.format(Locale.ROOT, "FERET: кадров Б %d, построено (Ч) в этом запуске %d%n", nf, mf));
+        GalleryEvaluation.Raw raw = GalleryEvaluation.raw(settings, settings.loadFacesOwnDetectorScore(), Paths.get(settings.loadFacesModelsDir()),
+                Paths.get(System.getProperty("user.dir"), "reports", "faces", "far"), false);
+        Map<String, int[]> nb = new java.util.TreeMap<>();
+        for (GalleryEvaluation.Sample s : raw.data().samples()) {
+            double[] row = raw.dets().get(s.file().toString()).row();
+            if (row == null) continue;
+            Path id = FarExport.id(s);
+            Path b = dir.resolve(FrameB.DIR).resolve(id + ".png");
+            if (!Files.exists(b)) continue;
+            int[] c = nb.computeIfAbsent(FarExport.dirName(s.base()), x -> new int[2]);
+            c[0]++;
+            Path o = dir.resolve(FrameB.dirName()).resolve(id + ".png");
+            if (Files.exists(o)) continue;
+            Mat[] m = GalleryEvaluation.load(s);
+            try {
+                if (make(m[0], row, b, o)) c[1]++;
+            } finally {
+                GalleryEvaluation.release(m);
+            }
+        }
+        nb.forEach((k, c) -> rep.append(String.format(Locale.ROOT, "экспорт %s: кадров Б %d, построено (Ч) %d%n", k, c[0], c[1])));
+        Path vdir = VidTimitData.dir(settings);
+        Path vder = vdir.resolve(VidTimitData.DERIVED);
+        Map<String, double[]> vrows = VidTimitData.readDetections(vder.resolve(VidTimitData.DETECTIONS));
+        vrows.putAll(VidTimitData.readDetections(vder.resolve(XBaseFinal.VT_HEAD_DET)));
+        int nv = 0, mv = 0;
+        try (var st = Files.list(vder.resolve(FrameB.DIR))) {
+            for (Path b : st.sorted().toList()) {
+                String name = b.getFileName().toString();
+                if (!name.endsWith(".png")) continue;
+                nv++;
+                Path o = vder.resolve(FrameB.dirName()).resolve(name);
+                if (Files.exists(o)) continue;
+                String[] q = name.substring(0, name.length() - 4).split("_");
+                if (q.length != 3) throw new IllegalStateException("frames-chin: имя кадра VidTIMIT " + name);
+                String dk = q[0] + "/" + q[1] + "/" + q[2];
+                double[] row = vrows.get(dk);
+                if (row == null) throw new IllegalStateException("frames-chin: нет детекции VidTIMIT " + dk);
+                Mat color = Imgcodecs.imread(vdir.resolve(q[0]).resolve("video").resolve(q[1]).resolve(q[2]).toString(), Imgcodecs.IMREAD_COLOR);
+                if (color.empty()) throw new IOException("frames-chin: нет кадра VidTIMIT " + dk);
+                if (make(color, row, b, o)) mv++;
+                color.release();
+            }
+        }
+        rep.append(String.format(Locale.ROOT, "VidTIMIT: кадров Б %d, построено (Ч) %d%n", nv, mv));
+        rep.append("Сверка: верх 92×112 каждого построенного кадра (Ч) совпал с кадром Б побайтно.\n");
+        rep.append(String.format(Locale.ROOT, "Время: %.0f с%n", (System.nanoTime() - t0) / 1e9));
+        Files.createDirectories(out);
+        FarMethods.write(out.resolve("frames_chin.txt"), rep);
+        System.out.print(rep);
+        System.out.println("DONE");
+    }
+
+    // ---------------------------------------------------------------- пул (п. 3, правило (36))
+
+    /** Вариант модели пула: номер 90, признак – (32) по умолчанию; кадр и маска – по FACES_CHIN (база Б – без ключа). */
+    static XBasePart4.BV poolVariant(IlluminationNorm.NormParams tt) {
+        String c = FrameB.chin();
+        String name = c == null ? "база (32), кадр Б 92×112" : c.equals("c") ? "(Ч) кадр 92×132" : "(Ч+О) кадр 92×132, овальная маска";
+        return new XBasePart4.BV(90, "chin", name, "постановка 08.11, кадр с подбородком", FeatP4.base(tt), new int[] {1, 0});
+    }
+
+    /** pool-chin: модели пула (5 частей, оба признака) для варианта по FACES_CHIN; каталог – &lt;eq_b{метка}&gt;\xbase_pool_p4b, файлы _b90. */
+    static void pool(FarExport.Loaded export, Path dir, Map<String, Map<Integer, String>> feiKeys, List<String> selLines, SettingsStore settings, Path out) throws IOException {
+        if (!FrameB.on()) throw new IllegalStateException("pool-chin: FACES_FRAMES=b");
+        long t0 = System.nanoTime();
+        XBaseVec.Setup u = XBaseVec.setup("pool", export, dir, feiKeys, selLines, settings, out, 0);
+        XBasePart4.BV v = poolVariant(u.tpl.params);
+        XBaseFeat2.Feats fs = XBaseFeat2.feats(u, export, dir, settings, true);
+        Map<Integer, Double> sec = XBasePart4.computeB(u, fs, List.of(v), 0);
+        for (Mat m : u.fr.values()) m.release();
+        for (FrameK2.F k : fs.k2.values()) k.frame().release();
+        System.out.printf(Locale.ROOT, "pool-chin %s: %s, модели – %s, %.0f с%n", FrameB.tag(), v.name(), XBasePart4.dirB(u, 0), (System.nanoTime() - t0) / 1e9);
+        System.out.println("DONE");
+    }
+
+    /**
+     * pool-chin-cmp: критерий пула (среднее ошибок своих при FAR 1, 2, 5 %; слияние (32)) у базы на кадрах Б, (Ч) и (Ч+О) по моделям pool-chin
+     * и парные разности с бутстрепом по людям пула (как pool-noise: B = 10 000, seed faces.seed + 11 000). Запуск – FACES_FRAMES=b без
+     * FACES_CHIN; отчёт – только D:\data\Feret\reports\eq_b\xbase_pool_chin.txt.
+     */
+    static void poolCmp(FarExport.Loaded export, Path dir, Map<String, Map<Integer, String>> feiKeys, List<String> selLines, SettingsStore settings, Path out) throws IOException {
+        if (!FrameB.on() || FrameB.chin() != null) throw new IllegalStateException("pool-chin-cmp: FACES_FRAMES=b без FACES_CHIN");
+        long t0 = System.nanoTime();
+        XBaseVec.Setup u = XBaseVec.setup("pool", export, dir, feiKeys, selLines, settings, out, 0);
+        for (Mat m : u.fr.values()) m.release();
+        Path feret = u.out.getParent();
+        String[] tags = {"", "_c", "_co"};
+        String[] rows = {"база (32), кадр Б 92×112", "(Ч) кадр 92×132", "(Ч+О) кадр 92×132, маска"};
+        List<String> sets = u.groups;
+        int[] clamped = new int[2];
+        FeiDecompose.Cfg[][] cfg = new FeiDecompose.Cfg[3][sets.size()];
+        StringBuilder files = new StringBuilder();
+        for (int s = 0; s < sets.size(); s++) {
+            List<List<FeiDecompose.Cfg>> acc = new ArrayList<>();
+            for (int r = 0; r < 3; r++) acc.add(new ArrayList<>());
+            for (XBaseVec.Blk b : u.blocks) {
+                if (!b.group().equals(sets.get(s))) continue;
+                for (int r = 0; r < 3; r++) {
+                    Path d = feret.resolve("eq_b" + tags[r]).resolve("xbase_pool_p4b");
+                    Path ft = XBasePart4.fileB(d, b, 1, 90);
+                    Path fx = XBasePart4.fileB(d, b, 0, 90);
+                    if (s == 0 && files.indexOf(d.toString()) < 0) files.append("  ").append(rows[r]).append(" – ").append(d).append('\n');
+                    List<XBaseVec.Model> tt = XBaseVec.read(ft).values().iterator().next();
+                    List<XBaseVec.Model> xs = XBaseVec.read(fx).values().iterator().next();
+                    String l = XBaseVec.fuseLines(tt, xs, XBaseFeat2.W_FUSE, XBaseVec.fuseStats(tt, true), XBaseVec.fuseStats(xs, true), b.g().rOf, b.g().r0, clamped);
+                    acc.get(r).add(XBaseEval.parse(b.g(), java.util.EnumSet.of(XBaseEval.V.L1), b.gal(), b.probes(), XBaseFeat2.noParts(), l).cfg.get(XBaseEval.V.L1));
+                }
+            }
+            for (int r = 0; r < 3; r++) cfg[r][s] = XBaseRule.merge(acc.get(r));
+        }
+        long seed = u.tpl.seed + XBasePart4.NOISE_SEED_OFFSET;
+        int n = u.persons;
+        int[][] w = FeiBootstrap.weights(n, XBasePart4.NOISE_B, seed);
+        int[] unit = FeiBootstrap.unit(n);
+        double[][] pt = new double[3][sets.size()];
+        double[][][] rep = new double[3][sets.size()][XBasePart4.NOISE_B];
+        java.util.concurrent.ForkJoinPool pool = new java.util.concurrent.ForkJoinPool(u.tpl.threads);
+        try {
+            for (int r = 0; r < 3; r++) for (int s = 0; s < sets.size(); s++) {
+                FeiDecompose.Cfg c = cfg[r][s];
+                pt[r][s] = XBasePart4.critW(c, unit);
+                double[] o = rep[r][s];
+                pool.submit(() -> java.util.stream.IntStream.range(0, XBasePart4.NOISE_B).parallel().forEach(q -> o[q] = XBasePart4.critW(c, w[q]))).get();
+            }
+        } catch (InterruptedException | java.util.concurrent.ExecutionException e) {
+            throw new IllegalStateException("pool-chin-cmp: " + e, e);
+        } finally {
+            pool.shutdown();
+        }
+        StringBuilder t = new StringBuilder("Кадр с подбородком – выбор по пулу, правило (36) (постановка 08.11; XBaseEval pool-chin-cmp)\nКод: коммит " + FarMethods.commit() + "\n");
+        t.append("Конфигурация (32): (П2) + MS-LBP, σ₀ = 1, слияние w = 0,75, β = 1; все три строки – на кадрах Б (база (32) прежде считалась по пулу на кадрах «а» – 4,90 / 2,00 / 7,82 %, pool-noise).\n");
+        t.append("Модели (pool-chin, вариант 90):\n").append(files);
+        t.append(String.format(Locale.ROOT, "Критерий – среднее ошибок своих при FAR 1, 2, 5 %%. Бутстреп по людям пула: B = %d, seed %d, людей %d (как pool-noise).%n", XBasePart4.NOISE_B, seed, n));
+        t.append("\n=== Критерий, точка [95 %] ===\nстрока");
+        for (String s : sets) t.append(" | ").append(s);
+        t.append('\n');
+        for (int r = 0; r < 3; r++) {
+            t.append(rows[r]);
+            for (int s = 0; s < sets.size(); s++) {
+                double[] a = FeiBootstrap.sorted(rep[r][s].clone());
+                t.append(String.format(Locale.ROOT, " | %.2f %% [%.2f; %.2f]", pt[r][s], FeiBootstrap.quantile(a, 0.025), FeiBootstrap.quantile(a, 0.975)));
+            }
+            t.append('\n');
+        }
+        t.append("\n=== Парная разность, п. п., точка [95 %]; * – значимо (меньше – лучше) ===\nпара");
+        for (String s : sets) t.append(" | ").append(s);
+        t.append('\n');
+        String[] pn = {"(Ч) − база", "(Ч+О) − база", "(Ч+О) − (Ч)"};
+        int[][] pairs = {{1, 0}, {2, 0}, {2, 1}};
+        boolean[] better = new boolean[3];
+        for (int pi = 0; pi < 3; pi++) {
+            t.append(pn[pi]);
+            for (int s = 0; s < sets.size(); s++) {
+                double[] d = new double[XBasePart4.NOISE_B];
+                for (int q = 0; q < d.length; q++) d[q] = rep[pairs[pi][0]][s][q] - rep[pairs[pi][1]][s][q];
+                double[] ds = FeiBootstrap.sorted(d);
+                double lo = FeiBootstrap.quantile(ds, 0.025);
+                double hi = FeiBootstrap.quantile(ds, 0.975);
+                if (hi < 0) better[pi] = true;
+                t.append(String.format(Locale.ROOT, " | %+.2f [%+.2f; %+.2f]%s", pt[pairs[pi][0]][s] - pt[pairs[pi][1]][s], lo, hi, lo > 0 || hi < 0 ? " *" : ""));
+            }
+            t.append('\n');
+        }
+        t.append(String.format(Locale.ROOT, "По пулу (правило (36)): (Ч) – %s; (Ч+О) – %s.%n", better[0] ? "значимо лучше базы хотя бы на одном наборе" : "значимо лучше ни на одном наборе",
+                better[1] ? "значимо лучше базы хотя бы на одном наборе" : "значимо лучше ни на одном наборе"));
+        t.append(String.format(Locale.ROOT, "Время: %.0f с%n", (System.nanoTime() - t0) / 1e9));
+        Path f = feret.resolve("eq_b").resolve("xbase_pool_chin.txt");
+        FarMethods.write(f, t);
+        System.out.print(t);
+        System.out.println("DONE");
     }
 
     static Mat diff(Mat a, Mat b) {

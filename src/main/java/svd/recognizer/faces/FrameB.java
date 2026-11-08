@@ -48,9 +48,33 @@ final class FrameB {
         throw new IllegalStateException("FACES_FRAMES: a или b, получено " + s);
     }
 
-    /** Каталог кадра «а» с учётом переключателя: "a" → a_b при FACES_FRAMES = b; прочие варианты – как есть. */
+    /** Проба «кадр с подбородком» (постановка 08.11): FACES_CHIN = c – кадр (Ч) 92×132 из a_bc; co – то же и овальная маска в гистограммах; без ключа – прежнее. Только при FACES_FRAMES = b. */
+    static String chin() {
+        String s = System.getenv("FACES_CHIN");
+        if (s == null || s.isBlank()) return null;
+        if (!s.equals("c") && !s.equals("co")) throw new IllegalStateException("FACES_CHIN: c или co, получено " + s);
+        if (!on()) throw new IllegalStateException("FACES_CHIN: только при FACES_FRAMES = b");
+        return s;
+    }
+
+    /** Высота кадра Б: 112 или 132 при FACES_CHIN. */
+    static int height() {
+        return chin() == null ? H : XBaseChin.height();
+    }
+
+    /** Каталог кадра Б: a_b или a_bc при FACES_CHIN. */
+    static String dirName() {
+        return chin() == null ? DIR : DIR + "c";
+    }
+
+    /** Метка каталогов отчётов: "" или "_c" / "_co" при FACES_CHIN. */
+    static String tag() {
+        return chin() == null ? "" : "_" + chin();
+    }
+
+    /** Каталог кадра «а» с учётом переключателя: "a" → a_b при FACES_FRAMES = b (a_bc при FACES_CHIN); прочие варианты – как есть. */
     static String dir(String variant) {
-        return variant.equals("a") && on() ? DIR : variant;
+        return variant.equals("a") && on() ? dirName() : variant;
     }
 
     static double scale(Mat m) {
@@ -69,16 +93,17 @@ final class FrameB {
         Mat m = FaceAlignment.similarity(lm, FaceAlignment.ownTemplate(W, H));
         Mat a = new Mat();
         int k = smooth ? k(m) : 1;
+        int hh = height();
         if (k == 1) {
-            Imgproc.warpAffine(gray, a, m, new Size(W, H), Imgproc.INTER_LINEAR, Core.BORDER_REPLICATE);
+            Imgproc.warpAffine(gray, a, m, new Size(W, hh), Imgproc.INTER_LINEAR, Core.BORDER_REPLICATE);
         } else {
             Mat mk = new Mat(2, 3, CvType.CV_64F);
             for (int i = 0; i < 2; i++) {
                 for (int j = 0; j < 3; j++) mk.put(i, j, k * m.get(i, j)[0] + (j == 2 ? (k - 1) / 2.0 : 0));
             }
             Mat big = new Mat();
-            Imgproc.warpAffine(gray, big, mk, new Size(W * k, H * k), Imgproc.INTER_LINEAR, Core.BORDER_REPLICATE);
-            Imgproc.resize(big, a, new Size(W, H), 0, 0, Imgproc.INTER_AREA);
+            Imgproc.warpAffine(gray, big, mk, new Size(W * k, hh * k), Imgproc.INTER_LINEAR, Core.BORDER_REPLICATE);
+            Imgproc.resize(big, a, new Size(W, hh), 0, 0, Imgproc.INTER_AREA);
             big.release();
             mk.release();
         }
