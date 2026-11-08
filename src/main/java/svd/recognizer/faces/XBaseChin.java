@@ -367,6 +367,95 @@ final class XBaseChin {
         System.out.println("DONE");
     }
 
+    // ---------------------------------------------------------------- строки итогового прогона (п. 4)
+
+    /** Каталог моделей итогового прогона варианта: tag "" – база, "_c", "_co" – (Ч), (Ч+О). */
+    static Path finalDir(String base, XBaseVec.Setup u, Path out, String tag) {
+        return base.equals("feret") ? u.su.dir.resolve("reports").resolve("eq_b" + tag).resolve("final") : out.resolve("final" + tag);
+    }
+
+    /**
+     * chin-report &lt;база&gt;: по моделям итогового прогона базы (final) и вариантов (final_c, final_co) – по группам: рабочий порог (34),
+     * разделимость при фактическом FAR 1, 2, 5, 10 %, EER, pAUC ≤ 10 %, парные разности «вариант − база» и «(Ч+О) − (Ч)» (бутстреп по людям, общие
+     * веса); слияние (32), σ₀ = 1. Запуск – FACES_FRAMES=b без FACES_CHIN. Отчёт – рядом с моделями (Ч): final_c\chin_report_&lt;база&gt;.txt.
+     */
+    static void report(String base, FarExport.Loaded export, Path dir, Map<String, Map<Integer, String>> feiKeys, List<String> selLines, SettingsStore settings,
+                       Path out) throws IOException {
+        if (!FrameB.on() || FrameB.chin() != null) throw new IllegalStateException("chin-report: FACES_FRAMES=b без FACES_CHIN");
+        long t0 = System.nanoTime();
+        Map<Integer, XBasePart4.TRow> table = XBasePart4.readTable(Paths.get(System.getenv("FACES_P4_TABLE")));
+        XBaseFinal.Run r = XBaseFinal.setup(base, false, export, dir, feiKeys, selLines, settings, out);
+        XBaseVec.Setup u = r.u();
+        for (Mat m : u.fr.values()) m.release();
+        for (FrameK2.F k : r.k2().values()) k.frame().release();
+        String[] tags = {"", "_c", "_co"};
+        String[] labs = {"база (32)", "(Ч)", "(Ч+О)"};
+        XBaseFinal.Run[] runs = new XBaseFinal.Run[3];
+        for (int i = 0; i < 3; i++) runs[i] = new XBaseFinal.Run(u, r.k2(), Map.of(), finalDir(base, u, out, tags[i]), false, 0);
+        int[][] w = FeiBootstrap.weights(u.persons, u.tpl.b, u.tpl.seed + FeiBootstrap.SEED_OFFSET);
+        StringBuilder t = new StringBuilder("Кадр с подбородком – строки итогового прогона – " + base + " (постановка 08.11; XBaseEval chin-report " + base + ")\nКод: коммит "
+                + FarMethods.commit() + "; бутстреп по людям B = " + u.tpl.b + ", seed " + (u.tpl.seed + FeiBootstrap.SEED_OFFSET) + "; людей " + u.persons + "\n");
+        for (int i = 0; i < 3; i++) t.append(labs[i]).append(" – модели ").append(runs[i].dir().resolve("vec")).append('\n');
+        t.append("Слияние (32), σ₀ = 1; база – модели итогового прогона (те же, что в его отчёте); рабочий порог (34) – t(N) таблицы ").append(System.getenv("FACES_P4_TABLE"))
+                .append(", приведения по (Т2) своей галереи.\n");
+        StringBuilder work = new StringBuilder("\n=== Рабочий порог (34) ===\nгруппа | строка | N (узел) | t | " + XBaseFinalReport.SUM_HEAD + "\n");
+        StringBuilder meas = new StringBuilder("\n=== Разделимость при фактическом FAR контроля 1, 2, 5, 10 %, EER, pAUC ≤ 10 % (95 % интервал) ===\nгруппа | строка | 1 % | 2 % | 5 % | 10 % | EER | pAUC\n");
+        StringBuilder cmp = new StringBuilder("\n=== Парные разности (разделимость при FAR 1 % | EER | pAUC ≤ 10 %; п. п., меньше – лучше) ===\nгруппа | пара | FAR 1 % | EER | pAUC\n");
+        StringBuilder body = new StringBuilder();
+        for (String grp : u.groups) {
+            boolean t2 = !grp.equals("внутри");
+            List<XBaseVec.Blk> bs = u.blocks.stream().filter(b -> b.group().equals(grp)).toList();
+            XBaseFinalReport.M[] ms = new XBaseFinalReport.M[3];
+            Map<String, XBaseThr.Out> of = new java.util.LinkedHashMap<>();
+            for (int i = 0; i < 3; i++) {
+                if (!Files.exists(XBaseFinal.vfile(runs[i], bs.get(0), XBaseFinal.TT1))) continue;
+                List<XBaseThr.Unit> us = new ArrayList<>();
+                List<XBaseFinalReport.Out1> o1 = new ArrayList<>();
+                double[] tu = null;
+                int[] clamped = new int[2];
+                for (XBaseVec.Blk b : bs) {
+                    List<XBaseVec.Model> mt = XBaseFinal.models(runs[i], b, XBaseFinal.TT1, false);
+                    List<XBaseVec.Model> mx = XBaseFinal.models(runs[i], b, XBaseFinal.XS, false);
+                    double[] st = XBaseVec.fuseStats(mt, false);
+                    double[] sx = XBaseVec.fuseStats(mx, false);
+                    String lines = XBaseVec.fuseLines(mt, mx, XBaseFeat2.W_FUSE, st, sx, b.g().rOf, b.g().r0, clamped);
+                    tu = XBaseFinalReport.tOf(table, b.g().own.size());
+                    o1.addAll(XBaseFinalReport.atT(mt, mx, st, sx, b.g().rOf, b.g().r0, tu[0], ro -> ro.equals(FeiScores.OWN) || ro.equals(FeiScores.CTRL)));
+                    us.add(new XBaseThr.Unit(b.g(), b.gal(), b.pro(), b.parts(), lines, null, t2));
+                }
+                XBaseThr.Out o = XBaseThr.evaluate(grp + " " + labs[i], us, u.persons, u.tpl);
+                of.put(grp + " " + labs[i], o);
+                ms[i] = XBaseFinalReport.measure(o.res.get(XBaseThr.WAYS[0]).cfgs, u.persons, w);
+                work.append(String.format(Locale.ROOT, "%s | %s | %d (%d) | %.2f | %s%n", grp, labs[i], bs.get(0).g().own.size(), (int) tu[1], tu[0], XBaseFinalReport.summary(o1)));
+                XBaseRule.Sep s = ms[i].sep;
+                List<String> row = new ArrayList<>(List.of(grp, labs[i]));
+                for (int k = 0; k < XBaseRule.FARS.length; k++) row.add(XBaseSepLtp.cell(s.err[k], s.errRep[k]) + String.format(Locale.ROOT, " (факт. %.2f %%)", s.far[k]));
+                row.add(XBaseSepLtp.cell(s.eer[3], s.eerRep));
+                row.add(XBaseSepLtp.cell(ms[i].pauc, ms[i].paucRep));
+                meas.append(String.join(" | ", row)).append('\n');
+            }
+            for (int[] p : new int[][] {{1, 0}, {2, 0}, {2, 1}}) {
+                XBaseFinalReport.M a = ms[p[0]];
+                XBaseFinalReport.M z = ms[p[1]];
+                if (a == null || z == null) continue;
+                cmp.append(grp).append(" | ").append(labs[p[0]]).append(" − ").append(labs[p[1]]).append(" | ")
+                        .append(XBaseFinalReport.ci(a.sep.err[0] - z.sep.err[0], FeiNorm.diff(a.sep.errRep[0], z.sep.errRep[0]))).append(" | ")
+                        .append(XBaseFinalReport.ci(a.sep.eer[3] - z.sep.eer[3], FeiNorm.diff(a.sep.eerRep, z.sep.eerRep))).append(" | ")
+                        .append(XBaseFinalReport.ci(a.pauc - z.pauc, FeiNorm.diff(a.paucRep, z.paucRep))).append('\n');
+            }
+            XBaseLbp.tables(body, base.toUpperCase(Locale.ROOT) + " " + grp + " – П3", of, u.persons, u.tpl, List.of(), t2);
+        }
+        if (base.equals("vt")) for (int i = 0; i < 3; i++) if (Files.exists(XBaseFinal.vfile(runs[i], u.blocks.get(0), XBaseFinal.TT1)))
+            t.append("\n--- ").append(labs[i]).append(" ---\n").append(XBaseFinalReport.vtParts(runs[i], u, table, XBaseFinal.TT1));
+        t.append(work).append(meas).append(cmp).append(body);
+        t.append(String.format(Locale.ROOT, "%nВремя: %.0f с%n", (System.nanoTime() - t0) / 1e9));
+        Path rf = runs[1].dir().resolve("chin_report_" + base + ".txt");
+        Files.createDirectories(rf.getParent());
+        FarMethods.write(rf, t);
+        System.out.print(t);
+        System.out.println("DONE");
+    }
+
     static Mat diff(Mat a, Mat b) {
         Mat d = new Mat();
         Core.absdiff(a, b, d);
