@@ -948,4 +948,76 @@ final class XBaseBioId {
         System.out.print(t);
         System.out.println("DONE");
     }
+
+    // ---------------------------------------------------------------- кадр с подбородком: сравнение BioID (постановка 08.11, п. 5)
+
+    /**
+     * bioid-chin-cmp: по моделям прогонов BioID – база (reports\bioid), (Ч) (bioid_c), (Ч+О) (bioid_co) – рабочий порог t(10), разделимость при
+     * фактическом FAR 1 %, EER, pAUC и парные разности «вариант − база» (бутстреп по людям BioID, общие веса). Запуск – FACES_FRAMES=b без FACES_CHIN.
+     */
+    static void chinCmp(FarExport.Loaded export, Path dir, Map<String, Map<Integer, String>> feiKeys, List<String> selLines, SettingsStore settings, Path out) throws IOException {
+        if (!FrameB.on() || FrameB.chin() != null) throw new IllegalStateException("bioid-chin-cmp: FACES_FRAMES=b без FACES_CHIN");
+        double r0 = FeiPose.r0(settings.loadFacesFeiPoseR0(), "+pose");
+        double rLimit = XBaseEval.poseLimit(selLines);
+        long seed = settings.loadFacesSeed();
+        Path root = Paths.get(System.getenv("FACES_BIOID_DIR"));
+        Map<Integer, XBasePart4.TRow> tb37 = XBasePart4.readTable(Paths.get(System.getenv("FACES_P4_TABLE")));
+        XBaseA0.FeretSetup su = XBaseA0.feretSetup(dir, selLines, settings);
+        BPlan bp = realPlan(root, settings);
+        List<List<String>> train = XBaseChokeRun.train(bp.p, su, export, dir, feiKeys, settings, seed, 0);
+        XBaseFinal.Run r0run = setup(bp, su, train, settings, r0, rLimit);
+        XBaseVec.Setup u = r0run.u();
+        for (Mat m : bp.p.fr.values()) m.release();
+        for (FrameK2.F k : bp.p.k2.values()) k.frame().release();
+        String[] tags = {"", "_c", "_co"};
+        String[] labs = {"база (32)", "(Ч)", "(Ч+О)"};
+        Map<String, Integer> pIdx = u.tpl.pIdx;
+        int persons = u.persons;
+        int[][] w = FeiBootstrap.weights(persons, u.tpl.b, u.tpl.seed + FeiBootstrap.SEED_OFFSET);
+        StringBuilder t = new StringBuilder("Кадр с подбородком – BioID, «не независимо» (постановка 08.11, п. 5; XBaseEval bioid-chin-cmp)\nКод: коммит " + FarMethods.commit()
+                + "; бутстреп по людям BioID B = " + u.tpl.b + ", seed " + (u.tpl.seed + FeiBootstrap.SEED_OFFSET) + "; людей " + persons + "\n");
+        StringBuilder work = new StringBuilder("\n=== Рабочий порог t(10) = −8,71 (N = 8 и 7) ===\nстрока | ошибка своих | «чужое имя» | FAR по попыткам | FAR по людям | свои по людям и по попыткам, 95 % интервал | FAR | верный лучший\n");
+        StringBuilder sep = new StringBuilder("\n=== Без порога ===\n");
+        XBaseFinalReport.M[] ms = new XBaseFinalReport.M[3];
+        for (int i = 0; i < 3; i++) {
+            Path d = root.resolve("reports").resolve("bioid" + tags[i]);
+            XBaseFinal.Run rr = new XBaseFinal.Run(u, r0run.k2(), Map.of(), d, false, 0);
+            if (!Files.exists(XBaseFinal.vfile(rr, u.blocks.get(0), XBaseFinal.TT1))) {
+                t.append(labs[i]).append(" – моделей нет (").append(d).append(")\n");
+                continue;
+            }
+            t.append(labs[i]).append(" – модели ").append(d.resolve("vec")).append('\n');
+            List<XBaseChokeRun.Res> res = new ArrayList<>();
+            List<XBaseThr.Unit> uFus = new ArrayList<>();
+            int[] clamped = new int[2];
+            for (int pass = 0; pass < 2; pass++) {
+                XBaseVec.Blk b = u.blocks.get(pass);
+                double tt = XBaseFinalReport.tOf(tb37, b.g().own.size())[0];
+                res.addAll(XBaseChokeRun.atT(b, pass, rr, tt, bp.p, false));
+                List<XBaseVec.Model> mt = XBaseFinal.models(rr, b, XBaseFinal.TT1, false);
+                List<XBaseVec.Model> mx = XBaseFinal.models(rr, b, XBaseFinal.XS, false);
+                String fl = XBaseVec.fuseLines(mt, mx, XBaseFeat2.W_FUSE, XBaseVec.fuseStats(mt, false), XBaseVec.fuseStats(mx, false), b.g().rOf, b.g().r0, clamped);
+                uFus.add(new XBaseThr.Unit(b.g(), b.gal(), b.pro(), b.parts(), fl, null, true));
+            }
+            work.append(XBaseChokeRun.mainRow(labs[i], res, pIdx, w, persons));
+            XBaseThr.Out o = XBaseThr.evaluate(labs[i], uFus, persons, u.tpl);
+            ms[i] = XBaseFinalReport.measure(XBaseChokeRun.withFails(o.res.get(XBaseThr.WAYS[0]).cfgs, u.blocks, bp.p, false, pIdx), persons, w);
+            sep.append(XBaseChokeRun.sepRow(labs[i], ms[i]));
+        }
+        StringBuilder cmp = new StringBuilder("\n=== Парные разности (разделимость при FAR 1 % | EER | pAUC; п. п., меньше – лучше) ===\n");
+        for (int[] p : new int[][] {{1, 0}, {2, 0}, {2, 1}}) {
+            XBaseFinalReport.M a = ms[p[0]];
+            XBaseFinalReport.M z = ms[p[1]];
+            if (a == null || z == null) continue;
+            cmp.append(labs[p[0]]).append(" − ").append(labs[p[1]]).append(" | ").append(XBaseFinalReport.ci(a.sep.err[0] - z.sep.err[0], FeiNorm.diff(a.sep.errRep[0], z.sep.errRep[0])))
+                    .append(" | ").append(XBaseFinalReport.ci(a.sep.eer[3] - z.sep.eer[3], FeiNorm.diff(a.sep.eerRep, z.sep.eerRep))).append(" | ")
+                    .append(XBaseFinalReport.ci(a.pauc - z.pauc, FeiNorm.diff(a.paucRep, z.paucRep))).append('\n');
+        }
+        t.append(work).append(sep).append(cmp);
+        Path f = root.resolve("reports").resolve("bioid_c").resolve("bioid_chin_cmp.txt");
+        Files.createDirectories(f.getParent());
+        FarMethods.write(f, t);
+        System.out.print(t);
+        System.out.println("DONE");
+    }
 }
