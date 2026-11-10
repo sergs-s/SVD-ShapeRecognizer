@@ -660,7 +660,7 @@ public final class XBaseEval {
         } else if (a[0].equals("final-addon")) {
             XBaseFinalReport.addon(a[1], export, dir, feiKeys, selLines, settings, out);
         } else if (a[0].equals("bioid-chin-cmp")) {
-            XBaseBioId.chinCmp(export, dir, feiKeys, selLines, settings, out);
+            XBaseBioId.chinCmp(a.length > 1 ? a[1] : "", export, dir, feiKeys, selLines, settings, out);
         } else if (a[0].equals("chin-report")) {
             XBaseChin.report(a[1], a.length > 2 ? a[2] : "", export, dir, feiKeys, selLines, settings, out);
         } else if (a[0].equals("pool-chin")) {

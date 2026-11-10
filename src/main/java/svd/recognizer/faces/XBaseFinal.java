@@ -1025,7 +1025,7 @@ final class XBaseFinal {
      */
     static void v8(String base, Path feretDir, Path out) throws IOException {
         double sigma = chosenSigma(out);
-        Path d = base.equals("feret") ? feretDir.resolve("reports").resolve("eq_b").resolve("final") : out.resolve("final");
+        Path d = base.equals("feret") ? feretDir.resolve("reports").resolve("eq_b" + FrameB.tag()).resolve("final") : out.resolve("final" + FrameB.tag());
         Path vd = d.resolve("vec");
         Path od = d.resolve("v8");
         Files.createDirectories(od);

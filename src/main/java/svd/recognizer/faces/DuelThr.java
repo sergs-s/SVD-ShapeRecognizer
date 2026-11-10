@@ -851,7 +851,8 @@ final class DuelThr {
             XBaseFeat2.Feats fs = nFeats(params, k2, threads);
             for (int f = 1; f >= 0; f--) {
                 long tv = System.nanoTime();
-                XBaseEval x = XBaseFeat2.vectors(fr, fs, f, V8);
+                // Проба с подбородком (FACES_CHIN): признак – путём FeatP4 (сетка (Чр), маска (Ч+О)); без ключа – прежний путь XBaseFeat2 (v8 побайтно = FeatP4.base).
+                XBaseEval x = FrameB.chin() != null ? XBasePart4.vectorsB(fr, k2, FeatP4.base(params), f, threads) : XBaseFeat2.vectors(fr, fs, f, V8);
                 System.out.printf(Locale.ROOT, "duel-thr-n %s: f%d v8 vectors (%.0f s)%n", base, f, (System.nanoTime() - tv) / 1e9);
                 if (SUBS != null) {
                     for (NB b : todo) rep.append(retrain(x, f, b, r0, commit, vd));
@@ -928,7 +929,7 @@ final class DuelThr {
                 rep.append(p.getFileName()).append(": из каталога\n");
                 continue;
             }
-            XBaseEval x = XBaseFeat2.vectors(fr, fs, f, V8);
+            XBaseEval x = FrameB.chin() != null ? XBasePart4.vectorsB(fr, k2, FeatP4.base(u.params), f, u.threads) : XBaseFeat2.vectors(fr, fs, f, V8);
             List<List<Callable<XBaseVec.Model>>> js = new ArrayList<>();
             for (List<String> g : subs) {
                 Map<String, Integer> idx = new HashMap<>();

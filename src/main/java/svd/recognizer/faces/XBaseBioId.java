@@ -955,13 +955,17 @@ final class XBaseBioId {
      * bioid-chin-cmp: по моделям прогонов BioID – база (reports\bioid), (Ч) (bioid_c), (Ч+О) (bioid_co) – рабочий порог t(10), разделимость при
      * фактическом FAR 1 %, EER, pAUC и парные разности «вариант − база» (бутстреп по людям BioID, общие веса). Запуск – FACES_FRAMES=b без FACES_CHIN.
      */
-    static void chinCmp(FarExport.Loaded export, Path dir, Map<String, Map<Integer, String>> feiKeys, List<String> selLines, SettingsStore settings, Path out) throws IOException {
+    static void chinCmp(String v, FarExport.Loaded export, Path dir, Map<String, Map<Integer, String>> feiKeys, List<String> selLines, SettingsStore settings, Path out) throws IOException {
         if (!FrameB.on() || FrameB.chin() != null) throw new IllegalStateException("bioid-chin-cmp: FACES_FRAMES=b без FACES_CHIN");
+        boolean cr = v.equals("cr");
+        if (!cr && !v.isEmpty()) throw new IllegalArgumentException("bioid-chin-cmp: аргумент – нет или cr, получено " + v);
         double r0 = FeiPose.r0(settings.loadFacesFeiPoseR0(), "+pose");
         double rLimit = XBaseEval.poseLimit(selLines);
         long seed = settings.loadFacesSeed();
         Path root = Paths.get(System.getenv("FACES_BIOID_DIR"));
         Map<Integer, XBasePart4.TRow> tb37 = XBasePart4.readTable(Paths.get(System.getenv("FACES_P4_TABLE")));
+        String tcr = System.getenv("FACES_P4_TABLE_CR");
+        Map<Integer, XBasePart4.TRow> tbV = cr && tcr != null && !tcr.isBlank() ? XBasePart4.readTable(Paths.get(tcr)) : tb37;
         XBaseA0.FeretSetup su = XBaseA0.feretSetup(dir, selLines, settings);
         BPlan bp = realPlan(root, settings);
         List<List<String>> train = XBaseChokeRun.train(bp.p, su, export, dir, feiKeys, settings, seed, 0);
@@ -969,8 +973,8 @@ final class XBaseBioId {
         XBaseVec.Setup u = r0run.u();
         for (Mat m : bp.p.fr.values()) m.release();
         for (FrameK2.F k : bp.p.k2.values()) k.frame().release();
-        String[] tags = {"", "_c", "_co"};
-        String[] labs = {"база (32)", "(Ч)", "(Ч+О)"};
+        String[] tags = cr ? new String[] {"", "_c", "_cr"} : new String[] {"", "_c", "_co"};
+        String[] labs = cr ? new String[] {"база (32)", "(Ч)", "(Чр)"} : new String[] {"база (32)", "(Ч)", "(Ч+О)"};
         Map<String, Integer> pIdx = u.tpl.pIdx;
         int persons = u.persons;
         int[][] w = FeiBootstrap.weights(persons, u.tpl.b, u.tpl.seed + FeiBootstrap.SEED_OFFSET);
@@ -992,7 +996,7 @@ final class XBaseBioId {
             int[] clamped = new int[2];
             for (int pass = 0; pass < 2; pass++) {
                 XBaseVec.Blk b = u.blocks.get(pass);
-                double tt = XBaseFinalReport.tOf(tb37, b.g().own.size())[0];
+                double tt = XBaseFinalReport.tOf(cr && i == 2 ? tbV : tb37, b.g().own.size())[0];
                 res.addAll(XBaseChokeRun.atT(b, pass, rr, tt, bp.p, false));
                 List<XBaseVec.Model> mt = XBaseFinal.models(rr, b, XBaseFinal.TT1, false);
                 List<XBaseVec.Model> mx = XBaseFinal.models(rr, b, XBaseFinal.XS, false);
@@ -1005,7 +1009,7 @@ final class XBaseBioId {
             sep.append(XBaseChokeRun.sepRow(labs[i], ms[i]));
         }
         StringBuilder cmp = new StringBuilder("\n=== Парные разности (разделимость при FAR 1 % | EER | pAUC; п. п., разделимость и EER – меньше лучше, pAUC – больше лучше) ===\n");
-        for (int[] p : new int[][] {{1, 0}, {2, 0}, {2, 1}}) {
+        for (int[] p : cr ? new int[][] {{2, 0}, {2, 1}, {1, 0}} : new int[][] {{1, 0}, {2, 0}, {2, 1}}) {
             XBaseFinalReport.M a = ms[p[0]];
             XBaseFinalReport.M z = ms[p[1]];
             if (a == null || z == null) continue;
@@ -1014,7 +1018,8 @@ final class XBaseBioId {
                     .append(XBaseFinalReport.ci(a.pauc - z.pauc, FeiNorm.diff(a.paucRep, z.paucRep))).append('\n');
         }
         t.append(work).append(sep).append(cmp);
-        Path f = root.resolve("reports").resolve("bioid_c").resolve("bioid_chin_cmp.txt");
+        if (tbV != tb37) t.append("\n(Чр) – рабочий порог по своей таблице ").append(tcr).append('\n');
+        Path f = root.resolve("reports").resolve(cr ? "bioid_cr" : "bioid_c").resolve("bioid_chin_cmp.txt");
         Files.createDirectories(f.getParent());
         FarMethods.write(f, t);
         System.out.print(t);

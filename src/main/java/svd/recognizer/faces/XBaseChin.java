@@ -392,6 +392,9 @@ final class XBaseChin {
         if (!cr && !v.isEmpty()) throw new IllegalArgumentException("chin-report: третий аргумент – нет или cr, получено " + v);
         long t0 = System.nanoTime();
         Map<Integer, XBasePart4.TRow> table = XBasePart4.readTable(Paths.get(System.getenv("FACES_P4_TABLE")));
+        // (Чр) по решению (40): своя таблица порогов – FACES_P4_TABLE_CR (без ключа – общая таблица FACES_P4_TABLE).
+        String tcr = System.getenv("FACES_P4_TABLE_CR");
+        Map<Integer, XBasePart4.TRow> tableV = cr && tcr != null && !tcr.isBlank() ? XBasePart4.readTable(Paths.get(tcr)) : table;
         XBaseFinal.Run r = XBaseFinal.setup(base, false, export, dir, feiKeys, selLines, settings, out);
         XBaseVec.Setup u = r.u();
         for (Mat m : u.fr.values()) m.release();
@@ -406,6 +409,7 @@ final class XBaseChin {
         for (int i = 0; i < 3; i++) t.append(labs[i]).append(" – модели ").append(runs[i].dir().resolve("vec")).append('\n');
         t.append("Слияние (32), σ₀ = 1; база – модели итогового прогона (те же, что в его отчёте); рабочий порог (34) – t(N) таблицы ").append(System.getenv("FACES_P4_TABLE"))
                 .append(", приведения по (Т2) своей галереи.\n");
+        if (tableV != table) t.append("(Чр) – рабочий порог по своей таблице ").append(tcr).append(".\n");
         StringBuilder work = new StringBuilder("\n=== Рабочий порог (34) ===\nгруппа | строка | N (узел) | t | " + XBaseFinalReport.SUM_HEAD + "\n");
         StringBuilder meas = new StringBuilder("\n=== Разделимость при фактическом FAR контроля 1, 2, 5, 10 %, EER, pAUC ≤ 10 % (95 % интервал) ===\nгруппа | строка | 1 % | 2 % | 5 % | 10 % | EER | pAUC\n");
         StringBuilder cmp = new StringBuilder("\n=== Парные разности (разделимость при FAR 1 % | EER | pAUC ≤ 10 %; п. п., разделимость и EER – меньше лучше, pAUC – больше лучше) ===\nгруппа | пара | FAR 1 % | EER | pAUC\n");
@@ -427,7 +431,7 @@ final class XBaseChin {
                     double[] st = XBaseVec.fuseStats(mt, false);
                     double[] sx = XBaseVec.fuseStats(mx, false);
                     String lines = XBaseVec.fuseLines(mt, mx, XBaseFeat2.W_FUSE, st, sx, b.g().rOf, b.g().r0, clamped);
-                    tu = XBaseFinalReport.tOf(table, b.g().own.size());
+                    tu = XBaseFinalReport.tOf(cr && i == 2 ? tableV : table, b.g().own.size());
                     o1.addAll(XBaseFinalReport.atT(mt, mx, st, sx, b.g().rOf, b.g().r0, tu[0], ro -> ro.equals(FeiScores.OWN) || ro.equals(FeiScores.CTRL)));
                     us.add(new XBaseThr.Unit(b.g(), b.gal(), b.pro(), b.parts(), lines, null, t2));
                 }
@@ -454,7 +458,7 @@ final class XBaseChin {
             XBaseLbp.tables(body, base.toUpperCase(Locale.ROOT) + " " + grp + " – П3", of, u.persons, u.tpl, List.of(), t2);
         }
         if (base.equals("vt")) for (int i = 0; i < 3; i++) if (Files.exists(XBaseFinal.vfile(runs[i], u.blocks.get(0), XBaseFinal.TT1)))
-            t.append("\n--- ").append(labs[i]).append(" ---\n").append(XBaseFinalReport.vtParts(runs[i], u, table, XBaseFinal.TT1));
+            t.append("\n--- ").append(labs[i]).append(" ---\n").append(XBaseFinalReport.vtParts(runs[i], u, cr && i == 2 ? tableV : table, XBaseFinal.TT1));
         t.append(work).append(meas).append(cmp).append(body);
         t.append(String.format(Locale.ROOT, "%nВремя: %.0f с%n", (System.nanoTime() - t0) / 1e9));
         Path rf = runs[cr ? 2 : 1].dir().resolve("chin_report_" + base + ".txt");
