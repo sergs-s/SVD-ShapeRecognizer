@@ -1004,7 +1004,7 @@ final class XBaseBioId {
             ms[i] = XBaseFinalReport.measure(XBaseChokeRun.withFails(o.res.get(XBaseThr.WAYS[0]).cfgs, u.blocks, bp.p, false, pIdx), persons, w);
             sep.append(XBaseChokeRun.sepRow(labs[i], ms[i]));
         }
-        StringBuilder cmp = new StringBuilder("\n=== Парные разности (разделимость при FAR 1 % | EER | pAUC; п. п., меньше – лучше) ===\n");
+        StringBuilder cmp = new StringBuilder("\n=== Парные разности (разделимость при FAR 1 % | EER | pAUC; п. п., разделимость и EER – меньше лучше, pAUC – больше лучше) ===\n");
         for (int[] p : new int[][] {{1, 0}, {2, 0}, {2, 1}}) {
             XBaseFinalReport.M a = ms[p[0]];
             XBaseFinalReport.M z = ms[p[1]];

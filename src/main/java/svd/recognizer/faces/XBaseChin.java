@@ -400,7 +400,7 @@ final class XBaseChin {
                 .append(", приведения по (Т2) своей галереи.\n");
         StringBuilder work = new StringBuilder("\n=== Рабочий порог (34) ===\nгруппа | строка | N (узел) | t | " + XBaseFinalReport.SUM_HEAD + "\n");
         StringBuilder meas = new StringBuilder("\n=== Разделимость при фактическом FAR контроля 1, 2, 5, 10 %, EER, pAUC ≤ 10 % (95 % интервал) ===\nгруппа | строка | 1 % | 2 % | 5 % | 10 % | EER | pAUC\n");
-        StringBuilder cmp = new StringBuilder("\n=== Парные разности (разделимость при FAR 1 % | EER | pAUC ≤ 10 %; п. п., меньше – лучше) ===\nгруппа | пара | FAR 1 % | EER | pAUC\n");
+        StringBuilder cmp = new StringBuilder("\n=== Парные разности (разделимость при FAR 1 % | EER | pAUC ≤ 10 %; п. п., разделимость и EER – меньше лучше, pAUC – больше лучше) ===\nгруппа | пара | FAR 1 % | EER | pAUC\n");
         StringBuilder body = new StringBuilder();
         for (String grp : u.groups) {
             boolean t2 = !grp.equals("внутри");
