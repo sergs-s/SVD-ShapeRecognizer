@@ -48,11 +48,11 @@ final class FrameB {
         throw new IllegalStateException("FACES_FRAMES: a или b, получено " + s);
     }
 
-    /** Проба «кадр с подбородком» (постановка 08.11): FACES_CHIN = c – кадр (Ч) 92×132 из a_bc; co – то же и овальная маска в гистограммах; без ключа – прежнее. Только при FACES_FRAMES = b. */
+    /** Проба «кадр с подбородком» (постановка 08.11): FACES_CHIN = c – кадр (Ч) 92×132 из a_bc; co – то же и овальная маска в гистограммах; cr – кадр (Ч), сетка LBP и POEM – ряды базы плюс нижний ряд (Жорик №2 от 10.11); без ключа – прежнее. Только при FACES_FRAMES = b. */
     static String chin() {
         String s = System.getenv("FACES_CHIN");
         if (s == null || s.isBlank()) return null;
-        if (!s.equals("c") && !s.equals("co")) throw new IllegalStateException("FACES_CHIN: c или co, получено " + s);
+        if (!s.equals("c") && !s.equals("co") && !s.equals("cr")) throw new IllegalStateException("FACES_CHIN: c, co или cr, получено " + s);
         if (!on()) throw new IllegalStateException("FACES_CHIN: только при FACES_FRAMES = b");
         return s;
     }
@@ -67,7 +67,7 @@ final class FrameB {
         return chin() == null ? DIR : DIR + "c";
     }
 
-    /** Метка каталогов отчётов: "" или "_c" / "_co" при FACES_CHIN. */
+    /** Метка каталогов отчётов: "" или "_c" / "_co" / "_cr" при FACES_CHIN. */
     static String tag() {
         return chin() == null ? "" : "_" + chin();
     }

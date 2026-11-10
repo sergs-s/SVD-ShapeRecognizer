@@ -160,24 +160,43 @@ final class FeatP4 {
      * маски; доля – от числа учтённых кодов ячейки (ячейка без учтённых – нули).
      */
     static double[] lbpMasked(double[] img, int w, int h, LbpFeature.Params lp, boolean[] mask) {
+        return lbpMasked(img, w, h, lp, mask, 0);
+    }
+
+    /**
+     * Граница ряда блоков by (0 … rows) в области кодов высоты ch: chb ≤ 0 – прежнее деление ch на grid рядов; chb > 0 ((Чр), Жорик №2 от
+     * 10.11) – ряды 0 … grid как у кадра базы с областью кодов высоты chb (by · chb / grid), плюс нижний ряд chb … ch.
+     */
+    static int rowEdge(int by, int ch, int grid, int chb) {
+        if (chb <= 0) return by * ch / grid;
+        return by <= grid ? by * chb / grid : ch;
+    }
+
+    /**
+     * LBP с маской (mask == null – без маски) и сеткой (Чр): hb > 0 – высота кадра базы (112): ряды grid как у кадра базы, плюс нижний ряд до
+     * низа кадра (длина grid · (grid + 1) · 59 на радиус); hb = 0 – сетка grid × grid (как lbpMasked).
+     */
+    static double[] lbpMasked(double[] img, int w, int h, LbpFeature.Params lp, boolean[] mask, int hb) {
         int grid = lp.grid();
-        double[] v = new double[lp.length()];
+        int rows = hb > 0 ? grid + 1 : grid;
+        double[] v = new double[lp.radii().length * grid * rows * LbpFeature.BINS];
         for (int ri = 0; ri < lp.radii().length; ri++) {
             int r = (int) lp.radii()[ri];
             int cw = w - 2 * r;
             int ch = h - 2 * r;
             int[] codes = LbpFeature.codes(img, w, h, lp.radii()[ri]);
-            int base = ri * grid * grid * LbpFeature.BINS;
-            for (int by = 0; by < grid; by++) {
-                int y0 = by * ch / grid;
-                int y1 = (by + 1) * ch / grid;
+            int chb = hb > 0 ? hb - 2 * r : 0;
+            int base = ri * grid * rows * LbpFeature.BINS;
+            for (int by = 0; by < rows; by++) {
+                int y0 = rowEdge(by, ch, grid, chb);
+                int y1 = rowEdge(by + 1, ch, grid, chb);
                 for (int bx = 0; bx < grid; bx++) {
                     int x0 = bx * cw / grid;
                     int x1 = (bx + 1) * cw / grid;
                     int off = base + (by * grid + bx) * LbpFeature.BINS;
                     int n = 0;
                     for (int y = y0; y < y1; y++) for (int x = x0; x < x1; x++) {
-                        if (!mask[(y + r) * w + x + r]) continue;
+                        if (mask != null && !mask[(y + r) * w + x + r]) continue;
                         v[off + LbpFeature.LABEL[codes[y * cw + x]]]++;
                         n++;
                     }
@@ -193,6 +212,11 @@ final class FeatP4 {
      * доля – от числа учтённых кодов ячейки.
      */
     static double[] poem(double[] img, int w, int h, int grid, int orient, int cell, double radius, boolean[] mask) {
+        return poem(img, w, h, grid, orient, cell, radius, mask, 0);
+    }
+
+    /** POEM с сеткой (Чр): hb > 0 – ряды grid как у кадра базы высоты hb, плюс нижний ряд до низа кадра (длина grid · (grid + 1) · m · 59). */
+    static double[] poem(double[] img, int w, int h, int grid, int orient, int cell, double radius, boolean[] mask, int hb) {
         int border = 1 + cell / 2 + reach(radius);
         if (w <= 2 * border || h <= 2 * border) throw new IllegalArgumentException("FeatP4: кадр меньше окрестности POEM");
         double[][] m = magnitudes(img, w, h, orient);
@@ -211,10 +235,12 @@ final class FeatP4 {
         int cw = aw - 2 * reach(radius);
         int ch = ah - 2 * reach(radius);
         int bins = LbpFeature.BINS;
-        double[] v = new double[grid * grid * orient * bins];
-        for (int by = 0; by < grid; by++) {
-            int y0 = by * ch / grid;
-            int y1 = (by + 1) * ch / grid;
+        int rows = hb > 0 ? grid + 1 : grid;
+        int chb = hb > 0 ? hb - 2 - cell + 1 - 2 * reach(radius) : 0;
+        double[] v = new double[grid * rows * orient * bins];
+        for (int by = 0; by < rows; by++) {
+            int y0 = rowEdge(by, ch, grid, chb);
+            int y1 = rowEdge(by + 1, ch, grid, chb);
             for (int bx = 0; bx < grid; bx++) {
                 int x0 = bx * cw / grid;
                 int x1 = (bx + 1) * cw / grid;
@@ -311,8 +337,10 @@ final class FeatP4 {
         int grid = XBasePoem.grid(f);
         // (Ч+О), FACES_CHIN = co: пиксели вне эллипса не входят в гистограммы LBP и POEM; Тан – Триггс – по всему кадру (выше).
         boolean[] mk = "co".equals(FrameB.chin()) && w == FrameB.W && h == XBaseChin.height() ? ellipse(w, h) : null;
-        double[] lbp = LbpFeature.sqrt(mk == null ? LbpFeature.histogram(img, w, h, XBaseDates.PARAMS[f]) : lbpMasked(img, w, h, XBaseDates.PARAMS[f], mk));
-        double[] poem = LbpFeature.sqrt(poem(img, w, h, grid, p.orient(), p.cell(), p.radius(), mk));
+        // (Чр), FACES_CHIN = cr: ряды блоков LBP и POEM – как у кадра базы 92×112 (границы побайтно те же), плюс нижний ряд под подбородок.
+        int hb = "cr".equals(FrameB.chin()) && w == FrameB.W && h == XBaseChin.height() ? FrameB.H : 0;
+        double[] lbp = LbpFeature.sqrt(mk == null && hb == 0 ? LbpFeature.histogram(img, w, h, XBaseDates.PARAMS[f]) : lbpMasked(img, w, h, XBaseDates.PARAMS[f], mk, hb));
+        double[] poem = LbpFeature.sqrt(poem(img, w, h, grid, p.orient(), p.cell(), p.radius(), mk, hb));
         double js = p.orient() == PoemFeature.ORIENT ? PoemFeature.JOIN_SCALE : 1 / Math.sqrt(p.orient());
         double[] ck = input(c, in, p.tt(), FrameK2.K);
         double[] ms = msLbp(ck, c.cols(), c.rows(), pts, p.scales(), p.patch());

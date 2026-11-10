@@ -66,4 +66,47 @@ public class FeatP4ChinTest {
         }
         assertArrayEquals(new double[0], new double[0], 0);
     }
+
+    /** (Чр): границы верхних рядов – как у кадра базы 92×112, нижний ряд – 20 px (LBP 110–130, POEM 103–123 в пикселях кадра). */
+    @Test
+    public void crRowEdges() {
+        for (int grid : new int[] {7, 9}) {
+            for (int[] a : new int[][] {{128, 108}, {114, 94}}) {
+                for (int by = 0; by <= grid; by++) assertEquals(FeatP4.rowEdge(by, a[1], grid, 0), FeatP4.rowEdge(by, a[0], grid, a[1]));
+                assertEquals(a[0], FeatP4.rowEdge(grid + 1, a[0], grid, a[1]));
+                assertEquals(20, a[0] - a[1]);
+            }
+        }
+    }
+
+    /**
+     * (Чр): верхние grid рядов признака кадра 92×132 побайтно равны признаку базы по верхним 92×112 (у LBP коды верхних рядов видят только
+     * строки 0–111; у POEM – так же, порог τ одинаков, если наибольшая сумма ячейки – в верхней части), нижний ряд – тот же формат.
+     */
+    @Test
+    public void crTopRowsEqualBase() {
+        int w = 92, h = 132, hb = 112;
+        double[] im = img(w, h, 11);
+        for (int y = hb; y < h; y++) for (int x = 0; x < w; x++) im[y * w + x] = im[y * w + x] / 64;
+        for (int y = 40; y < 60; y++) for (int x = 30; x < 60; x++) im[y * w + x] = (x + y) % 2 == 0 ? 4000 : 0;
+        double[] top = Arrays.copyOf(im, w * hb);
+        for (LbpFeature.Params lp : XBaseDates.PARAMS) {
+            double[] a = LbpFeature.histogram(top, w, hb, lp);
+            double[] b = FeatP4.lbpMasked(im, w, h, lp, null, hb);
+            int g = lp.grid();
+            assertEquals(g * (g + 1) * LbpFeature.BINS, b.length);
+            for (int i = 0; i < a.length; i++) assertEquals(Double.doubleToLongBits(a[i]), Double.doubleToLongBits(b[i]));
+            for (int c = g * g; c < g * (g + 1); c++) {
+                double s = 0;
+                for (int k = 0; k < LbpFeature.BINS; k++) s += b[c * LbpFeature.BINS + k];
+                assertEquals(1, s, 1e-12);
+            }
+        }
+        for (int grid : new int[] {7, 9}) {
+            double[] a = FeatP4.poem(top, w, hb, grid, PoemFeature.ORIENT, PoemFeature.CELL, PoemFeature.RADIUS);
+            double[] b = FeatP4.poem(im, w, h, grid, PoemFeature.ORIENT, PoemFeature.CELL, PoemFeature.RADIUS, null, hb);
+            assertEquals(grid * (grid + 1) * PoemFeature.ORIENT * LbpFeature.BINS, b.length);
+            for (int i = 0; i < a.length; i++) assertEquals(Double.doubleToLongBits(a[i]), Double.doubleToLongBits(b[i]));
+        }
+    }
 }
