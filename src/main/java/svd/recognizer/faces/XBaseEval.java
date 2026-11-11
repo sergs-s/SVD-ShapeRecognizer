@@ -664,7 +664,7 @@ public final class XBaseEval {
         } else if (a[0].equals("chin-report")) {
             XBaseChin.report(a[1], a.length > 2 ? a[2] : "", export, dir, feiKeys, selLines, settings, out);
         } else if (a[0].equals("chin-pair")) {
-            XBaseChin.pair(a[1], export, dir, feiKeys, selLines, settings, out);
+            XBaseChin.pair(a[1], a.length > 2 ? a[2] : "", a.length > 3 ? a[3] : "cr", export, dir, feiKeys, selLines, settings, out);
         } else if (a[0].equals("pool-chin")) {
             XBaseChin.pool(export, dir, feiKeys, selLines, settings, out);
         } else if (a[0].equals("pool-chin-cmp")) {

@@ -67,6 +67,37 @@ public class FeatP4ChinTest {
         assertArrayEquals(new double[0], new double[0], 0);
     }
 
+    /** (Чро): маска «всё внутри» при сетке (Чр) – побайтно как (Чр) без маски; с эллипсом – доли блока в сумме 1 или 0, длина как у (Чр). */
+    @Test
+    public void croMask() {
+        int w = 92, h = 132, hb = 112;
+        double[] im = img(w, h, 13);
+        boolean[] all = new boolean[w * h];
+        Arrays.fill(all, true);
+        boolean[] el = FeatP4.ellipse(w, h);
+        for (LbpFeature.Params lp : XBaseDates.PARAMS) {
+            double[] a = FeatP4.lbpMasked(im, w, h, lp, null, hb);
+            double[] b = FeatP4.lbpMasked(im, w, h, lp, all, hb);
+            double[] c = FeatP4.lbpMasked(im, w, h, lp, el, hb);
+            assertEquals(a.length, c.length);
+            for (int i = 0; i < a.length; i++) assertEquals(Double.doubleToLongBits(a[i]), Double.doubleToLongBits(b[i]));
+            for (int k = 0; k < c.length / LbpFeature.BINS; k++) {
+                double s = 0;
+                for (int j = 0; j < LbpFeature.BINS; j++) s += c[k * LbpFeature.BINS + j];
+                assertTrue(Math.abs(s - 1) < 1e-12 || s == 0);
+            }
+        }
+        for (int grid : new int[] {7, 9}) {
+            double[] a = FeatP4.poem(im, w, h, grid, PoemFeature.ORIENT, PoemFeature.CELL, PoemFeature.RADIUS, null, hb);
+            double[] b = FeatP4.poem(im, w, h, grid, PoemFeature.ORIENT, PoemFeature.CELL, PoemFeature.RADIUS, all, hb);
+            double[] c = FeatP4.poem(im, w, h, grid, PoemFeature.ORIENT, PoemFeature.CELL, PoemFeature.RADIUS, el, hb);
+            assertEquals(a.length, c.length);
+            for (int i = 0; i < a.length; i++) assertEquals(Double.doubleToLongBits(a[i]), Double.doubleToLongBits(b[i]));
+        }
+        String s = XBaseChin.maskStats();
+        assertTrue(s, s.contains("LBP 9×9 + нижний ряд (90 блоков)") && s.contains("POEM 7×7 + нижний ряд (56 блоков)"));
+    }
+
     /** (Чр): границы верхних рядов – как у кадра базы 92×112, нижний ряд – 20 px (LBP 110–130, POEM 103–123 в пикселях кадра). */
     @Test
     public void crRowEdges() {

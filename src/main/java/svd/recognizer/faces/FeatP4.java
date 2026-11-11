@@ -336,9 +336,9 @@ final class FeatP4 {
         int h = a.rows();
         int grid = XBasePoem.grid(f);
         // (Ч+О), FACES_CHIN = co: пиксели вне эллипса не входят в гистограммы LBP и POEM; Тан – Триггс – по всему кадру (выше).
-        boolean[] mk = "co".equals(FrameB.chin()) && w == FrameB.W && h == XBaseChin.height() ? ellipse(w, h) : null;
+        boolean[] mk = ("co".equals(FrameB.chin()) || "cro".equals(FrameB.chin())) && w == FrameB.W && h == XBaseChin.height() ? ellipse(w, h) : null;
         // (Чр), FACES_CHIN = cr: ряды блоков LBP и POEM – как у кадра базы 92×112 (границы побайтно те же), плюс нижний ряд под подбородок.
-        int hb = "cr".equals(FrameB.chin()) && w == FrameB.W && h == XBaseChin.height() ? FrameB.H : 0;
+        int hb = ("cr".equals(FrameB.chin()) || "cro".equals(FrameB.chin())) && w == FrameB.W && h == XBaseChin.height() ? FrameB.H : 0;
         double[] lbp = LbpFeature.sqrt(mk == null && hb == 0 ? LbpFeature.histogram(img, w, h, XBaseDates.PARAMS[f]) : lbpMasked(img, w, h, XBaseDates.PARAMS[f], mk, hb));
         double[] poem = LbpFeature.sqrt(poem(img, w, h, grid, p.orient(), p.cell(), p.radius(), mk, hb));
         double js = p.orient() == PoemFeature.ORIENT ? PoemFeature.JOIN_SCALE : 1 / Math.sqrt(p.orient());

@@ -252,7 +252,7 @@ final class XBaseChin {
     /** Вариант модели пула: номер 90, признак – (32) по умолчанию; кадр и маска – по FACES_CHIN (база Б – без ключа). */
     static XBasePart4.BV poolVariant(IlluminationNorm.NormParams tt) {
         String c = FrameB.chin();
-        String name = c == null ? "база (32), кадр Б 92×112" : c.equals("c") ? "(Ч) кадр 92×132" : c.equals("cr") ? "(Чр) кадр 92×132, ряды базы и нижний ряд" : "(Ч+О) кадр 92×132, овальная маска";
+        String name = c == null ? "база (32), кадр Б 92×112" : c.equals("c") ? "(Ч) кадр 92×132" : c.equals("cr") ? "(Чр) кадр 92×132, ряды базы и нижний ряд" : c.equals("cro") ? "(Чро) кадр 92×132, ряды базы и нижний ряд, овальная маска" : "(Ч+О) кадр 92×132, овальная маска";
         return new XBasePart4.BV(90, "chin", name, "постановка 08.11, кадр с подбородком", FeatP4.base(tt), new int[] {1, 0});
     }
 
@@ -279,13 +279,14 @@ final class XBaseChin {
     static void poolCmp(String v, FarExport.Loaded export, Path dir, Map<String, Map<Integer, String>> feiKeys, List<String> selLines, SettingsStore settings, Path out) throws IOException {
         if (!FrameB.on() || FrameB.chin() != null) throw new IllegalStateException("pool-chin-cmp: FACES_FRAMES=b без FACES_CHIN");
         boolean cr = v.equals("cr");
-        if (!cr && !v.isEmpty()) throw new IllegalArgumentException("pool-chin-cmp: аргумент – нет или cr, получено " + v);
+        boolean cro = v.equals("cro");
+        if (!cr && !cro && !v.isEmpty()) throw new IllegalArgumentException("pool-chin-cmp: аргумент – нет, cr или cro, получено " + v);
         long t0 = System.nanoTime();
         XBaseVec.Setup u = XBaseVec.setup("pool", export, dir, feiKeys, selLines, settings, out, 0);
         for (Mat m : u.fr.values()) m.release();
         Path feret = u.out.getParent();
-        String[] tags = cr ? new String[] {"", "_c", "_cr"} : new String[] {"", "_c", "_co"};
-        String[] rows = cr ? new String[] {"база (32), кадр Б 92×112", "(Ч) кадр 92×132", "(Чр) кадр 92×132, ряды базы и нижний ряд"}
+        String[] tags = cro ? new String[] {"", "_cr", "_cro"} : cr ? new String[] {"", "_c", "_cr"} : new String[] {"", "_c", "_co"};
+        String[] rows = cro ? new String[] {"база (32), кадр Б 92×112", "(Чр) кадр 92×132, ряды базы и нижний ряд", "(Чро) кадр 92×132, ряды базы и нижний ряд, овальная маска"} : cr ? new String[] {"база (32), кадр Б 92×112", "(Ч) кадр 92×132", "(Чр) кадр 92×132, ряды базы и нижний ряд"}
                 : new String[] {"база (32), кадр Б 92×112", "(Ч) кадр 92×132", "(Ч+О) кадр 92×132, маска"};
         List<String> sets = u.groups;
         int[] clamped = new int[2];
@@ -346,8 +347,8 @@ final class XBaseChin {
         t.append("\n=== Парная разность, п. п., точка [95 %]; * – значимо (меньше – лучше) ===\nпара");
         for (String s : sets) t.append(" | ").append(s);
         t.append('\n');
-        String[] pn = cr ? new String[] {"(Чр) − база", "(Чр) − (Ч)", "(Ч) − база"} : new String[] {"(Ч) − база", "(Ч+О) − база", "(Ч+О) − (Ч)"};
-        int[][] pairs = cr ? new int[][] {{2, 0}, {2, 1}, {1, 0}} : new int[][] {{1, 0}, {2, 0}, {2, 1}};
+        String[] pn = cro ? new String[] {"(Чро) − база", "(Чро) − (Чр)", "(Чр) − база"} : cr ? new String[] {"(Чр) − база", "(Чр) − (Ч)", "(Ч) − база"} : new String[] {"(Ч) − база", "(Ч+О) − база", "(Ч+О) − (Ч)"};
+        int[][] pairs = cr || cro ? new int[][] {{2, 0}, {2, 1}, {1, 0}} : new int[][] {{1, 0}, {2, 0}, {2, 1}};
         boolean[] better = new boolean[3];
         for (int pi = 0; pi < 3; pi++) {
             t.append(pn[pi]);
@@ -362,12 +363,14 @@ final class XBaseChin {
             }
             t.append('\n');
         }
-        if (cr) t.append(String.format(Locale.ROOT, "По пулу (правило (36)): (Чр) – %s; (Чр) против (Ч) – %s.%n", better[0] ? "значимо лучше базы хотя бы на одном наборе" : "значимо лучше базы ни на одном наборе",
+        if (cro) t.append(String.format(Locale.ROOT, "По пулу (правило (36)): (Чро) – %s; (Чро) против (Чр) – %s.%n", better[0] ? "значимо лучше базы хотя бы на одном наборе" : "значимо лучше базы ни на одном наборе",
+                better[1] ? "значимо лучше (Чр) хотя бы на одном наборе" : "значимо лучше (Чр) ни на одном наборе")).append(maskStats());
+        else if (cr) t.append(String.format(Locale.ROOT, "По пулу (правило (36)): (Чр) – %s; (Чр) против (Ч) – %s.%n", better[0] ? "значимо лучше базы хотя бы на одном наборе" : "значимо лучше базы ни на одном наборе",
                 better[1] ? "значимо лучше (Ч) хотя бы на одном наборе" : "значимо лучше (Ч) ни на одном наборе"));
         else t.append(String.format(Locale.ROOT, "По пулу (правило (36)): (Ч) – %s; (Ч+О) – %s.%n", better[0] ? "значимо лучше базы хотя бы на одном наборе" : "значимо лучше ни на одном наборе",
                 better[1] ? "значимо лучше базы хотя бы на одном наборе" : "значимо лучше ни на одном наборе"));
         t.append(String.format(Locale.ROOT, "Время: %.0f с%n", (System.nanoTime() - t0) / 1e9));
-        Path f = cr ? feret.resolve("eq_b_cr").resolve("xbase_pool_chin_cr.txt") : feret.resolve("eq_b").resolve("xbase_pool_chin.txt");
+        Path f = cro ? feret.resolve("eq_b_cro").resolve("xbase_pool_chin_cro.txt") : cr ? feret.resolve("eq_b_cr").resolve("xbase_pool_chin_cr.txt") : feret.resolve("eq_b").resolve("xbase_pool_chin.txt");
         FarMethods.write(f, t);
         System.out.print(t);
         System.out.println("DONE");
@@ -388,28 +391,34 @@ final class XBaseChin {
     static void report(String base, String v, FarExport.Loaded export, Path dir, Map<String, Map<Integer, String>> feiKeys, List<String> selLines, SettingsStore settings,
                        Path out) throws IOException {
         if (!FrameB.on() || FrameB.chin() != null) throw new IllegalStateException("chin-report: FACES_FRAMES=b без FACES_CHIN");
-        boolean cr = v.equals("cr");
-        if (!cr && !v.isEmpty()) throw new IllegalArgumentException("chin-report: третий аргумент – нет или cr, получено " + v);
+        boolean cro = v.equals("cro");
+        boolean cr = v.equals("cr") || cro;
+        if (!cr && !v.isEmpty()) throw new IllegalArgumentException("chin-report: третий аргумент – нет, cr или cro, получено " + v);
         long t0 = System.nanoTime();
         Map<Integer, XBasePart4.TRow> table = XBasePart4.readTable(Paths.get(System.getenv("FACES_P4_TABLE")));
         // (Чр) по решению (40): своя таблица порогов – FACES_P4_TABLE_CR (без ключа – общая таблица FACES_P4_TABLE).
         String tcr = System.getenv("FACES_P4_TABLE_CR");
         Map<Integer, XBasePart4.TRow> tableV = cr && tcr != null && !tcr.isBlank() ? XBasePart4.readTable(Paths.get(tcr)) : table;
+        // (Чро), Жорик №2 от 11.11: строка 1 – (Чр) со своей таблицей FACES_P4_TABLE_CR, строка 2 – (Чро) со своей FACES_P4_TABLE_CRO.
+        String tcro = System.getenv("FACES_P4_TABLE_CRO");
+        Map<Integer, XBasePart4.TRow> tableO = cro && tcro != null && !tcro.isBlank() ? XBasePart4.readTable(Paths.get(tcro)) : table;
+        List<Map<Integer, XBasePart4.TRow>> tabs = cro ? List.of(table, tableV, tableO) : List.of(table, table, tableV);
         XBaseFinal.Run r = XBaseFinal.setup(base, false, export, dir, feiKeys, selLines, settings, out);
         XBaseVec.Setup u = r.u();
         for (Mat m : u.fr.values()) m.release();
         for (FrameK2.F k : r.k2().values()) k.frame().release();
-        String[] tags = cr ? new String[] {"", "_c", "_cr"} : new String[] {"", "_c", "_co"};
-        String[] labs = cr ? new String[] {"база (32)", "(Ч)", "(Чр)"} : new String[] {"база (32)", "(Ч)", "(Ч+О)"};
+        String[] tags = cro ? new String[] {"", "_cr", "_cro"} : cr ? new String[] {"", "_c", "_cr"} : new String[] {"", "_c", "_co"};
+        String[] labs = cro ? new String[] {"база (32)", "(Чр)", "(Чро)"} : cr ? new String[] {"база (32)", "(Ч)", "(Чр)"} : new String[] {"база (32)", "(Ч)", "(Ч+О)"};
         XBaseFinal.Run[] runs = new XBaseFinal.Run[3];
         for (int i = 0; i < 3; i++) runs[i] = new XBaseFinal.Run(u, r.k2(), Map.of(), finalDir(base, u, out, tags[i]), false, 0);
         int[][] w = FeiBootstrap.weights(u.persons, u.tpl.b, u.tpl.seed + FeiBootstrap.SEED_OFFSET);
         StringBuilder t = new StringBuilder("Кадр с подбородком – строки итогового прогона – " + base + " (постановка 08.11; XBaseEval chin-report " + base + ")\nКод: коммит "
                 + FarMethods.commit() + "; бутстреп по людям B = " + u.tpl.b + ", seed " + (u.tpl.seed + FeiBootstrap.SEED_OFFSET) + "; людей " + u.persons + "\n");
-        for (int i = 0; i < 3; i++) t.append(labs[i]).append(" – модели ").append(runs[i].dir().resolve("vec")).append('\n');
+        for (int i = 0; i < 3; i++) t.append(labs[i]).append(" – модели ").append(runs[i].dir().toAbsolutePath().normalize().resolve("vec")).append('\n');
         t.append("Слияние (32), σ₀ = 1; база – модели итогового прогона (те же, что в его отчёте); рабочий порог (34) – t(N) таблицы ").append(System.getenv("FACES_P4_TABLE"))
                 .append(", приведения по (Т2) своей галереи.\n");
-        if (tableV != table) t.append("(Чр) – рабочий порог по своей таблице ").append(tcr).append(".\n");
+        if (tableV != table) t.append("(Чр) – рабочий порог по своей таблице ").append(Paths.get(tcr).toAbsolutePath().normalize()).append(".\n");
+        if (tableO != table) t.append("(Чро) – рабочий порог по своей таблице ").append(Paths.get(tcro).toAbsolutePath().normalize()).append(".\n");
         StringBuilder work = new StringBuilder("\n=== Рабочий порог (34) ===\nгруппа | строка | N (узел) | t | " + XBaseFinalReport.SUM_HEAD + "\n");
         StringBuilder meas = new StringBuilder("\n=== Разделимость при фактическом FAR контроля 1, 2, 5, 10 %, EER, pAUC ≤ 10 % (95 % интервал) ===\nгруппа | строка | 1 % | 2 % | 5 % | 10 % | EER | pAUC\n");
         StringBuilder cmp = new StringBuilder("\n=== Парные разности (разделимость при FAR 1 % | EER | pAUC ≤ 10 %; п. п., разделимость и EER – меньше лучше, pAUC – больше лучше) ===\nгруппа | пара | FAR 1 % | EER | pAUC\n");
@@ -431,7 +440,7 @@ final class XBaseChin {
                     double[] st = XBaseVec.fuseStats(mt, false);
                     double[] sx = XBaseVec.fuseStats(mx, false);
                     String lines = XBaseVec.fuseLines(mt, mx, XBaseFeat2.W_FUSE, st, sx, b.g().rOf, b.g().r0, clamped);
-                    tu = XBaseFinalReport.tOf(cr && i == 2 ? tableV : table, b.g().own.size());
+                    tu = XBaseFinalReport.tOf(tabs.get(i), b.g().own.size());
                     o1.addAll(XBaseFinalReport.atT(mt, mx, st, sx, b.g().rOf, b.g().r0, tu[0], ro -> ro.equals(FeiScores.OWN) || ro.equals(FeiScores.CTRL)));
                     us.add(new XBaseThr.Unit(b.g(), b.gal(), b.pro(), b.parts(), lines, null, t2));
                 }
@@ -458,7 +467,7 @@ final class XBaseChin {
             XBaseLbp.tables(body, base.toUpperCase(Locale.ROOT) + " " + grp + " – П3", of, u.persons, u.tpl, List.of(), t2);
         }
         if (base.equals("vt")) for (int i = 0; i < 3; i++) if (Files.exists(XBaseFinal.vfile(runs[i], u.blocks.get(0), XBaseFinal.TT1)))
-            t.append("\n--- ").append(labs[i]).append(" ---\n").append(XBaseFinalReport.vtParts(runs[i], u, cr && i == 2 ? tableV : table, XBaseFinal.TT1));
+            t.append("\n--- ").append(labs[i]).append(" ---\n").append(XBaseFinalReport.vtParts(runs[i], u, tabs.get(i), XBaseFinal.TT1));
         t.append(work).append(meas).append(cmp).append(body);
         t.append(String.format(Locale.ROOT, "%nВремя: %.0f с%n", (System.nanoTime() - t0) / 1e9));
         Path rf = runs[cr ? 2 : 1].dir().resolve("chin_report_" + base + ".txt");
@@ -466,6 +475,44 @@ final class XBaseChin {
         FarMethods.write(rf, t);
         System.out.print(t);
         System.out.println("DONE");
+    }
+
+    /**
+     * Число блоков сеток (Чро) – ряды базы и нижний ряд, кадр 92×132, эллипс XBaseChin.mask – целиком внутри / частично / пустых (по центрам кодов, как
+     * FeatP4.lbpMasked и FeatP4.poem): LBP (8, 2) и POEM (ячейка 7, радиус 5), сетки 9 и 7.
+     */
+    static String maskStats() {
+        int w = FrameB.W;
+        int h = height();
+        boolean[] m = FeatP4.ellipse(w, h);
+        StringBuilder s = new StringBuilder("Блоки сеток (Чро) (ряды базы + нижний ряд, кадр 92×132): целиком внутри эллипса | частично | пустых\n");
+        for (int grid : new int[] {9, 7}) {
+            for (boolean poem : new boolean[] {false, true}) {
+                int sh = poem ? FeatP4.reach(PoemFeature.RADIUS) + 1 + (PoemFeature.CELL - 1) / 2 : (int) LbpFeature.RADIUS;
+                int cw = w - 2 * sh;
+                int ch = h - 2 * sh;
+                int chb = FrameB.H - 2 * sh;
+                int full = 0, part = 0, empty = 0;
+                for (int by = 0; by <= grid; by++) {
+                    int y0 = FeatP4.rowEdge(by, ch, grid, chb);
+                    int y1 = FeatP4.rowEdge(by + 1, ch, grid, chb);
+                    for (int bx = 0; bx < grid; bx++) {
+                        int x0 = bx * cw / grid;
+                        int x1 = (bx + 1) * cw / grid;
+                        int in = 0, all = 0;
+                        for (int y = y0; y < y1; y++) for (int x = x0; x < x1; x++) {
+                            all++;
+                            if (m[(y + sh) * w + x + sh]) in++;
+                        }
+                        if (in == all) full++;
+                        else if (in == 0) empty++;
+                        else part++;
+                    }
+                }
+                s.append(String.format(Locale.ROOT, "  %s %d×%d + нижний ряд (%d блоков): %d | %d | %d%n", poem ? "POEM" : "LBP", grid, grid, grid * (grid + 1), full, part, empty));
+            }
+        }
+        return s.toString();
     }
 
     /** Исход пробы при рабочем пороге с ключом пробы (блок | ключ строки) – для парного сравнения вариантов. */
@@ -553,34 +600,45 @@ final class XBaseChin {
      * людям – бутстреп по людям (общие веса, B и seed как chin-report; пороги фиксированы), таблица несовпадений по пробам и точный p Мак-Немара
      * (справочно). Запуск – FACES_FRAMES=b без FACES_CHIN. Отчёт – рядом с моделями (Чр): chin_pair_&lt;база&gt;.txt.
      */
-    static void pair(String base, FarExport.Loaded export, Path dir, Map<String, Map<Integer, String>> feiKeys, List<String> selLines, SettingsStore settings,
-                     Path out) throws IOException {
+    static void pair(String base, String va, String vb, FarExport.Loaded export, Path dir, Map<String, Map<Integer, String>> feiKeys, List<String> selLines,
+                     SettingsStore settings, Path out) throws IOException {
         if (!FrameB.on() || FrameB.chin() != null) throw new IllegalStateException("chin-pair: FACES_FRAMES=b без FACES_CHIN");
         long t0 = System.nanoTime();
-        String t37 = System.getenv("FACES_P4_TABLE");
-        String tcr = System.getenv("FACES_P4_TABLE_CR");
-        if (tcr == null || tcr.isBlank()) throw new IllegalStateException("chin-pair: нужен FACES_P4_TABLE_CR");
-        List<Map<Integer, XBasePart4.TRow>> tables = List.of(XBasePart4.readTable(Paths.get(t37)), XBasePart4.readTable(Paths.get(tcr)));
+        // Варианты: "" – база (32), таблица FACES_P4_TABLE; cr – (Чр), FACES_P4_TABLE_CR; cro – (Чро), FACES_P4_TABLE_CRO (Жорик №2 от 11.11).
+        Map<String, String> envOf = Map.of("", "FACES_P4_TABLE", "cr", "FACES_P4_TABLE_CR", "cro", "FACES_P4_TABLE_CRO");
+        Map<String, String> labOf = Map.of("", "база (32)", "cr", "(Чр)", "cro", "(Чро)");
+        String[] vs = {va, vb};
+        String[] tpaths = new String[2];
+        List<Map<Integer, XBasePart4.TRow>> tables = new ArrayList<>();
+        for (int i = 0; i < 2; i++) {
+            if (!envOf.containsKey(vs[i])) throw new IllegalArgumentException("chin-pair: вариант – пусто, cr или cro, получено " + vs[i]);
+            tpaths[i] = System.getenv(envOf.get(vs[i]));
+            if (tpaths[i] == null || tpaths[i].isBlank()) throw new IllegalStateException("chin-pair: нужен " + envOf.get(vs[i]));
+            tables.add(XBasePart4.readTable(Paths.get(tpaths[i])));
+        }
         XBaseFinal.Run r = XBaseFinal.setup(base, false, export, dir, feiKeys, selLines, settings, out);
         XBaseVec.Setup u = r.u();
         for (Mat m : u.fr.values()) m.release();
         for (FrameK2.F k : r.k2().values()) k.frame().release();
-        String[] tags = {"", "_cr"};
-        String[] labs = {"база (32)", "(Чр)"};
+        String[] tags = {vs[0].isEmpty() ? "" : "_" + vs[0], "_" + vs[1]};
+        String[] labs = {labOf.get(vs[0]), labOf.get(vs[1])};
+        String la = labs[0];
+        String lb = labs[1];
         XBaseFinal.Run[] runs = new XBaseFinal.Run[2];
         for (int i = 0; i < 2; i++) runs[i] = new XBaseFinal.Run(u, r.k2(), Map.of(), finalDir(base, u, out, tags[i]), false, 0);
         int[][] w = FeiBootstrap.weights(u.persons, u.tpl.b, u.tpl.seed + FeiBootstrap.SEED_OFFSET);
-        StringBuilder t = new StringBuilder("Кадр с подбородком (Чр) – парная проверка при рабочем пороге (34) – " + base + " (Жорик №1 от 11.11; XBaseEval chin-pair " + base
+        StringBuilder t = new StringBuilder("Кадр с подбородком – парная проверка при рабочем пороге (34), " + lb + " − " + la + " – " + base + " (Жорик №1 и №2 от 11.11; XBaseEval chin-pair " + base + " " + vs[0] + " " + vs[1]
                 + ")\nКод: коммит " + FarMethods.commit() + "; бутстреп по людям B = " + u.tpl.b + ", seed " + (u.tpl.seed + FeiBootstrap.SEED_OFFSET) + " (как chin-report), людей "
                 + u.persons + "; пороги фиксированы (в бутстрепе не пересчитываются)\n");
         for (int i = 0; i < 2; i++) t.append(labs[i]).append(" – модели ").append(runs[i].dir().toAbsolutePath().normalize().resolve("vec")).append("; таблица ")
-                .append(Paths.get(i == 0 ? t37 : tcr).toAbsolutePath().normalize()).append(" (SHA-256 ").append(FrameB.sha256(Paths.get(i == 0 ? t37 : tcr))).append(")\n");
+                .append(Paths.get(tpaths[i]).toAbsolutePath().normalize()).append(" (SHA-256 ").append(FrameB.sha256(Paths.get(tpaths[i]))).append(")\n");
         t.append("Слияние (32), σ₀ = 1; t(N) – правило (34) по своей таблице варианта, приведения по (Т2) своей галереи. Значимость – по интервалу бутстрепа 95 % (* – не содержит 0; ** – и 99,5 %); Мак-Немар – справочно, без учёта кластеров по людям.\n");
         StringBuilder sum = new StringBuilder("\n=== Пороги и исходы ===\nгруппа | строка | N (узел) | t | " + XBaseFinalReport.SUM_HEAD + "\n");
-        StringBuilder dif = new StringBuilder("\n=== Парные разности (Чр) − база, п. п. (точка [95 %] {99,5 %}) ===\nгруппа | ошибка своих | FAR контроля по снимкам | FAR контроля по людям\n");
-        StringBuilder mc = new StringBuilder("\n=== Несовпадения по пробам своих (ошибка = не принят или принят с неверным лучшим): только база | только (Чр) | оба | никто; точный двусторонний p Мак-Немара ===\n"
-                + "группа | только база | только (Чр) | оба | никто | p | проб без пары\n");
-        StringBuilder mcc = new StringBuilder("\n=== Несовпадения по попыткам контроля (принят): только база | только (Чр) | оба | никто; p Мак-Немара ===\nгруппа | только база | только (Чр) | оба | никто | p\n");
+        StringBuilder dif = new StringBuilder("\n=== Парные разности " + lb + " − " + la + ", п. п. (точка [95 %] {99,5 %}) ===\nгруппа | ошибка своих | FAR контроля по снимкам | FAR контроля по людям\n");
+        StringBuilder mc = new StringBuilder("\n=== Несовпадения по пробам своих (ошибка = не принят или принят с неверным лучшим): только " + la + " | только " + lb
+                + " | оба | никто; точный двусторонний p Мак-Немара ===\nгруппа | только " + la + " | только " + lb + " | оба | никто | p | проб без пары\n");
+        StringBuilder mcc = new StringBuilder("\n=== Несовпадения по попыткам контроля (принят): только " + la + " | только " + lb + " | оба | никто; p Мак-Немара ===\nгруппа | только "
+                + la + " | только " + lb + " | оба | никто | p\n");
         for (String grp : u.groups) {
             List<XBaseVec.Blk> bs = u.blocks.stream().filter(b -> b.group().equals(grp)).toList();
             List<List<PO>> res = new ArrayList<>();
@@ -640,7 +698,7 @@ final class XBaseChin {
         }
         t.append(sum).append(dif).append(mc).append(mcc);
         t.append(String.format(Locale.ROOT, "%nВремя: %.0f с%n", (System.nanoTime() - t0) / 1e9));
-        Path rf = runs[1].dir().resolve("chin_pair_" + base + ".txt");
+        Path rf = runs[1].dir().resolve("chin_pair_" + base + (vs[0].isEmpty() && vs[1].equals("cr") ? "" : "_" + vs[1] + (vs[0].isEmpty() ? "" : "_" + vs[0])) + ".txt");
         Files.createDirectories(rf.getParent());
         FarMethods.write(rf, t);
         System.out.print(t);
