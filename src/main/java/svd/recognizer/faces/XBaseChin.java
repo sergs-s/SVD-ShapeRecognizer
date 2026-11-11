@@ -468,6 +468,186 @@ final class XBaseChin {
         System.out.println("DONE");
     }
 
+    /** Исход пробы при рабочем пороге с ключом пробы (блок | ключ строки) – для парного сравнения вариантов. */
+    record PO(String key, String person, boolean own, boolean accepted, boolean right) {
+        boolean err() {
+            return own && !(accepted && right);
+        }
+    }
+
+    /** Как XBaseFinalReport.atT, но с ключом пробы; keep – роли own и ctrl. */
+    static List<PO> atTKeyed(int bi, List<XBaseVec.Model> tt, List<XBaseVec.Model> xs, double[] st, double[] sx, Map<String, Double> rOf, double r0, double t) {
+        XBaseVec.Model tX = XBaseVec.find(tt, "main", false);
+        XBaseVec.Model tM = XBaseVec.find(tt, "main", true);
+        XBaseVec.Model xM = XBaseVec.find(xs, "main", true);
+        List<PO> out = new ArrayList<>();
+        for (int i = 0; i < tX.rows().size(); i++) {
+            XBaseVec.Row rx = xM.rows().get(i);
+            XBaseVec.Row rt = rOf.get(tX.rows().get(i).key()) <= r0 ? tX.rows().get(i) : tM.rows().get(i);
+            if (!rx.key().equals(rt.key())) throw new IllegalStateException("chin-pair: пробы кандидатов разошлись");
+            if (!rt.role().equals(FeiScores.OWN) && !rt.role().equals(FeiScores.CTRL)) continue;
+            int ng = rt.dg().length;
+            int b = -1;
+            int s2 = -1;
+            double[] ln = new double[ng];
+            for (int g = 0; g < ng; g++) {
+                ln[g] = XBaseFeat2.W_FUSE * (XBaseVec.ell(rt.dg()[g]) - st[0]) / st[1] + (1 - XBaseFeat2.W_FUSE) * (XBaseVec.ell(rx.dg()[g]) - sx[0]) / sx[1];
+                if (b < 0 || ln[g] < ln[b]) {
+                    s2 = b;
+                    b = g;
+                } else if (s2 < 0 || ln[g] < ln[s2]) {
+                    s2 = g;
+                }
+            }
+            double s = 2 * ln[b] - ln[s2];
+            out.add(new PO(bi + "|" + rt.key(), rt.person(), rt.trueIdx() >= 0, s <= t, b == rt.trueIdx()));
+        }
+        return out;
+    }
+
+    /** Точный двусторонний p биномиального критерия Мак-Немара по несовпадающим b и c (p = 1/2). */
+    static double mcnemar(int b, int c) {
+        int n = b + c;
+        if (n == 0) return 1;
+        int k = Math.min(b, c);
+        double sum = 0;
+        for (int i = 0; i <= k; i++) sum += Math.exp(lnChoose(n, i) - n * Math.log(2));
+        return Math.min(1, 2 * sum);
+    }
+
+    static double lnChoose(int n, int k) {
+        double s = 0;
+        for (int i = 1; i <= k; i++) s += Math.log(n - k + i) - Math.log(i);
+        return s;
+    }
+
+    /** Доли по весам бутстрепа: ошибка своих, FAR по снимкам, FAR по людям (%) для набора исходов; w – веса людей (null – единичные). */
+    static double[] rates(List<PO> l, Map<String, Integer> pIdx, int[] w) {
+        double own = 0, err = 0, cn = 0, ca = 0;
+        Map<String, Boolean> per = new java.util.TreeMap<>();
+        for (PO o : l) {
+            Integer pi = pIdx.get(o.person());
+            if (pi == null) throw new IllegalStateException("chin-pair: человек " + o.person() + " вне списка бутстрепа");
+            double k = w == null ? 1 : w[pi];
+            if (o.own()) {
+                own += k;
+                if (o.err()) err += k;
+            } else {
+                cn += k;
+                if (o.accepted()) ca += k;
+                per.merge(o.person(), o.accepted(), Boolean::logicalOr);
+            }
+        }
+        double pn = 0, pa = 0;
+        for (Map.Entry<String, Boolean> e : per.entrySet()) {
+            double k = w == null ? 1 : w[pIdx.get(e.getKey())];
+            pn += k;
+            if (e.getValue()) pa += k;
+        }
+        return new double[] {own == 0 ? 0 : 100 * err / own, cn == 0 ? 0 : 100 * ca / cn, pn == 0 ? 0 : 100 * pa / pn};
+    }
+
+    /**
+     * chin-pair &lt;база&gt; (Жорик №1 от 11.11): парная проверка при рабочем пороге (34), (Чр) − база (32), каждая со своей таблицей (FACES_P4_TABLE –
+     * база, FACES_P4_TABLE_CR – (Чр)) по готовым моделям (final, final_cr; FERET – eq_b, eq_b_cr): разность ошибки своих, FAR контроля по снимкам и по
+     * людям – бутстреп по людям (общие веса, B и seed как chin-report; пороги фиксированы), таблица несовпадений по пробам и точный p Мак-Немара
+     * (справочно). Запуск – FACES_FRAMES=b без FACES_CHIN. Отчёт – рядом с моделями (Чр): chin_pair_&lt;база&gt;.txt.
+     */
+    static void pair(String base, FarExport.Loaded export, Path dir, Map<String, Map<Integer, String>> feiKeys, List<String> selLines, SettingsStore settings,
+                     Path out) throws IOException {
+        if (!FrameB.on() || FrameB.chin() != null) throw new IllegalStateException("chin-pair: FACES_FRAMES=b без FACES_CHIN");
+        long t0 = System.nanoTime();
+        String t37 = System.getenv("FACES_P4_TABLE");
+        String tcr = System.getenv("FACES_P4_TABLE_CR");
+        if (tcr == null || tcr.isBlank()) throw new IllegalStateException("chin-pair: нужен FACES_P4_TABLE_CR");
+        List<Map<Integer, XBasePart4.TRow>> tables = List.of(XBasePart4.readTable(Paths.get(t37)), XBasePart4.readTable(Paths.get(tcr)));
+        XBaseFinal.Run r = XBaseFinal.setup(base, false, export, dir, feiKeys, selLines, settings, out);
+        XBaseVec.Setup u = r.u();
+        for (Mat m : u.fr.values()) m.release();
+        for (FrameK2.F k : r.k2().values()) k.frame().release();
+        String[] tags = {"", "_cr"};
+        String[] labs = {"база (32)", "(Чр)"};
+        XBaseFinal.Run[] runs = new XBaseFinal.Run[2];
+        for (int i = 0; i < 2; i++) runs[i] = new XBaseFinal.Run(u, r.k2(), Map.of(), finalDir(base, u, out, tags[i]), false, 0);
+        int[][] w = FeiBootstrap.weights(u.persons, u.tpl.b, u.tpl.seed + FeiBootstrap.SEED_OFFSET);
+        Map<String, Integer> pIdx = u.tpl.pIdx;
+        StringBuilder t = new StringBuilder("Кадр с подбородком (Чр) – парная проверка при рабочем пороге (34) – " + base + " (Жорик №1 от 11.11; XBaseEval chin-pair " + base
+                + ")\nКод: коммит " + FarMethods.commit() + "; бутстреп по людям B = " + u.tpl.b + ", seed " + (u.tpl.seed + FeiBootstrap.SEED_OFFSET) + " (как chin-report), людей "
+                + u.persons + "; пороги фиксированы (в бутстрепе не пересчитываются)\n");
+        for (int i = 0; i < 2; i++) t.append(labs[i]).append(" – модели ").append(runs[i].dir().toAbsolutePath().normalize().resolve("vec")).append("; таблица ")
+                .append(Paths.get(i == 0 ? t37 : tcr).toAbsolutePath().normalize()).append(" (SHA-256 ").append(FrameB.sha256(Paths.get(i == 0 ? t37 : tcr))).append(")\n");
+        t.append("Слияние (32), σ₀ = 1; t(N) – правило (34) по своей таблице варианта, приведения по (Т2) своей галереи. Значимость – по интервалу бутстрепа 95 % (* – не содержит 0; ** – и 99,5 %); Мак-Немар – справочно, без учёта кластеров по людям.\n");
+        StringBuilder sum = new StringBuilder("\n=== Пороги и исходы ===\nгруппа | строка | N (узел) | t | " + XBaseFinalReport.SUM_HEAD + "\n");
+        StringBuilder dif = new StringBuilder("\n=== Парные разности (Чр) − база, п. п. (точка [95 %] {99,5 %}) ===\nгруппа | ошибка своих | FAR контроля по снимкам | FAR контроля по людям\n");
+        StringBuilder mc = new StringBuilder("\n=== Несовпадения по пробам своих (ошибка = не принят или принят с неверным лучшим): только база | только (Чр) | оба | никто; точный двусторонний p Мак-Немара ===\n"
+                + "группа | только база | только (Чр) | оба | никто | p | проб без пары\n");
+        StringBuilder mcc = new StringBuilder("\n=== Несовпадения по попыткам контроля (принят): только база | только (Чр) | оба | никто; p Мак-Немара ===\nгруппа | только база | только (Чр) | оба | никто | p\n");
+        for (String grp : u.groups) {
+            List<XBaseVec.Blk> bs = u.blocks.stream().filter(b -> b.group().equals(grp)).toList();
+            List<List<PO>> res = new ArrayList<>();
+            for (int i = 0; i < 2; i++) {
+                List<PO> l = new ArrayList<>();
+                double[] tu = null;
+                for (int bi = 0; bi < bs.size(); bi++) {
+                    XBaseVec.Blk b = bs.get(bi);
+                    List<XBaseVec.Model> mt = XBaseFinal.models(runs[i], b, XBaseFinal.TT1, false);
+                    List<XBaseVec.Model> mx = XBaseFinal.models(runs[i], b, XBaseFinal.XS, false);
+                    double[] st = XBaseVec.fuseStats(mt, false);
+                    double[] sx = XBaseVec.fuseStats(mx, false);
+                    tu = XBaseFinalReport.tOf(tables.get(i), b.g().own.size());
+                    l.addAll(atTKeyed(bi, mt, mx, st, sx, b.g().rOf, b.g().r0, tu[0]));
+                }
+                List<XBaseFinalReport.Out1> o1 = l.stream().map(o -> new XBaseFinalReport.Out1(o.own() ? FeiScores.OWN : FeiScores.CTRL, o.person(), o.own(), o.accepted(), o.right())).toList();
+                sum.append(String.format(Locale.ROOT, "%s | %s | %d (%d) | %.2f | %s%n", grp, labs[i], bs.get(0).g().own.size(), (int) tu[1], tu[0], XBaseFinalReport.summary(o1)));
+                res.add(l);
+            }
+            Map<String, PO> zb = new java.util.HashMap<>();
+            for (PO o : res.get(0)) zb.put(o.key(), o);
+            List<PO> pa = new ArrayList<>();
+            List<PO> pb = new ArrayList<>();
+            int unmatched = 0;
+            for (PO o : res.get(1)) {
+                PO z = zb.remove(o.key());
+                if (z == null) {
+                    unmatched++;
+                    continue;
+                }
+                if (z.own() != o.own() || !z.person().equals(o.person())) throw new IllegalStateException("chin-pair: роль или человек пробы разошлись " + o.key());
+                pa.add(z);
+                pb.add(o);
+            }
+            unmatched += zb.size();
+            int[] cOwn = new int[4];
+            int[] cCtl = new int[4];
+            for (int k = 0; k < pa.size(); k++) {
+                boolean x = pa.get(k).own() ? pa.get(k).err() : pa.get(k).accepted();
+                boolean y = pb.get(k).own() ? pb.get(k).err() : pb.get(k).accepted();
+                int[] c = pa.get(k).own() ? cOwn : cCtl;
+                c[x && !y ? 0 : !x && y ? 1 : x ? 2 : 3]++;
+            }
+            double[] ra = rates(pa, pIdx, null);
+            double[] rb = rates(pb, pIdx, null);
+            double[][] rep = new double[3][w.length];
+            for (int q = 0; q < w.length; q++) {
+                double[] a = rates(pa, pIdx, w[q]);
+                double[] b = rates(pb, pIdx, w[q]);
+                for (int m = 0; m < 3; m++) rep[m][q] = b[m] - a[m];
+            }
+            dif.append(grp);
+            for (int m = 0; m < 3; m++) dif.append(" | ").append(XBaseFinalReport.ci(rb[m] - ra[m], rep[m]));
+            dif.append('\n');
+            mc.append(String.format(Locale.ROOT, "%s | %d | %d | %d | %d | %.4g | %d%n", grp, cOwn[0], cOwn[1], cOwn[2], cOwn[3], mcnemar(cOwn[0], cOwn[1]), unmatched));
+            mcc.append(String.format(Locale.ROOT, "%s | %d | %d | %d | %d | %.4g%n", grp, cCtl[0], cCtl[1], cCtl[2], cCtl[3], mcnemar(cCtl[0], cCtl[1])));
+        }
+        t.append(sum).append(dif).append(mc).append(mcc);
+        t.append(String.format(Locale.ROOT, "%nВремя: %.0f с%n", (System.nanoTime() - t0) / 1e9));
+        Path rf = runs[1].dir().resolve("chin_pair_" + base + ".txt");
+        Files.createDirectories(rf.getParent());
+        FarMethods.write(rf, t);
+        System.out.print(t);
+        System.out.println("DONE");
+    }
+
     static Mat diff(Mat a, Mat b) {
         Mat d = new Mat();
         Core.absdiff(a, b, d);
