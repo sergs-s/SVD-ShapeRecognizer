@@ -52,12 +52,4 @@
                 <exec.appArgs></exec.appArgs>
             </properties>
         </action>
-        <action>
-            <actionName>CUSTOM-faces-eyes</actionName>
-            <displayName>faces-eyes</displayName>
-            <goals>
-                <goal>compile</goal>
-                <goal>exec:java@faces-eyes</goal>
-            </goals>
-        </action>
     </actions>
