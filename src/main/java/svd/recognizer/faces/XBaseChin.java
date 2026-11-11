@@ -469,14 +469,14 @@ final class XBaseChin {
     }
 
     /** Исход пробы при рабочем пороге с ключом пробы (блок | ключ строки) – для парного сравнения вариантов. */
-    record PO(String key, String person, boolean own, boolean accepted, boolean right) {
+    record PO(String key, String person, int pi, boolean own, boolean accepted, boolean right) {
         boolean err() {
             return own && !(accepted && right);
         }
     }
 
     /** Как XBaseFinalReport.atT, но с ключом пробы; keep – роли own и ctrl. */
-    static List<PO> atTKeyed(int bi, List<XBaseVec.Model> tt, List<XBaseVec.Model> xs, double[] st, double[] sx, Map<String, Double> rOf, double r0, double t) {
+    static List<PO> atTKeyed(int bi, Map<String, Integer> pIdx, List<XBaseVec.Model> tt, List<XBaseVec.Model> xs, double[] st, double[] sx, Map<String, Double> rOf, double r0, double t) {
         XBaseVec.Model tX = XBaseVec.find(tt, "main", false);
         XBaseVec.Model tM = XBaseVec.find(tt, "main", true);
         XBaseVec.Model xM = XBaseVec.find(xs, "main", true);
@@ -500,7 +500,9 @@ final class XBaseChin {
                 }
             }
             double s = 2 * ln[b] - ln[s2];
-            out.add(new PO(bi + "|" + rt.key(), rt.person(), rt.trueIdx() >= 0, s <= t, b == rt.trueIdx()));
+            Integer pi = pIdx.get(rt.person());
+            if (pi == null) throw new IllegalStateException("chin-pair: человек " + rt.person() + " вне списка галереи");
+            out.add(new PO(bi + "|" + rt.key(), rt.person(), pi, rt.trueIdx() >= 0, s <= t, b == rt.trueIdx()));
         }
         return out;
     }
@@ -522,25 +524,23 @@ final class XBaseChin {
     }
 
     /** Доли по весам бутстрепа: ошибка своих, FAR по снимкам, FAR по людям (%) для набора исходов; w – веса людей (null – единичные). */
-    static double[] rates(List<PO> l, Map<String, Integer> pIdx, int[] w) {
+    static double[] rates(List<PO> l, int[] w) {
         double own = 0, err = 0, cn = 0, ca = 0;
-        Map<String, Boolean> per = new java.util.TreeMap<>();
+        Map<Integer, Boolean> per = new java.util.TreeMap<>();
         for (PO o : l) {
-            Integer pi = pIdx.get(o.person());
-            if (pi == null) throw new IllegalStateException("chin-pair: человек " + o.person() + " вне списка бутстрепа");
-            double k = w == null ? 1 : w[pi];
+            double k = w == null ? 1 : w[o.pi()];
             if (o.own()) {
                 own += k;
                 if (o.err()) err += k;
             } else {
                 cn += k;
                 if (o.accepted()) ca += k;
-                per.merge(o.person(), o.accepted(), Boolean::logicalOr);
+                per.merge(o.pi(), o.accepted(), Boolean::logicalOr);
             }
         }
         double pn = 0, pa = 0;
-        for (Map.Entry<String, Boolean> e : per.entrySet()) {
-            double k = w == null ? 1 : w[pIdx.get(e.getKey())];
+        for (Map.Entry<Integer, Boolean> e : per.entrySet()) {
+            double k = w == null ? 1 : w[e.getKey()];
             pn += k;
             if (e.getValue()) pa += k;
         }
@@ -570,7 +570,6 @@ final class XBaseChin {
         XBaseFinal.Run[] runs = new XBaseFinal.Run[2];
         for (int i = 0; i < 2; i++) runs[i] = new XBaseFinal.Run(u, r.k2(), Map.of(), finalDir(base, u, out, tags[i]), false, 0);
         int[][] w = FeiBootstrap.weights(u.persons, u.tpl.b, u.tpl.seed + FeiBootstrap.SEED_OFFSET);
-        Map<String, Integer> pIdx = u.tpl.pIdx;
         StringBuilder t = new StringBuilder("Кадр с подбородком (Чр) – парная проверка при рабочем пороге (34) – " + base + " (Жорик №1 от 11.11; XBaseEval chin-pair " + base
                 + ")\nКод: коммит " + FarMethods.commit() + "; бутстреп по людям B = " + u.tpl.b + ", seed " + (u.tpl.seed + FeiBootstrap.SEED_OFFSET) + " (как chin-report), людей "
                 + u.persons + "; пороги фиксированы (в бутстрепе не пересчитываются)\n");
@@ -595,7 +594,7 @@ final class XBaseChin {
                     double[] st = XBaseVec.fuseStats(mt, false);
                     double[] sx = XBaseVec.fuseStats(mx, false);
                     tu = XBaseFinalReport.tOf(tables.get(i), b.g().own.size());
-                    l.addAll(atTKeyed(bi, mt, mx, st, sx, b.g().rOf, b.g().r0, tu[0]));
+                    l.addAll(atTKeyed(bi, b.g().pIdx, mt, mx, st, sx, b.g().rOf, b.g().r0, tu[0]));
                 }
                 List<XBaseFinalReport.Out1> o1 = l.stream().map(o -> new XBaseFinalReport.Out1(o.own() ? FeiScores.OWN : FeiScores.CTRL, o.person(), o.own(), o.accepted(), o.right())).toList();
                 sum.append(String.format(Locale.ROOT, "%s | %s | %d (%d) | %.2f | %s%n", grp, labs[i], bs.get(0).g().own.size(), (int) tu[1], tu[0], XBaseFinalReport.summary(o1)));
@@ -612,7 +611,7 @@ final class XBaseChin {
                     unmatched++;
                     continue;
                 }
-                if (z.own() != o.own() || !z.person().equals(o.person())) throw new IllegalStateException("chin-pair: роль или человек пробы разошлись " + o.key());
+                if (z.own() != o.own() || !z.person().equals(o.person()) || z.pi() != o.pi()) throw new IllegalStateException("chin-pair: роль или человек пробы разошлись " + o.key());
                 pa.add(z);
                 pb.add(o);
             }
@@ -625,12 +624,12 @@ final class XBaseChin {
                 int[] c = pa.get(k).own() ? cOwn : cCtl;
                 c[x && !y ? 0 : !x && y ? 1 : x ? 2 : 3]++;
             }
-            double[] ra = rates(pa, pIdx, null);
-            double[] rb = rates(pb, pIdx, null);
+            double[] ra = rates(pa, null);
+            double[] rb = rates(pb, null);
             double[][] rep = new double[3][w.length];
             for (int q = 0; q < w.length; q++) {
-                double[] a = rates(pa, pIdx, w[q]);
-                double[] b = rates(pb, pIdx, w[q]);
+                double[] a = rates(pa, w[q]);
+                double[] b = rates(pb, w[q]);
                 for (int m = 0; m < 3; m++) rep[m][q] = b[m] - a[m];
             }
             dif.append(grp);
