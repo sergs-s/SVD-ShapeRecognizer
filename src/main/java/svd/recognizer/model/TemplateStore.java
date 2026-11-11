@@ -21,12 +21,15 @@ import java.util.List;
  */
 public class TemplateStore implements Serializable {
 
-    private static final long serialVersionUID = 1L;
+    private static final long serialVersionUID = 2L;
     public static final int MIN_TEMPLATES = 5;
 
     private final ShapeClass shapeClass;
     private final List<Template> templates = new ArrayList<>();
     private double[] averageSingularValues;
+
+    // модель подпространства класса (null, если класс не обучен)
+    private SubspaceModel subspaceModel;
 
     public TemplateStore(ShapeClass shapeClass) {
         this.shapeClass = shapeClass;
@@ -42,17 +45,20 @@ public class TemplateStore implements Serializable {
     public void addTemplate(Template template) {
         templates.add(template);
         recalculateAverage();
+        clearSubspaceModel(); // Сброс подпространства при изменении эталонов
     }
 
     /** Удаляет все эталоны класса и сбрасывает усреднённый σ-вектор. */
     public void clear() {
         templates.clear();
         averageSingularValues = null;
+        clearSubspaceModel(); // Сброс подпространства при очистке
     }
 
     /**
      * При десериализации хранилища кэш усреднённого σ-вектора не пишется в
      * поток, поэтому пересчитывается заново после чтения списка эталонов.
+     * Поле subspaceModel сериализуется стандартно (не transient).
      */
     private void readObject(ObjectInputStream in) throws IOException, ClassNotFoundException {
         in.defaultReadObject();
@@ -110,5 +116,37 @@ public class TemplateStore implements Serializable {
 
     public List<Template> getTemplates() {
         return Collections.unmodifiableList(templates);
+    }
+
+    /**
+     * Устанавливает модель подпространства для класса.
+     *
+     * @param model обученная модель подпространства (может быть null)
+     */
+    public void setSubspaceModel(SubspaceModel model) {
+        this.subspaceModel = model;
+    }
+
+    /**
+     * @return текущая модель подпространства или null, если класс не обучен
+     */
+    public SubspaceModel getSubspaceModel() {
+        return subspaceModel;
+    }
+
+    /**
+     * Проверяет, обучен ли класс (имеет ли подпространство).
+     *
+     * @return true, если subspaceModel != null
+     */
+    public boolean isTrained() {
+        return subspaceModel != null;
+    }
+
+    /**
+     * Сбрасывает обученное подпространство — вызывается при изменении набора эталонов.
+     */
+    public void clearSubspaceModel() {
+        this.subspaceModel = null;
     }
 }

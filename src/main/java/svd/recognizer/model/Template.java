@@ -29,6 +29,7 @@ public class Template implements Serializable {
     private String sourceFilePath;
     private boolean lowQuality;
     private String qualityReason;
+    private double[][] normalizedMatrix;
 
     public Template() {
     }
@@ -59,12 +60,14 @@ public class Template implements Serializable {
     public String getSourceFilePath()            { return sourceFilePath; }
     public boolean isLowQuality()                { return lowQuality; }
     public String getQualityReason()             { return qualityReason; }
+    public double[][] getNormalizedMatrix() {return normalizedMatrix;}
 
     public void setSingularValues(double[] singularValues)      { this.singularValues = singularValues; }
     public void setNormalizedImage(BufferedImage normalizedImage){ this.normalizedImage = normalizedImage; }
     public void setSourceFilePath(String sourceFilePath)        { this.sourceFilePath = sourceFilePath; }
     public void setLowQuality(boolean lowQuality)               { this.lowQuality = lowQuality; }
     public void setQualityReason(String qualityReason)          { this.qualityReason = qualityReason; }
+    public void setNormalizedMatrix(double[][] normalizedMatrix) {this.normalizedMatrix = normalizedMatrix;}
 
     /**
      * Ручная сериализация: поле normalizedImage помечено transient (BufferedImage

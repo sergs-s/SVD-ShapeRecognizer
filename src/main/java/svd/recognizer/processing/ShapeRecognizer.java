@@ -2,28 +2,21 @@ package svd.recognizer.processing;
 
 import java.util.EnumMap;
 import java.util.Map;
+import svd.recognizer.model.RecognitionMode;
+import svd.recognizer.model.RecognitionResult;
 import svd.recognizer.model.ShapeClass;
 import svd.recognizer.model.Template;
 import svd.recognizer.model.TemplateStore;
 
 /**
- * Классификатор фигур по SVD-сигнатурам (σ-векторам).
+ * Классификатор фигур по SVD-сигнатурам (σ-векторам), режим SIGMA_VECTOR.
  *
  * Распознавание по схеме «Путь B»: тестовая фигура прогоняется через ВСЕ три
  * ветки обработки (как круг, как треугольник, как прямоугольник), и для каждой
- * гипотезы вычисляется σ-вектор именно той ветки. Затем:
- *   1. для каждого класса берётся расстояние гипотезы этого класса до его
- *      усреднённого эталонного σ-вектора;
- *   2. гипотеза «проходит», если её расстояние не превышает порог СВОЕГО класса
- *      (у каждого класса свой порог — масштаб расстояний у классов разный);
- *   3. среди прошедших гипотез выбирается класс с минимальным расстоянием;
- *   4. если ни одна гипотеза не прошла свой порог — «фигура не распознана».
+ * гипотезы вычисляется σ-вектор именно той ветки; он сравнивается с
+ * усреднённым эталоном класса.
  *
- * Почему гипотеза каждого класса считается в своей ветке: эталоны класса
- * хранятся обработанными своей веткой (квадраты повёрнуты на широкое основание,
- * треугольники — вершиной вверх и т.д.). Чтобы сравнение было корректным,
- * неизвестную фигуру нужно обработать так же — поэтому она гоняется через
- * каждую ветку и сравнивается с «родным» классом в его системе координат.
+ * Режим подпространств (SUBSPACE) реализован в {@link SubspaceRecognizer}.
  *
  * @author ssv
  */
@@ -62,7 +55,7 @@ public class ShapeRecognizer {
     }
 
     /**
-     * Распознавание по Пути B.
+     * Распознавание по Пути B (σ-векторы).
      *
      * @param hypothesisSignatures σ-вектор тестовой фигуры для каждой гипотезы
      *                             класса (фигура, обработанная веткой этого класса)
@@ -70,14 +63,12 @@ public class ShapeRecognizer {
      * @return результат с найденным классом, его расстоянием и порогом
      */
     public RecognitionResult recognize(Map<ShapeClass, double[]> hypothesisSignatures,
-            Map<ShapeClass, TemplateStore> stores) {
+                                       Map<ShapeClass, TemplateStore> stores) {
 
         ShapeClass bestClass = null;
         double bestDistance = Double.MAX_VALUE;
         double bestThreshold = 0.0;
 
-        // Для информативного лога фиксируем также абсолютный минимум (даже если
-        // он не прошёл порог), чтобы показать пользователю ближайший класс.
         ShapeClass nearestClass = null;
         double nearestDistance = Double.MAX_VALUE;
         double nearestThreshold = 0.0;
@@ -108,10 +99,11 @@ public class ShapeRecognizer {
         }
 
         if (bestClass != null) {
-            return new RecognitionResult(bestClass, bestDistance, bestThreshold, true);
+            return new RecognitionResult(bestClass, bestDistance, bestThreshold, true,
+                    RecognitionMode.SIGMA_VECTOR, null);
         }
-        // Ничего не прошло порог — возвращаем ближайший класс для лога, но recognized=false.
-        return new RecognitionResult(null, nearestDistance, nearestThreshold, false);
+        return new RecognitionResult(null, nearestDistance, nearestThreshold, false,
+                RecognitionMode.SIGMA_VECTOR, null);
     }
 
     /**
@@ -159,39 +151,5 @@ public class ShapeRecognizer {
             sum += d * d;
         }
         return Math.sqrt(sum);
-    }
-
-    /**
-     * Результат распознавания для GUI и служебных сообщений.
-     */
-    public static class RecognitionResult {
-        private final ShapeClass shapeClass;
-        private final double distance;
-        private final double threshold;
-        private final boolean recognized;
-
-        public RecognitionResult(ShapeClass shapeClass, double distance,
-                double threshold, boolean recognized) {
-            this.shapeClass = shapeClass;
-            this.distance = distance;
-            this.threshold = threshold;
-            this.recognized = recognized;
-        }
-
-        public ShapeClass getShapeClass() {
-            return shapeClass;
-        }
-
-        public double getDistance() {
-            return distance;
-        }
-
-        public double getThreshold() {
-            return threshold;
-        }
-
-        public boolean isRecognized() {
-            return recognized;
-        }
     }
 }

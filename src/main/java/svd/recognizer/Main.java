@@ -1,7 +1,6 @@
 package svd.recognizer;
 
 import javax.swing.SwingUtilities;
-import nu.pattern.OpenCV;
 import svd.recognizer.math.CommonsMathSvdEngine;
 import svd.recognizer.math.SvdEngine;
 import svd.recognizer.processing.SVDComputer;
@@ -28,7 +27,7 @@ import svd.recognizer.ui.MainFrame;
  */
 public class Main {
     public static void main(String[] args) {
-        OpenCV.loadLocally();
+        OpenCvLoader.load();
         SvdEngine svdEngine = new CommonsMathSvdEngine();
         SVDComputer svdComputer = new SVDComputer(svdEngine);
         TemplateRepository repository = new TemplateRepository();
