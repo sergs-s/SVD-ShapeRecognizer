@@ -24,7 +24,7 @@
         </dependency>
 
         <!-- OpenCV 4.9.0 с модулями contrib (face — Facemark LBF): org.bytedeco (JavaCPP presets), Java-API org.opencv.*;
-             нативные библиотеки — Windows и Linux (облачная сессия). Решение Хозяина 12.10.2026 (вместо org.openpnp:opencv). -->
+             нативные библиотеки — Windows и Linux (облачная сессия). Решение руководителя проекта 12.10.2026 (вместо org.openpnp:opencv). -->
         <dependency>
             <groupId>org.bytedeco</groupId>
             <artifactId>opencv</artifactId>

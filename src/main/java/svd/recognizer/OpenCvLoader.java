@@ -2,7 +2,7 @@ package svd.recognizer;
 
 /**
  * Загрузка нативной OpenCV (org.bytedeco:opencv 4.9.0-1.5.10, Java-API org.opencv.* с модулями contrib, в том числе face —
- * Facemark LBF; решение Хозяина 12.10.2026 о переходе с org.openpnp:opencv). Повторный вызов ничего не делает.
+ * Facemark LBF; решение руководителя проекта 12.10.2026 о переходе с org.openpnp:opencv). Повторный вызов ничего не делает.
  *
  * @author ssv
  */
